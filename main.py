@@ -4,14 +4,15 @@ from astrbot.api import logger
 from astrbot.core.provider.entities import ProviderRequest
 import re
 
-@register("astrbot_plugin_portrait", "ikirito", "Prompt注入器 (无摄影师人格)", "2.1.0")
+@register("astrbot_plugin_portrait", "ikirito", "Prompt注入器 (无摄影师人格)", "2.1.1")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
 
-        # [单次注入逻辑] 不再需要 max_turns
+        # [单次注入逻辑]
         # 触发正则：检测画图/拍照意图
+        # 只要用户的话里沾边，就立刻注入，确保覆盖到画图工具的调用
         self.trigger_regex = re.compile(
             r"(画|绘|生|造|搞|整|来|P|修|写).{0,10}(图|照|像|片)|"
             r"(拍|自).{0,10}(照|拍)|"
@@ -60,44 +61,16 @@ DO NOT adopt a persona. DO NOT roleplay as a photographer. Continue acting as th
             f"--- END CONTEXT DATA ---"
         )
 
-        # 记录本次请求是否需要注入 (临时状态)
-        self.active_requests = set()
-
-    @filter.llm_tool(name="enter_portrait_mode")
-    async def enter_portrait_mode(self, event: AstrMessageEvent, user_intent: str):
-        """
-        Inject visual context data for image generation.
-        Use this when the user wants to generate an image/photo.
-        Args:
-            user_intent(string): Description of the image to generate.
-        """
-        user_id = event.get_sender_id()
-        # 显式激活，标记该用户本次请求需要注入
-        self.active_requests.add(user_id)
-
-        logger.info(f"[Portrait] Tool Call 激活注入，用户 {user_id}")
-
-        # 返回内容本身包含 Prompt，作为 Tool Result 的双重保险
-        return f"Visual context data injected for intent '{user_intent}'. Please use the following descriptors for image generation:\n\n{self.full_prompt}"
-
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
         user_id = event.get_sender_id()
         msg_text = event.message_str
         should_inject = False
 
-        # 1. 正则判定 (当前意图)
+        # 唯一触发逻辑：正则判定
         if self.trigger_regex.search(msg_text):
             should_inject = True
             logger.info(f"[Portrait] 正则命中，单次注入激活")
-
-        # 2. Tool 判定 (如果刚才 Tool 被调用了，active_requests 会有值)
-        # 注意：Tool 调用是在 LLM Request 之后发生的？不，AstrBot 流程通常是：
-        # Req1 (LLM) -> Tool Exec -> Req2 (LLM with Tool Result)
-        # 所以在 Req2 阶段，我们需要注入。
-        elif user_id in self.active_requests:
-            should_inject = True
-            self.active_requests.discard(user_id) # 消费一次即销毁
 
         if should_inject:
             # 1. System Prompt 注入
