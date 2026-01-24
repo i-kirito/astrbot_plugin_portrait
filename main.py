@@ -118,19 +118,50 @@ class PortraitPlugin(Star):
         # v1.6.0: One-Shot 单次注入策略
         # 仅在检测到绘图意图时注入 Visual Context
 
-        # 获取用户消息内容
+        # 获取用户消息内容 - 多种方式尝试提取
         user_message = ""
-        if hasattr(event, 'message') and event.message:
+
+        # 方式1: 从 req.prompt 获取（最新用户输入）
+        if hasattr(req, 'prompt') and req.prompt:
+            if isinstance(req.prompt, str):
+                user_message = req.prompt
+            elif isinstance(req.prompt, list):
+                # 如果是消息列表，提取最后一条用户消息
+                for msg in reversed(req.prompt):
+                    if isinstance(msg, dict) and msg.get('role') == 'user':
+                        content = msg.get('content', '')
+                        if isinstance(content, str):
+                            user_message = content
+                        break
+
+        # 方式2: 从 event.message 获取
+        if not user_message and hasattr(event, 'message') and event.message:
             if hasattr(event.message, 'message'):
-                # 提取纯文本内容
                 for seg in event.message.message:
                     if hasattr(seg, 'text'):
                         user_message += seg.text
                     elif hasattr(seg, 'data') and isinstance(seg.data, dict):
                         user_message += seg.data.get('text', '')
+            # 尝试直接获取 raw_message
+            if not user_message and hasattr(event.message, 'raw_message'):
+                user_message = event.message.raw_message or ""
+
+        # 方式3: 从 event 直接获取
+        if not user_message and hasattr(event, 'message_str'):
+            user_message = event.message_str or ""
+
+        # 方式4: 从 req.messages 获取最后一条用户消息
+        if not user_message and hasattr(req, 'messages') and req.messages:
+            for msg in reversed(req.messages):
+                if hasattr(msg, 'role') and msg.role == 'user':
+                    if hasattr(msg, 'content'):
+                        user_message = str(msg.content) if msg.content else ""
+                    break
+
+        logger.debug(f"[Portrait] 提取到用户消息: {user_message[:50] if user_message else '(空)'}")
 
         # 正则匹配检测绘图意图
-        if not self.trigger_regex.search(user_message):
+        if not user_message or not self.trigger_regex.search(user_message):
             logger.debug(f"[Portrait] 未检测到绘图意图，跳过注入")
             return
 
@@ -140,4 +171,4 @@ class PortraitPlugin(Star):
             req.system_prompt = ""
         req.system_prompt += injection
 
-        logger.debug(f"[Portrait] Visual Context 已注入 (One-Shot Mode)")
+        logger.info(f"[Portrait] Visual Context 已注入 (One-Shot Mode) - 触发词: {user_message[:30]}...")
