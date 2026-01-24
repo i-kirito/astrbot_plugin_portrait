@@ -5,7 +5,7 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.2.1")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.2.2")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -119,14 +119,44 @@ class PortraitPlugin(Star):
         user_id = event.get_sender_id()
         msg_text = event.message_str
         should_inject = False
+        is_debug = False
 
-        if self.trigger_regex.search(msg_text):
+        # 检查是否为调试模式 (以 # 开头)
+        if msg_text.startswith("#"):
+            is_debug = True
+            # 去除前缀用于正则匹配
+            match_text = msg_text.lstrip("#").strip()
+        else:
+            match_text = msg_text
+
+        if self.trigger_regex.search(match_text):
             should_inject = True
-            logger.info(f"[Portrait] 正则命中，单次注入激活")
+            logger.info(f"[Portrait] 正则命中，单次注入激活 (Debug: {is_debug})")
 
         if should_inject:
-            # 1. System Prompt 注入
+            # 1. 生成完整 Prompt
+            # ... (System Prompt 注入逻辑)
             injection = f"\n\n<portrait_status>\n{self.full_prompt}\n</portrait_status>"
+
+            if is_debug:
+                # 调试模式：拦截请求，直接返回生成的 Prompt 供检查
+                # 我们通过修改 User Message 让 LLM 复述出来，或者直接在日志看到
+                logger.info(f"[Portrait DEBUG] Generated Prompt:\n{self.full_prompt}")
+
+                # 构造一个让 LLM 复述的请求
+                debug_msg = f"【调试模式】插件已成功触发。\n\n生成的 System Prompt 内容如下（请直接输出）：\n\n```\n{self.full_prompt}\n```"
+
+                # 清空原有的 System Prompt 以免干扰 (可选)
+                req.system_prompt = ""
+
+                # 替换消息列表，强制 LLM 输出 Prompt
+                req.messages = [{
+                    "role": "user",
+                    "content": debug_msg
+                }]
+                return
+
+            # 正常模式：注入 System Prompt
             if not req.system_prompt: req.system_prompt = ""
             req.system_prompt += injection
 
