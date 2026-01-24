@@ -184,25 +184,25 @@ class PortraitPlugin(Star):
         hour = datetime.now().hour
         if 5 <= hour < 12:
             greetings = [
-                "早上好～看看我在干什么",
-                "早安～刚起床，给你看看我现在的样子",
-                "早～今天也要元气满满哦"
+                "早上好，发张自拍",
+                "早安，看看穿搭",
+                "早上好，发张照片"
             ]
         elif 12 <= hour < 18:
             greetings = [
-                "下午好～看看我在干嘛",
-                "午安～给你拍张照片",
-                "嗨～来看看我吧"
+                "下午好，发张自拍",
+                "午安，发张照片",
+                "下午好，看看穿搭"
             ]
         else:
             greetings = [
-                "晚安啦～给你看看我现在的样子",
-                "晚上好～睡前来看看我吧",
-                "夜深了～给你拍张照片"
+                "晚上好，发张自拍",
+                "晚安，发张照片",
+                "晚上好，看看穿搭"
             ]
 
         greeting = random.choice(greetings)
-        photo_prompt = f"{greeting}，拍张自拍给你～"
+        photo_prompt = greeting
 
         logger.info(f"[Portrait] 开始执行定时推送，目标数: {len(target_list)}")
 
@@ -369,22 +369,24 @@ class PortraitPlugin(Star):
         hour = datetime.now().hour
         if 5 <= hour < 12:
             greetings = [
-                "早上好～看看我在干什么",
-                "早安～给你看看我现在的样子"
+                "早上好，发张自拍",
+                "早安，看看穿搭",
+                "早上好，发张照片"
             ]
         elif 12 <= hour < 18:
             greetings = [
-                "下午好～看看我在干嘛",
-                "嗨～来看看我吧"
+                "下午好，发张自拍",
+                "午安，发张照片",
+                "下午好，看看穿搭"
             ]
         else:
             greetings = [
-                "晚安啦～给你看看我现在的样子",
-                "晚上好～来看看我吧"
+                "晚上好，发张自拍",
+                "晚安，发张照片",
+                "晚上好，看看穿搭"
             ]
 
-        greeting = random.choice(greetings)
-        photo_prompt = f"{greeting}，拍张自拍给你～"
+        photo_prompt = random.choice(greetings)
 
         # 使用 request_llm 触发完整的 LLM 流程（包括工具调用）
         # Visual Context 会通过 on_llm_request hook 自动注入
