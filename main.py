@@ -5,7 +5,7 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.1.2")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.1.3")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -46,48 +46,42 @@ class PortraitPlugin(Star):
 **[Important] The final prompt MUST be constructed in this order:**
 `[1. Character Visuals] + [2. User's Outfit & Action] + [4. Dynamic Environment & Style] + [6. Camera Parameters]`"""
 
-        self.TPL_CHAR = """## 1. 角色视觉核心 (Character Visuals) & 2. 角色身份卡 (Character Identity Card)
-{content}"""
+        self.TPL_CHAR = """{content}"""
 
         self.TPL_MIDDLE = """## 3. 动态内容处理 (Handling User Input)
 * **穿搭 (Outfit):** 用户未指定时，默认保持简洁风格或根据场景补全。
 * **动作 (Action):** 自然融入用户描述的动作。如果动作/表情与核心设定的“sweet smile”冲突，**以用户要求为准**。"""
 
-        self.TPL_ENV = """## 4. 动态环境与风格 (Dynamic Environment & Style)
-* **Scenario A: 默认情况 (Default)**
-    * *触发:* 默认情况，或用户未指定特定地点时。
-    * *Scene:* **温馨卧室 (Cozy Bedroom)**。
-    * *Prompt:* > **{env_a}**
+        self.TPL_ENV = """## 4. 动态环境与风格 (Dynamic Environment & Style) - [真实光效版]
+**逻辑判断 (Logic Branching):**
+* **Scenario A: 默认情况 (自拍 Mode A / 半身照 Mode C)**
+    * *场景:* **温馨卧室 (Cozy Bedroom)**。
+    * *Prompt Block:*
+    > **{env_a}**
 
-* **Scenario B: 查看穿搭 (Outfit Check)**
-    * *触发:* 当用户要求“看看穿搭”、“全身照”时。
-    * *Scene:* **更衣室 (Dressing Room)**。
-    * *Prompt:* > **{env_b}**
+* **Scenario B: 全身照模式 (Full Body Mode B)**
+    * *场景:* **粉色梦幻更衣室 (Pink Dressing Room)**。
+    * *Prompt Block:*
+    > **{env_b}**
 
-* **Scenario C: 行程与动态场景 (Itinerary & Dynamic)**
-    * *触发:* 当用户指定了地点（如“去海边”、“在公园”）或根据当前对话行程判断需要改变场景时。
-    * *Action:* {env_c}"""
+* **Scenario C: 户外/特定场景 (User Specified)**
+    * *操作:* {env_c}"""
 
-        self.TPL_CAM = """## 6. 摄影模式切换 (Photo Format Switching)
+        self.TPL_CAM = """## 6. 摄影模式切换 (Photo Format Switching) - [强制重置逻辑]
+**指令:** 检查**当前用户输入 (Current Input)** 中的关键词。**不要**参考历史记录中的摄影模式。
 * **模式 A：自拍 (Selfie Mode)**
-    * *触发:* “自拍”、“selfie”、“拿着手机”、“对镜自拍”。
+    * *触发 (必须在当前句中出现):* “自拍”、“selfie”、“拿着手机”、“对镜自拍”。
     * *Camera Params:* `{cam_a}`
 
 * **模式 B：全身照 (Full Body Shot)**
-    * *触发:* “全身照”、“看看穿搭”、“full body”、”穿搭”。
+    * *触发 (必须在当前句中出现):* “全身照”、“看看穿搭”、“full body”、”穿搭”。
     * *Camera Params:* `{cam_b}`
 
 * **模式 C：默认/半身照 (Default)**
     * *触发:* **当当前输入中没有上述 Mode A 或 Mode B 的关键词时，强制使用此模式。**
     * *Camera Params:* `{cam_c}`"""
 
-        self.TPL_FOOTER = """## 7. 交互行为准则 (Interaction Guidelines)
-1. **视觉锚定:** 无论场景如何变化，核心人物特征（发色、刘海、身材）必须始终如一。
-2. **动态穿搭:** 穿搭应随场景灵活调整，除非用户指定，否则不要刻板地沿用不合适的旧设定。
-3. **独立创作:** 每次生成都是一次全新的创作机会。根据当前语境灵活选择构图（自拍/他拍），确保成品既能服务于对话，也具备作为独立摄影作品分享的高质量感。
-
-## 8. 最终输出指令 (Final Output Instruction)
-**[CRITICAL]** 当调用绘图工具时，请务必将上述 Visuals + Identity + Environment + Camera 的所有设定，**合并**为一段完整的、连贯的英文 Prompt 字符串填入工具参数中。不要遗漏任何视觉细节。"""
+        self.TPL_FOOTER = """---"""
 
         # 读取用户配置
         p_char_id = self.config.get("char_identity") or self.DEF_CHAR_IDENTITY

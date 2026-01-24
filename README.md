@@ -54,6 +54,9 @@
 
 ## 🛠️ 版本日志
 
+### v1.1.3
+*   [Refactor] **Prompt结构重构**：完全按照用户指定的 v3.7 格式重写了 System Prompt 模板，包含精准的 `Logic Branching` 和 `Format Switching` 指令，移除冗余的尾部指令，确保注入内容与预期完全一致。
+
 ### v1.1.2
 *   [Improvement] **Prompt合并指令**：在 System Prompt 尾部新增了明确的 "Final Output Instruction"，强制要求 LLM 将所有视觉设定合并为完整的 Prompt 传递给画图工具，提高工具调用的精准度。
 
