@@ -3,7 +3,7 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.core.provider.entities import ProviderRequest
 
-@register("astrbot_plugin_portrait", "ikirito", "摄影师人格注入插件", "1.6.0")
+@register("astrbot_plugin_portrait", "ikirito", "摄影师人格注入插件", "1.1.0")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
