@@ -52,8 +52,16 @@
 | **enable_custom_camera** | 是否启用自定义镜头参数 (开关)。 |
 | **cam_selfie** | 自拍镜头参数 (需开启开关)。 |
 | **cam_fullbody** | 全身镜头参数 (需开启开关)。 |
+| **enable_safety_guard** | 安全与质量守卫开关 (默认开启)。 |
+| **negative_content** | 负面提示词内容 (Negative Prompt)。 |
 
 ## 🛠️ 版本日志
+
+### v1.3.0
+*   [Feat] **安全与质量守卫 (Safety Guard)**：新增了 `enable_safety_guard` 开关。
+    *   **功能**：开启后（默认），会自动向 System Prompt 注入一段 `Negative Prompt` 指令。
+    *   **效果**：强制要求 LLM 在生成参数中携带防崩坏（bad anatomy, extra limbs）和防违规（nsfw）的负面提示词，显著减少多肢体、画面崩坏等问题。
+    *   **配置**：支持在后台自定义 `negative_content`。
 
 ### v1.2.4
 *   [Update] **正则库扩充**：进一步丰富了触发关键词库。

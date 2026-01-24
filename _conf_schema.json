@@ -23,6 +23,18 @@
         "hint": "只填写指令。默认值：\nRemove indoor description, use user specified scene, force add `(blurred background), (bokeh), (natural lighting)`.",
         "default": ""
     },
+    "enable_safety_guard": {
+        "type": "bool",
+        "description": "启用安全与质量守卫 (Safety Guard)",
+        "hint": "【开关】\n开启 -> 注入负面提示词 (Negative Prompt) 逻辑，有效防止人物出现多肢体、崩坏或生成不安全内容。\n关闭 -> 不强制注入负面提示。",
+        "default": true
+    },
+    "negative_content": {
+        "type": "text",
+        "description": "负面提示词内容 (Negative Prompt)",
+        "hint": "仅在上方开关开启时生效。默认包含防崩坏、防NSFW通用词。",
+        "default": "(nsfw:2.0), (nude), (worst quality:1.4), (low quality:1.4), (bad anatomy), (bad hands), (text), (error), (missing fingers), (extra digit), (fewer digits), (cropped), (jpeg artifacts), (signature), (watermark), (username), (blurry), (extra limbs), (fused fingers), (too many fingers), (long neck), (mutated hands), (polar lowres)"
+    },
     "enable_custom_camera": {
         "type": "bool",
         "description": "启用/注入摄影模式切换指令",
