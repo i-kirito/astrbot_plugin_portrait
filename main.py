@@ -5,15 +5,13 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "2.2.2")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "2.3.1")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
 
-        # [单次注入逻辑]
-        # 触发正则：检测画图/拍照意图
-        # 只要用户的话里沾边，就立刻注入，确保覆盖到画图工具的调用
+        # [Trigger Regex]
         self.trigger_regex = re.compile(
             r"(画|绘|生|造|搞|整|来|P|修|写).{0,10}(图|照|像|片)|"
             r"(拍|自).{0,10}(照|拍)|"
@@ -23,40 +21,90 @@ class PortraitPlugin(Star):
             re.IGNORECASE
         )
 
-        # === 配置读取 (Fallback to default) ===
-        # 简化版: 纯文本拼接
-        self.DEF_CHAR_IDENTITY = """The subject is a young 18-year-old Asian girl with fair skin and delicate features.
-She has dusty rose pink hair featuring essential wispy air bangs.
-Her large, round, doll-like eyes are deep-set and natural dark brown.
-She possesses a slender hourglass figure with a tiny waist and a full bust."""
+        # === 默认内容 (Content Only) ===
+        self.DEF_CHAR_IDENTITY = """> The subject is a young 18-year-old Asian girl with fair skin and delicate features. She has dusty rose pink hair featuring essential wispy air bangs. Her large, round, doll-like eyes are deep-set and natural dark brown, looking at the viewer with a sweet, engaging smile. She possesses a slender hourglass figure with a tiny waist and a full bust, emphasizing a natural soft tissue silhouette.
 
-        self.DEF_ENV_DEFAULT = """(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones:1.1), (fairy lights on wall:1.1), bed filled with plushies"""
-        self.DEF_ENV_FULLBODY = """(indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4), (volumetric lighting), (pastel pink and white tones:1.2), cozy, kawaii aesthetic"""
-        self.DEF_ENV_OUTDOOR = """Remove indoor description, use user specified scene, force add `(blurred background), (bokeh), (natural lighting)`."""
+* **面部与神态:** 18岁，娃娃般的大圆眼（深棕色），默认甜美微笑。
+* **头发特征:** 粉棕色发色。**必须保留轻薄的空气刘海 (essential wispy air bangs)**。这里散发只能在睡前以及睡醒两个阶段才能生成，其余时间为高马尾或者双马尾。
+* **身体特征:** 纤细沙漏型身材，极细腰，丰满胸部，强调自然质感。"""
 
-        self.DEF_CAM_SELFIE = """(mirror selfie style:1.2), holding phone, looking at phone screen or mirror, (realistic screen light reflection on face), cute pose, close-up POV shot"""
-        self.DEF_CAM_FULLBODY = """full body shot, showing entire figure from head to toe, wide angle lens, far shot, (relaxed fashion pose:1.3), (shifting weight onto one leg)"""
-        self.DEF_CAM_DEFAULT = """upper body shot, medium close-up portrait, looking at camera, (dynamic random pose:1.2), candid portrait, (detailed skin pores), (film grain:1.1)"""
+        self.DEF_ENV_A = """(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones:1.1), (fairy lights on wall:1.1), bed filled with plushies, (shelves with anime figures:1.2), gaming setup background, cozy atmosphere, clear background details, (raw photo:1.2), (authentic skin texture:1.2), photorealistic"""
 
-        # 读取用户配置
+        self.DEF_ENV_B = """(indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4), (volumetric lighting), (shadows casting on floor:1.2), (white vanity table with large mirror), (pink fluffy stool), (white shelves filled with plush toys and pink accessories), (pink clothing rack with dresses), (pink utility cart), (pink curtains), (pink fluffy rugs), (pastel pink and white tones:1.2), cozy, kawaii aesthetic, (reflection in vanity mirror is blurred and indistinct:1.5), (focus away from reflection), (raw photo:1.2), (realistic texture:1.3), photorealistic"""
+
+        self.DEF_ENV_C = """Remove indoor description, use user specified scene, force add `(blurred background), (bokeh), (natural lighting)`."""
+
+        self.DEF_CAM_A = """, (mirror selfie style:1.2), holding phone, looking at phone screen or mirror, (realistic screen light reflection on face), cute pose, close-up POV shot, (phone camera noise:1.1)"""
+
+        self.DEF_CAM_B = """, full body shot, showing entire figure from head to toe, wide angle lens, far shot, (relaxed fashion pose:1.3), (shifting weight onto one leg), (casual stance), (slightly turned body), (one hand in pocket or touching hair), (natural movement snapshot), candid fashion photography, no phone, legs visible, shoes visible, (sharp focus on real person:1.4), (high dynamic range)"""
+
+        self.DEF_CAM_C = """, upper body shot, medium close-up portrait, looking at camera, (dynamic random pose:1.2), (playful gestures:1.1), (expressive face), candid portrait, no phone, (detailed skin pores), (film grain:1.1)"""
+
+        # === 模板结构 (Template Structure / Trigger Forms) ===
+        # 这里定义了不可变的逻辑结构，用户只配置填充的变量
+
+        self.TPL_HEADER = """# 图像生成核心系统指令 (Optimized Core System Instructions) v3.7
+## 0. 提示词构建逻辑 (Prompt Construction Logic)
+**[Important] The final prompt MUST be constructed in this order:**
+`[1. Character Visuals] + [2. User's Outfit & Action] + [4. Dynamic Environment & Style] + [6. Camera Parameters]`"""
+
+        self.TPL_CHAR = """## 1. 角色视觉核心 (Character Visuals) & 2. 角色身份卡 (Character Identity Card)
+{content}"""
+
+        self.TPL_MIDDLE = """## 3. 动态内容处理 (Handling User Input)
+* **穿搭 (Outfit):** 用户未指定时，默认保持简洁风格或根据场景补全。
+* **动作 (Action):** 自然融入用户描述的动作。如果动作/表情与核心设定的“sweet smile”冲突，**以用户要求为准**。"""
+
+        self.TPL_ENV = """## 4. 动态环境与风格 (Dynamic Environment & Style)
+* **Scenario A: 默认情况 (自拍 Mode A / 半身照 Mode C)**
+    * *场景:* **温馨卧室 (Cozy Bedroom)**。
+    * *Prompt Block:*
+    > **{env_a}**
+
+* **Scenario B: 全身照模式 (Full Body Mode B)**
+    * *场景:* **粉色梦幻更衣室 (Pink Dressing Room)**。
+    * *Prompt Block:*
+    > **{env_b}**
+
+* **Scenario C: 户外/特定场景 (User Specified)**
+    * *操作:* {env_c}"""
+
+        self.TPL_CAM = """## 6. 摄影模式切换 (Photo Format Switching)
+* **模式 A：自拍 (Selfie Mode)**
+    * *触发:* “自拍”、“selfie”、“拿着手机”、“对镜自拍”。
+    * *Camera Params:* `{cam_a}`
+
+* **模式 B：全身照 (Full Body Shot)**
+    * *触发:* “全身照”、“看看穿搭”、“full body”、”穿搭”。
+    * *Camera Params:* `{cam_b}`
+
+* **模式 C：默认/半身照 (Default)**
+    * *触发:* **当当前输入中没有上述 Mode A 或 Mode B 的关键词时，强制使用此模式。**
+    * *Camera Params:* `{cam_c}`"""
+
+        self.TPL_FOOTER = """## 7. 交互行为准则 (Interaction Guidelines)
+1. **穿搭一致性:** 优先沿用上下文中已确定的服装设定。
+2. **特征校验:** 确保包含刘海、发色和核心身材描述。
+3. **模式不继承 (Mode Reset):** 摄影模式（自拍/全身/半身）**不具备记忆性**。每一次生成请求都视为一次新的拍摄。"""
+
+        # 读取用户配置 (仅内容)
         p_char_id = self.config.get("char_identity") or self.DEF_CHAR_IDENTITY
-        p_env_def = self.config.get("env_default") or self.DEF_ENV_DEFAULT
-        p_env_full = self.config.get("env_fullbody") or self.DEF_ENV_FULLBODY
-        p_env_out = self.config.get("env_outdoor") or self.DEF_ENV_OUTDOOR
-        p_cam_selfie = self.config.get("cam_selfie") or self.DEF_CAM_SELFIE
-        p_cam_full = self.config.get("cam_fullbody") or self.DEF_CAM_FULLBODY
-        p_cam_def = self.DEF_CAM_DEFAULT
+        p_env_a = self.config.get("env_default") or self.DEF_ENV_A
+        p_env_b = self.config.get("env_fullbody") or self.DEF_ENV_B
+        p_env_c = self.config.get("env_outdoor") or self.DEF_ENV_C
+        p_cam_a = self.config.get("cam_selfie") or self.DEF_CAM_A
+        p_cam_b = self.config.get("cam_fullbody") or self.DEF_CAM_B
+        # cam_default 暂时不暴露配置，直接使用硬编码默认值，因为 schema 里没有
+        p_cam_c = self.DEF_CAM_C
 
-        # === 核心 Prompt 构建 ===
-        self.header_logic = """# 人物特征生成图像增强指令
-IMPORTANT: The following data provides visual descriptors for the current character.
-**IF and ONLY IF** you are generating an image or calling an image generation tool, you MUST include these visual descriptors in your prompt parameter."""
-
+        # === 核心 Prompt 组装 ===
         self.full_prompt = (
-            f"{self.header_logic}\n\n"
-            f"{p_char_id}\n\n"
-            f"{p_env_def}\n{p_env_full}\n{p_env_out}\n\n"
-            f"{p_cam_selfie}\n{p_cam_full}\n{p_cam_def}\n\n"
+            f"{self.TPL_HEADER}\n\n"
+            f"{self.TPL_CHAR.format(content=p_char_id)}\n\n"
+            f"{self.TPL_MIDDLE}\n\n"
+            f"{self.TPL_ENV.format(env_a=p_env_a, env_b=p_env_b, env_c=p_env_c)}\n\n"
+            f"{self.TPL_CAM.format(cam_a=p_cam_a, cam_b=p_cam_b, cam_c=p_cam_c)}\n\n"
+            f"{self.TPL_FOOTER}\n\n"
             f"--- END CONTEXT DATA ---"
         )
 
@@ -66,7 +114,6 @@ IMPORTANT: The following data provides visual descriptors for the current charac
         msg_text = event.message_str
         should_inject = False
 
-        # 唯一触发逻辑：正则判定
         if self.trigger_regex.search(msg_text):
             should_inject = True
             logger.info(f"[Portrait] 正则命中，单次注入激活")
@@ -77,12 +124,9 @@ IMPORTANT: The following data provides visual descriptors for the current charac
             if not req.system_prompt: req.system_prompt = ""
             req.system_prompt += injection
 
-            # 2. User Message 注入 (尝试性)
+            # 2. User Message 注入
             if hasattr(req, "messages") and req.messages and len(req.messages) > 0:
-                # 构建新的消息列表，避免修改原始列表引用
                 new_messages = list(req.messages)
-
-                # deepcopy 最后一条消息，防止修改原始对象
                 last_msg = copy.deepcopy(new_messages[-1])
 
                 if last_msg.role == "user":
@@ -94,11 +138,7 @@ IMPORTANT: The following data provides visual descriptors for the current charac
                             if isinstance(item, dict) and item.get("type") == "text":
                                 item["text"] += suffix
                                 break
-
-                    # 更新新列表中的最后一条消息
                     new_messages[-1] = last_msg
-
-                    # 将 request 的 messages 指向新列表
                     req.messages = new_messages
             else:
                 logger.debug(f"[Portrait] ProviderRequest 无 messages 属性，跳过 User Message 注入")

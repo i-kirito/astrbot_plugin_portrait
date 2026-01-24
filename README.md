@@ -52,6 +52,17 @@
 
 ## 🛠️ 开发日志
 
+### v2.3.1
+*   [Refactor] **逻辑与内容分离**：重构了代码结构，将 Prompt 的逻辑框架 (Template) 硬编码在插件中，配置文件仅需填写具体的描述内容 (Content)，避免用户配置时不小心破坏指令结构。
+*   [UI] **配置项精简**：配置界面现在更加清爽，只暴露必要的文本输入框。
+
+### v2.3.0
+*   [Feature] **核心Prompt升级 v3.7**：
+    *   引入 **[Optimized Core System Instructions]**，大幅增强画图指令的逻辑性和层级。
+    *   明确了 Visuals -> Identity -> Environment -> Camera 的构建顺序。
+    *   新增 **Mode Reset (模式不继承)** 机制，强制每次请求重置摄影模式，防止“自拍”设定意外残留。
+    *   优化了光影和材质的默认描述符 (Photorealistic, Volumetric Lighting)。
+
 ### v2.2.2
 *   [Fix] **Prompt修正**：回滚了尾部提示词，移除了“无需主动提及”的负面提示，解决了导致画图工具无法识别 Context 的问题。
 

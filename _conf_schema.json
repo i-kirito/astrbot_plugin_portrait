@@ -13,38 +13,38 @@
     },
     "char_identity": {
         "type": "text",
-        "description": "人物身份特征 (Identity)",
-        "hint": "留空则使用默认值。参考模板：\n\nThe subject is a young 18-year-old Asian girl with fair skin and delicate features.\nShe has dusty rose pink hair featuring essential wispy air bangs.\nHer large, round, doll-like eyes are deep-set and natural dark brown.\nShe possesses a slender hourglass figure with a tiny waist and a full bust.",
+        "description": "人物设定 (Content Only)",
+        "hint": "只填写描述内容，无需Markdown标题。默认值：\n> The subject is a young 18-year-old Asian girl...\n\n* **面部:** 18岁，娃娃脸...\n* **头发:** 粉棕色...",
         "default": ""
     },
     "env_default": {
         "type": "text",
-        "description": "默认环境 Prompt (卧室/自拍)",
-        "hint": "留空则使用默认值。参考模板：\n\n(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones:1.1), (fairy lights on wall:1.1), bed filled with plushies",
+        "description": "环境 A: 卧室 (Prompt Block Only)",
+        "hint": "只填写Prompt标签。默认值：\n(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3)...",
         "default": ""
     },
     "env_fullbody": {
         "type": "text",
-        "description": "全身环境 Prompt (更衣室)",
-        "hint": "留空则使用默认值。参考模板：\n\n(indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4), (volumetric lighting), (pastel pink and white tones:1.2), cozy, kawaii aesthetic",
+        "description": "环境 B: 更衣室 (Prompt Block Only)",
+        "hint": "只填写Prompt标签。默认值：\n(indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4)...",
         "default": ""
     },
     "env_outdoor": {
         "type": "text",
-        "description": "户外/通用 Prompt Logic",
-        "hint": "留空则使用默认值。参考模板：\n\nRemove indoor description, use user specified scene, force add `(blurred background), (bokeh), (natural lighting)`.",
+        "description": "环境 C: 户外 (Instruction Only)",
+        "hint": "只填写指令。默认值：\nRemove indoor description, use user specified scene, force add `(blurred background), (bokeh), (natural lighting)`.",
         "default": ""
     },
     "cam_selfie": {
         "type": "text",
-        "description": "自拍镜头参数 (Mode A)",
-        "hint": "留空则使用默认值。参考模板：\n\n(mirror selfie style:1.2), holding phone, looking at phone screen or mirror, (realistic screen light reflection on face), cute pose, close-up POV shot",
+        "description": "镜头 A: 自拍 (Params Only)",
+        "hint": "只填写镜头参数。默认值：\n, (mirror selfie style:1.2), holding phone, looking at phone screen or mirror...",
         "default": ""
     },
     "cam_fullbody": {
         "type": "text",
-        "description": "全身镜头参数 (Mode B)",
-        "hint": "留空则使用默认值。参考模板：\n\nfull body shot, showing entire figure from head to toe, wide angle lens, far shot, (relaxed fashion pose:1.3), (shifting weight onto one leg)",
+        "description": "镜头 B: 全身 (Params Only)",
+        "hint": "只填写镜头参数。默认值：\n, full body shot, showing entire figure from head to toe, wide angle lens...",
         "default": ""
     }
 }
