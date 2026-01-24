@@ -27,7 +27,7 @@
         "type": "bool",
         "description": "启用安全与质量守卫 (Safety Guard)",
         "hint": "【开关】\n开启 -> 注入负面提示词 (Negative Prompt) 逻辑，有效防止人物出现多肢体、崩坏或生成不安全内容。\n关闭 -> 不强制注入负面提示。",
-        "default": true
+        "default": false
     },
     "negative_content": {
         "type": "text",
@@ -39,7 +39,7 @@
         "type": "bool",
         "description": "启用/注入摄影模式切换指令",
         "hint": "【开关】\n开启 -> 向系统注入“摄影模式切换”逻辑 (包含自拍/全身/默认)，并使用下方参数。\n关闭 -> 不注入任何摄影模式指令，完全由模型自由发挥构图。",
-        "default": false
+        "default": true
     },
     "cam_selfie": {
         "type": "text",

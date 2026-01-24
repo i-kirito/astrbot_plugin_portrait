@@ -5,26 +5,16 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.3.1")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.4.0")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
 
-        # [Trigger Regex]
-        # 涵盖：画图、拍照、自拍、OOTD、看看/长啥样/在干嘛等日常询问
-        self.trigger_regex = re.compile(
-            r"(画|绘|生|造|搞|整|来|P|修|写|发|给|爆|传|po).{0,10}(图|照|像|片)|"
-            r"(拍|自).{0,10}(照|拍)|"
-            r"(看|查|秀|显|露|瞧|康|瞅|望|赏).{0,10}(穿搭|造型|样子|OOTD|脸|你|我|私|照骗|福利|美图)|"
-            r"(美|帅|私)照|摄影|留念|记录.{0,10}(画面|瞬间)|"
-            r"(长|长得).{0,5}(啥|什么)样|"
-            r"(在|干).{0,5}(干|做|忙).{0,5}(嘛|什么|啥)|"
-            r"(给|让).{0,5}(我|).{0,5}(看|瞧|瞅|康|赏).{0,5}(看|一下|下)|"
-            r"(再|又).{0,5}(拍|发|来|整|画).{0,5}(一张|1张|一个|1个)|" # 再拍一张/再来一个
-            r"(photo|pic|image|draw|generate|capture|portrait|selfie|outfit)",
-            re.IGNORECASE
-        )
+        # [Regex Removed]
+        # v1.4.0: 移除正则匹配，改为 Always-On 注入策略
+        # 让 LLM 自身根据语境判断是否需要调用视觉设定，实现真正的自然语言支持
+        self.trigger_regex = None
 
         # === 默认内容 (Content Only) ===
         self.DEF_CHAR_IDENTITY = """> **The subject is a young 18-year-old Asian girl with fair skin and delicate features. She has dusty rose pink hair featuring essential wispy air bangs. Her large, round, doll-like eyes are deep-set and natural dark brown. She possesses a slender hourglass figure with a tiny waist and a full bust, emphasizing a natural soft tissue silhouette.**"""
@@ -118,37 +108,17 @@ class PortraitPlugin(Star):
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
-        user_id = event.get_sender_id()
-        msg_text = event.message_str
-        should_inject = False
+        # v1.4.0: Always-On 策略
+        # 不再检测关键词，直接将 Visual Context 注入系统提示词
+        # 依赖 LLM 自身的语义理解能力来决定何时调用绘图工具
 
-        if self.trigger_regex.search(msg_text):
-            should_inject = True
-            logger.info(f"[Portrait] 正则命中，单次注入激活")
+        # 1. System Prompt 注入
+        injection = f"\n\n<portrait_status>\n{self.full_prompt}\n</portrait_status>"
+        if not req.system_prompt: req.system_prompt = ""
+        req.system_prompt += injection
 
-        if should_inject:
-            # 1. System Prompt 注入
-            injection = f"\n\n<portrait_status>\n{self.full_prompt}\n</portrait_status>"
-            if not req.system_prompt: req.system_prompt = ""
-            req.system_prompt += injection
+        # 2. 移除 User Message 注入
+        # 为了不干扰日常对话并节省 Token，不再向用户消息追加 (System Note...)
+        # 现代 LLM (GPT-4/Claude-3.5) 仅凭 System Prompt 即可很好地遵循指令
 
-            # 2. User Message 注入
-            if hasattr(req, "messages") and req.messages and len(req.messages) > 0:
-                new_messages = list(req.messages)
-                last_msg = copy.deepcopy(new_messages[-1])
-
-                if last_msg.role == "user":
-                    suffix = "\n\n(System Note: When generating images, you MUST strictly adhere to the <portrait_status> descriptors provided above for character appearance and style.)"
-                    if isinstance(last_msg.content, str):
-                        last_msg.content += suffix
-                    elif isinstance(last_msg.content, list):
-                        for item in last_msg.content:
-                            if isinstance(item, dict) and item.get("type") == "text":
-                                item["text"] += suffix
-                                break
-                    new_messages[-1] = last_msg
-                    req.messages = new_messages
-            else:
-                logger.debug(f"[Portrait] ProviderRequest 无 messages 属性，跳过 User Message 注入")
-
-            logger.debug(f"[LLM] Visual Prompt 已单次注入")
+        logger.debug(f"[Portrait] Visual Context 已注入 (Always-On Mode)")
