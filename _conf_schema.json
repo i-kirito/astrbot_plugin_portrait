@@ -5,35 +5,29 @@
         "hint": "【必填】请在此处填写角色的外貌描述。",
         "default": ""
     },
+    "enable_custom_env": {
+        "type": "bool",
+        "description": "启用/注入环境场景切换指令",
+        "hint": "【开关】\n开启 -> 向系统注入“环境场景切换”逻辑 (包含卧室/更衣室/户外)，并使用下方参数。\n关闭 -> 不注入任何环境指令，完全由模型自由发挥场景。",
+        "default": true
+    },
     "env_default": {
         "type": "text",
-        "description": "环境 A: 卧室 (Prompt Block Only)",
+        "description": "环境 A: 卧室 (需开启上方开关)",
         "hint": "只填写Prompt标签。默认值：\n(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3)...",
         "default": ""
     },
     "env_fullbody": {
         "type": "text",
-        "description": "环境 B: 更衣室 (Prompt Block Only)",
+        "description": "环境 B: 更衣室 (需开启上方开关)",
         "hint": "只填写Prompt标签。默认值：\n(indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4)...",
         "default": ""
     },
     "env_outdoor": {
         "type": "text",
-        "description": "环境 C: 户外 (Instruction Only)",
+        "description": "环境 C: 户外 (需开启上方开关)",
         "hint": "只填写指令。默认值：\nAnalyze the user's request (e.g., \"in the park\", \"at the beach\") or the current chat context/itinerary. Generate a scene description that matches the requested location. Force add: `(blurred background), (bokeh), (natural lighting)`.",
         "default": ""
-    },
-    "enable_safety_guard": {
-        "type": "bool",
-        "description": "启用安全与质量守卫 (Safety Guard)",
-        "hint": "【开关】\n开启 -> 注入负面提示词 (Negative Prompt) 逻辑，有效防止人物出现多肢体、崩坏或生成不安全内容。\n关闭 -> 不强制注入负面提示。",
-        "default": false
-    },
-    "negative_content": {
-        "type": "text",
-        "description": "负面提示词内容 (Negative Prompt)",
-        "hint": "仅在上方开关开启时生效。默认包含防崩坏、防NSFW通用词。",
-        "default": "(nsfw:2.0), (nude), (worst quality:1.4), (low quality:1.4), (bad anatomy), (bad hands), (text), (error), (missing fingers), (extra digit), (fewer digits), (cropped), (jpeg artifacts), (signature), (watermark), (username), (blurry), (extra limbs), (fused fingers), (too many fingers), (long neck), (mutated hands), (polar lowres)"
     },
     "enable_custom_camera": {
         "type": "bool",
