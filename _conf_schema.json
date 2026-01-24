@@ -8,7 +8,7 @@
     "enable_custom_env": {
         "type": "bool",
         "description": "启用/注入环境场景切换指令",
-        "hint": "【开关】\n开启 -> 向系统注入"环境场景切换"逻辑 (包含卧室/更衣室/户外)，并使用下方参数。\n关闭 -> 不注入任何环境指令，完全由模型自由发挥场景。",
+        "hint": "【开关】\n开启 -> 向系统注入「环境场景切换」逻辑 (包含卧室/更衣室/户外)，并使用下方参数。\n关闭 -> 不注入任何环境指令，完全由模型自由发挥场景。",
         "default": true
     },
     "env_default": {
@@ -26,13 +26,13 @@
     "env_outdoor": {
         "type": "text",
         "description": "环境 C: 户外 (需开启上方开关)",
-        "hint": "只填写指令。默认值：\nAnalyze the user's request (e.g., \"in the park\", \"at the beach\") or the current chat context/itinerary. Generate a scene description that matches the requested location. Force add: `(blurred background), (bokeh), (natural lighting)`.",
+        "hint": "只填写指令。默认值：\nAnalyze the user's request (e.g., 'in the park', 'at the beach') or the current chat context/itinerary. Generate a scene description that matches the requested location. Force add: (blurred background), (bokeh), (natural lighting).",
         "default": ""
     },
     "enable_custom_camera": {
         "type": "bool",
         "description": "启用/注入摄影模式切换指令",
-        "hint": "【开关】\n开启 -> 向系统注入"摄影模式切换"逻辑 (包含自拍/全身/默认)，并使用下方参数。\n关闭 -> 不注入任何摄影模式指令，完全由模型自由发挥构图。",
+        "hint": "【开关】\n开启 -> 向系统注入「摄影模式切换」逻辑 (包含自拍/全身/默认)，并使用下方参数。\n关闭 -> 不注入任何摄影模式指令，完全由模型自由发挥构图。",
         "default": true
     },
     "cam_selfie": {
