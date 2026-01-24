@@ -25,7 +25,7 @@ class PortraitPlugin(Star):
         # === 默认内容 (Content Only) ===
         self.DEF_CHAR_IDENTITY = """> **The subject is a young 18-year-old Asian girl with fair skin and delicate features. She has dusty rose pink hair featuring essential wispy air bangs. Her large, round, doll-like eyes are deep-set and natural dark brown. She possesses a slender hourglass figure with a tiny waist and a full bust, emphasizing a natural soft tissue silhouette.**"""
 
-        self.DEF_ENV_A = """(cute bedroom:1.3), (kawaii style:1.2), (natural window light:1.3), (warm indoor lamps), (pastel pink tones:1.2), fairy lights, plushies on bed, anime figures, gaming setup, cozy, (raw photo:1.2), photorealistic"""
+        self.DEF_ENV_A = """(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones:1.1), (fairy lights on wall:1.1), bed filled with plushies, (shelves with anime figures:1.2), gaming setup background, cozy atmosphere, clear background details, (raw photo:1.2), (authentic skin texture:1.2), photorealistic"""
 
         self.DEF_ENV_B = """(pink dressing room:1.4), (bright sunlight through sheer curtains:1.4), volumetric lighting, (white vanity with mirror), pink fluffy decor, clothing rack, (pastel pink and white:1.2), kawaii aesthetic, (mirror reflection blurred:1.5), (raw photo:1.2), photorealistic"""
 
