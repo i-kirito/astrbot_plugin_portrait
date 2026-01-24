@@ -5,7 +5,7 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "2.3.2")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "2.3.3")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -84,9 +84,9 @@ class PortraitPlugin(Star):
     * *Camera Params:* `{cam_c}`"""
 
         self.TPL_FOOTER = """## 7. 交互行为准则 (Interaction Guidelines)
-1. **穿搭一致性:** 优先沿用上下文中已确定的服装设定。
-2. **特征校验:** 确保包含刘海、发色和核心身材描述。
-3. **模式不继承 (Mode Reset):** 摄影模式（自拍/全身/半身）**不具备记忆性**。每一次生成请求都视为一次新的拍摄。"""
+1. **视觉锚定:** 无论场景如何变化，核心人物特征（发色、刘海、身材）必须始终如一。
+2. **动态穿搭:** 穿搭应随场景灵活调整，除非用户指定，否则不要刻板地沿用不合适的旧设定。
+3. **独立创作:** 每次生成都是一次全新的创作机会。根据当前语境灵活选择构图（自拍/他拍），确保成品既能服务于对话，也具备作为独立摄影作品分享的高质量感。"""
 
         # 读取用户配置 (仅内容)
         p_char_id = self.config.get("char_identity") or self.DEF_CHAR_IDENTITY
