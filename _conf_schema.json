@@ -55,9 +55,9 @@
     },
     "proactive_time": {
         "type": "string",
-        "description": "定时推送时间 (HH:MM格式，如 08:00)",
-        "hint": "每日推送时间，24小时制，例如: 08:00 表示每天早上8点",
-        "default": "08:00"
+        "description": "定时推送时间 (支持多个时间，逗号分隔)",
+        "hint": "每日推送时间，24小时制。支持多个时间用逗号分隔，例如: 08:00,22:00 表示每天早上8点和晚上10点",
+        "default": "08:00,22:00"
     },
     "proactive_target_list": {
         "type": "list",

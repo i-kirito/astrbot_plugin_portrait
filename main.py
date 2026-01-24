@@ -148,16 +148,24 @@ class PortraitPlugin(Star):
         try:
             self.scheduler = AsyncIOScheduler()
 
-            # 获取推送时间 (默认 08:00)
-            push_time = self.config.get("proactive_time", "08:00")
-            hour, minute = push_time.split(":")
+            # 获取推送时间 (支持多个时间，逗号分隔)
+            push_times = self.config.get("proactive_time", "08:00,22:00")
+            time_list = [t.strip() for t in push_times.split(",") if t.strip()]
 
-            self.scheduler.add_job(
-                self._send_proactive_photo,
-                CronTrigger(hour=int(hour), minute=int(minute)),
-                id="proactive_push"
-            )
-            logger.info(f"[Portrait] 已启动定时推送任务，时间: {push_time}，目标数: {len(target_list)}")
+            for idx, time_str in enumerate(time_list):
+                try:
+                    hour, minute = time_str.split(":")
+                    self.scheduler.add_job(
+                        self._send_proactive_photo,
+                        CronTrigger(hour=int(hour), minute=int(minute)),
+                        id=f"proactive_push_{idx}"
+                    )
+                    logger.info(f"[Portrait] 已添加定时推送任务 #{idx+1}，时间: {time_str}")
+                except ValueError:
+                    logger.warning(f"[Portrait] 时间格式错误，跳过: {time_str}")
+
+            if time_list:
+                logger.info(f"[Portrait] 定时推送已启动，共 {len(time_list)} 个时间点，目标数: {len(target_list)}")
 
             self.scheduler.start()
 
