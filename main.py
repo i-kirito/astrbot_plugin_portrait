@@ -5,7 +5,7 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.2.2")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.2.4")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -14,12 +14,13 @@ class PortraitPlugin(Star):
         # [Trigger Regex]
         # 涵盖：画图、拍照、自拍、OOTD、看看/长啥样/在干嘛等日常询问
         self.trigger_regex = re.compile(
-            r"(画|绘|生|造|搞|整|来|P|修|写|发|给|爆).{0,10}(图|照|像|片)|"
+            r"(画|绘|生|造|搞|整|来|P|修|写|发|给|爆|传|po).{0,10}(图|照|像|片)|"
             r"(拍|自).{0,10}(照|拍)|"
-            r"(看|查|秀|显|露|瞧|康).{0,10}(穿搭|造型|样子|OOTD|脸|你|我|私)|"
+            r"(看|查|秀|显|露|瞧|康|瞅|望|赏).{0,10}(穿搭|造型|样子|OOTD|脸|你|我|私|照骗|福利|美图)|"
             r"(美|帅|私)照|摄影|留念|记录.{0,10}(画面|瞬间)|"
             r"(长|长得).{0,5}(啥|什么)样|"
             r"(在|干).{0,5}(干|做|忙).{0,5}(嘛|什么|啥)|"
+            r"(给|让).{0,5}(我|).{0,5}(看|瞧|瞅|康|赏).{0,5}(看|一下|下)|" # 给我看看/让我康康
             r"(photo|pic|image|draw|generate|capture|portrait|selfie|outfit)",
             re.IGNORECASE
         )
@@ -119,44 +120,14 @@ class PortraitPlugin(Star):
         user_id = event.get_sender_id()
         msg_text = event.message_str
         should_inject = False
-        is_debug = False
 
-        # 检查是否为调试模式 (以 # 开头)
-        if msg_text.startswith("#"):
-            is_debug = True
-            # 去除前缀用于正则匹配
-            match_text = msg_text.lstrip("#").strip()
-        else:
-            match_text = msg_text
-
-        if self.trigger_regex.search(match_text):
+        if self.trigger_regex.search(msg_text):
             should_inject = True
-            logger.info(f"[Portrait] 正则命中，单次注入激活 (Debug: {is_debug})")
+            logger.info(f"[Portrait] 正则命中，单次注入激活")
 
         if should_inject:
-            # 1. 生成完整 Prompt
-            # ... (System Prompt 注入逻辑)
+            # 1. System Prompt 注入
             injection = f"\n\n<portrait_status>\n{self.full_prompt}\n</portrait_status>"
-
-            if is_debug:
-                # 调试模式：拦截请求，直接返回生成的 Prompt 供检查
-                # 我们通过修改 User Message 让 LLM 复述出来，或者直接在日志看到
-                logger.info(f"[Portrait DEBUG] Generated Prompt:\n{self.full_prompt}")
-
-                # 构造一个让 LLM 复述的请求
-                debug_msg = f"【调试模式】插件已成功触发。\n\n生成的 System Prompt 内容如下（请直接输出）：\n\n```\n{self.full_prompt}\n```"
-
-                # 清空原有的 System Prompt 以免干扰 (可选)
-                req.system_prompt = ""
-
-                # 替换消息列表，强制 LLM 输出 Prompt
-                req.messages = [{
-                    "role": "user",
-                    "content": debug_msg
-                }]
-                return
-
-            # 正常模式：注入 System Prompt
             if not req.system_prompt: req.system_prompt = ""
             req.system_prompt += injection
 
