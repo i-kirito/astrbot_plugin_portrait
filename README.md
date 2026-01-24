@@ -46,6 +46,13 @@
 
 ## 🛠️ 版本日志
 
+### v1.6.0
+*   [Refactor] **One-Shot 单次注入架构**：
+    *   **恢复正则匹配**：重新引入关键词正则检测机制，仅在检测到绘图意图时注入 Visual Context。
+    *   **节省 Token**：日常对话不再携带视觉设定，显著减少 Token 消耗。
+    *   **移除 Safety Guard**：删除负面提示词注入功能，简化 Prompt 结构，提高 LLM 理解准确率。
+    *   **支持丰富触发词**：画/拍/照/自拍/全身/穿搭/看看/康康/爆照/形象/样子/draw/photo/selfie/picture/ootd 等。
+
 ### v1.5.1
 *   [Fix] **修复变量定义**：修复了 v1.5.0 中遗漏定义 `DEF_NEGATIVE` 和 `TPL_NEGATIVE` 导致插件加载失败的问题。
 

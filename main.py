@@ -5,16 +5,22 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.5.1")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.6.0")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
 
-        # [Regex Removed]
-        # v1.4.0: 移除正则匹配，改为 Always-On 注入策略
-        # 让 LLM 自身根据语境判断是否需要调用视觉设定，实现真正的自然语言支持
-        self.trigger_regex = None
+        # v1.6.0: One-Shot 单次注入策略
+        # 仅在检测到绘图意图时注入 Visual Context，节省 Token 并避免上下文污染
+        self.trigger_regex = re.compile(
+            r'(画|拍|照|自拍|全身|穿搭|看看|康康|瞧瞧|瞅瞅|爆照|形象|样子|'
+            r'draw|photo|selfie|picture|image|shot|snap|'
+            r'给我[看康瞧]|让我[看康瞧]|发[张个一]|来[张个一]|'
+            r'在干[嘛啥什么]|干什么呢|现在.{0,3}样子|'
+            r'ootd|outfit|look|再来一|再拍|再画)',
+            re.IGNORECASE
+        )
 
         # === 默认内容 (Content Only) ===
         self.DEF_CHAR_IDENTITY = """> **The subject is a young 18-year-old Asian girl with fair skin and delicate features. She has dusty rose pink hair featuring essential wispy air bangs. Her large, round, doll-like eyes are deep-set and natural dark brown. She possesses a slender hourglass figure with a tiny waist and a full bust, emphasizing a natural soft tissue silhouette.**"""
@@ -109,17 +115,29 @@ class PortraitPlugin(Star):
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
-        # v1.4.0: Always-On 策略
-        # 不再检测关键词，直接将 Visual Context 注入系统提示词
-        # 依赖 LLM 自身的语义理解能力来决定何时调用绘图工具
+        # v1.6.0: One-Shot 单次注入策略
+        # 仅在检测到绘图意图时注入 Visual Context
 
-        # 1. System Prompt 注入
+        # 获取用户消息内容
+        user_message = ""
+        if hasattr(event, 'message') and event.message:
+            if hasattr(event.message, 'message'):
+                # 提取纯文本内容
+                for seg in event.message.message:
+                    if hasattr(seg, 'text'):
+                        user_message += seg.text
+                    elif hasattr(seg, 'data') and isinstance(seg.data, dict):
+                        user_message += seg.data.get('text', '')
+
+        # 正则匹配检测绘图意图
+        if not self.trigger_regex.search(user_message):
+            logger.debug(f"[Portrait] 未检测到绘图意图，跳过注入")
+            return
+
+        # 检测到绘图意图，执行单次注入
         injection = f"\n\n<portrait_status>\n{self.full_prompt}\n</portrait_status>"
-        if not req.system_prompt: req.system_prompt = ""
+        if not req.system_prompt:
+            req.system_prompt = ""
         req.system_prompt += injection
 
-        # 2. 移除 User Message 注入
-        # 为了不干扰日常对话并节省 Token，不再向用户消息追加 (System Note...)
-        # 现代 LLM (GPT-4/Claude-3.5) 仅凭 System Prompt 即可很好地遵循指令
-
-        logger.debug(f"[Portrait] Visual Context 已注入 (Always-On Mode)")
+        logger.debug(f"[Portrait] Visual Context 已注入 (One-Shot Mode)")
