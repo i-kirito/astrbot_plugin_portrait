@@ -5,7 +5,7 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "Prompt注入器 (无摄影师人格)", "2.2.0")
+@register("astrbot_plugin_portrait", "ikirito", "Prompt注入器 (无摄影师人格)", "2.2.1")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -48,17 +48,16 @@ She possesses a slender hourglass figure with a tiny waist and a full bust."""
         p_cam_def = self.DEF_CAM_DEFAULT
 
         # === 核心 Prompt 构建 ===
-        self.header_logic = """# SYSTEM INJECTION: VISUAL CONTEXT DATA
+        self.header_logic = """# 人物特征生成图像增强指令
 IMPORTANT: The following data provides visual descriptors for the current character.
-**IF and ONLY IF** you are generating an image or calling an image generation tool, you MUST include these visual descriptors in your prompt parameter.
-DO NOT adopt a persona. DO NOT roleplay as a photographer. Continue acting as the default assistant, but ensure generated images match these specs."""
+**IF and ONLY IF** you are generating an image or calling an image generation tool, you MUST include these visual descriptors in your prompt parameter."""
 
         self.full_prompt = (
             f"{self.header_logic}\n\n"
             f"{p_char_id}\n\n"
             f"{p_env_def}\n{p_env_full}\n{p_env_out}\n\n"
             f"{p_cam_selfie}\n{p_cam_full}\n{p_cam_def}\n\n"
-            f"--- END CONTEXT DATA ---"
+            f"--- [上述状态仅供需要时参考，无需主动提及] ---"
         )
 
     @filter.on_llm_request()
@@ -74,7 +73,7 @@ DO NOT adopt a persona. DO NOT roleplay as a photographer. Continue acting as th
 
         if should_inject:
             # 1. System Prompt 注入
-            injection = f"\n\n<visual_context_injection>\n{self.full_prompt}\n</visual_context_injection>"
+            injection = f"\n\n<portrait_status>\n{self.full_prompt}\n</portrait_status>"
             if not req.system_prompt: req.system_prompt = ""
             req.system_prompt += injection
 
@@ -87,7 +86,7 @@ DO NOT adopt a persona. DO NOT roleplay as a photographer. Continue acting as th
                 last_msg = copy.deepcopy(new_messages[-1])
 
                 if last_msg.role == "user":
-                    suffix = "\n\n(System Note: When generating images, you MUST strictly adhere to the <visual_context_injection> descriptors provided above for character appearance and style.)"
+                    suffix = "\n\n(System Note: When generating images, you MUST strictly adhere to the <portrait_status> descriptors provided above for character appearance and style.)"
                     if isinstance(last_msg.content, str):
                         last_msg.content += suffix
                     elif isinstance(last_msg.content, list):

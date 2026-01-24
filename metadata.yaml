@@ -1,5 +1,5 @@
 name: astrbot_plugin_portrait
 desc: AstrBot 视觉上下文注入器 - 画图增强 (Visual Context Injector)
-version: v2.2.0
+version: v2.2.1
 author: ikirito
 repo: https://github.com/i-kirito/astrbot_plugin_portrait

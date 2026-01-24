@@ -52,6 +52,9 @@
 
 ## 🛠️ 开发日志
 
+### v2.2.1
+*   [Update] **Prompt微调**：优化了 System Injection 的头部指令和尾部提示，更改注入标签为 `<portrait_status>`，进一步降低对日常对话的干扰。
+
 ### v2.2.0\n*   [Refactor] **Prompt结构简化**：移除了 `char_visuals` 配置项，将 Prompt 简化为纯文本拼接，去除冗余的标题和 Markdown 符号，降低 Token 消耗并提高 LLM 理解效率。\n*   [UI] **配置优化**：更新了后台配置界面的提示文案，使其更加直观。\n\n### v2.1.2
 *   [Fix] **Context污染修复**：修复了注入的 User Message 后缀永久保留在上下文中的问题。现在使用深拷贝 (deepcopy) 确保只影响当前请求。
 
