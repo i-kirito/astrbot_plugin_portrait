@@ -11,46 +11,40 @@
             "看看穿搭"
         ]
     },
-    "char_visuals": {
-        "type": "text",
-        "description": "【Part 1】Visuals (开头固定描述)",
-        "hint": "留空则使用默认值。参考模板：\n\nThe subject is a young 18-year-old Asian girl with fair skin and delicate features. She has dusty rose pink hair featuring essential wispy air bangs. Her large, round, doll-like eyes are deep-set and natural dark brown, looking at the viewer with a sweet, engaging smile. She possesses a slender hourglass figure with a tiny waist and a full bust, emphasizing a natural soft tissue silhouette.",
-        "default": ""
-    },
     "char_identity": {
         "type": "text",
-        "description": "【Part 2】Identity (身份特征)",
-        "hint": "留空则使用默认值。参考模板：\n\n* **Face & Expression:** 18 years old, doll-like large round eyes (dark brown), default sweet smile.\n\n* **Hair:** Dusty rose pink. **Must keep essential wispy air bangs**. Loose hair only allowed before bed or after waking up; otherwise high ponytail or twin tails.\n\n* **Body:** Slender hourglass figure, tiny waist, full bust, natural soft texture.",
+        "description": "人物身份特征 (Identity)",
+        "hint": "留空则使用默认值。参考模板：\n\nThe subject is a young 18-year-old Asian girl with fair skin and delicate features.\nShe has dusty rose pink hair featuring essential wispy air bangs.\nHer large, round, doll-like eyes are deep-set and natural dark brown.\nShe possesses a slender hourglass figure with a tiny waist and a full bust.",
         "default": ""
     },
     "env_default": {
         "type": "text",
-        "description": "【Part 4】Env A: 卧室/自拍场景",
-        "hint": "留空则使用默认值。参考模板：\n\n* **Scenario A: Default (Selfie Mode A / Half Body Mode C)**\n    * *Scene:* **Cozy Bedroom**.\n    * *Prompt Block:*\n    > **(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones:1.1), (fairy lights on wall:1.1), bed filled with plushies, (shelves with anime figures:1.2), gaming setup background, cozy atmosphere, clear background details, (raw photo:1.2), (authentic skin texture:1.2), photorealistic**",
+        "description": "默认环境 Prompt (卧室/自拍)",
+        "hint": "留空则使用默认值。参考模板：\n\n(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones:1.1), (fairy lights on wall:1.1), bed filled with plushies",
         "default": ""
     },
     "env_fullbody": {
         "type": "text",
-        "description": "【Part 4】Env B: 更衣室/全身场景",
-        "hint": "留空则使用默认值。参考模板：\n\n* **Scenario B: Full Body Mode B**\n    * *Scene:* **Pink Dressing Room**.\n    * *Prompt Block:*\n    > **(indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4), (volumetric lighting), (shadows casting on floor:1.2), (white vanity table with large mirror), (pink fluffy stool), (white shelves filled with plush toys and pink accessories), (pink clothing rack with dresses), (pink utility cart), (pink curtains), (pink fluffy rugs), (pastel pink and white tones:1.2), cozy, kawaii aesthetic, (reflection in vanity mirror is blurred and indistinct:1.5), (focus away from reflection), (raw photo:1.2), (realistic texture:1.3), photorealistic**",
+        "description": "全身环境 Prompt (更衣室)",
+        "hint": "留空则使用默认值。参考模板：\n\n(indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4), (volumetric lighting), (pastel pink and white tones:1.2), cozy, kawaii aesthetic",
         "default": ""
     },
     "env_outdoor": {
         "type": "text",
-        "description": "【Part 4】Env C: 户外/通用逻辑",
-        "hint": "留空则使用默认值。参考模板：\n\n* **Scenario C: Outdoor/Specific (User Specified)**\n    * *Action:* Remove indoor description, use user specified scene, force add `(blurred background), (bokeh), (natural lighting)`.",
+        "description": "户外/通用 Prompt Logic",
+        "hint": "留空则使用默认值。参考模板：\n\nRemove indoor description, use user specified scene, force add `(blurred background), (bokeh), (natural lighting)`.",
         "default": ""
     },
     "cam_selfie": {
         "type": "text",
-        "description": "【Part 6】Mode A: 自拍模式",
-        "hint": "留空则使用默认值。参考模板：\n\n* **Mode A: Selfie Mode**\n    * *Trigger:* “自拍”, “selfie”, “拿着手机”, “对镜自拍”.\n    * *Camera Params:* `, (mirror selfie style:1.2), holding phone, looking at phone screen or mirror, (realistic screen light reflection on face), cute pose, close-up POV shot, (phone camera noise:1.1)`",
+        "description": "自拍镜头参数 (Mode A)",
+        "hint": "留空则使用默认值。参考模板：\n\n(mirror selfie style:1.2), holding phone, looking at phone screen or mirror, (realistic screen light reflection on face), cute pose, close-up POV shot",
         "default": ""
     },
     "cam_fullbody": {
         "type": "text",
-        "description": "【Part 6】Mode B: 全身模式",
-        "hint": "留空则使用默认值。参考模板：\n\n* **Mode B: Full Body Shot**\n    * *Trigger:* “全身照”, “看看穿搭”, “full body”, ”穿搭”.\n    * *Camera Params:* `, full body shot, showing entire figure from head to toe, wide angle lens, far shot, (relaxed fashion pose:1.3), (shifting weight onto one leg), (casual stance), (slightly turned body), (one hand in pocket or touching hair), (natural movement snapshot), candid fashion photography, no phone, legs visible, shoes visible, (sharp focus on real person:1.4), (high dynamic range)`",
+        "description": "全身镜头参数 (Mode B)",
+        "hint": "留空则使用默认值。参考模板：\n\nfull body shot, showing entire figure from head to toe, wide angle lens, far shot, (relaxed fashion pose:1.3), (shifting weight onto one leg)",
         "default": ""
     }
 }

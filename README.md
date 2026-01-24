@@ -43,8 +43,7 @@
 
 | 配置项 | 说明 |
 | :--- | :--- |
-| **char_visuals** | 人物视觉核心 (Visuals)，如肤色、五官。 |
-| **char_identity** | 人物身份卡 (Identity)，如发型、身材。 |
+| **char_identity** | 人物身份特征 (Identity)，如发型、身材。 |
 | **env_default** | 默认环境 Prompt (通常为卧室)。 |
 | **env_fullbody** | 全身环境 Prompt (通常为更衣室/试衣间)。 |
 | **env_outdoor** | 户外环境逻辑。 |
@@ -53,7 +52,7 @@
 
 ## 🛠️ 开发日志
 
-### v2.1.2
+### v2.2.0\n*   [Refactor] **Prompt结构简化**：移除了 `char_visuals` 配置项，将 Prompt 简化为纯文本拼接，去除冗余的标题和 Markdown 符号，降低 Token 消耗并提高 LLM 理解效率。\n*   [UI] **配置优化**：更新了后台配置界面的提示文案，使其更加直观。\n\n### v2.1.2
 *   [Fix] **Context污染修复**：修复了注入的 User Message 后缀永久保留在上下文中的问题。现在使用深拷贝 (deepcopy) 确保只影响当前请求。
 
 ### v2.1.0

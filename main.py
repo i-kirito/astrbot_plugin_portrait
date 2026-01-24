@@ -5,7 +5,7 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "Prompt注入器 (无摄影师人格)", "2.1.2")
+@register("astrbot_plugin_portrait", "ikirito", "Prompt注入器 (无摄影师人格)", "2.2.0")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -24,22 +24,21 @@ class PortraitPlugin(Star):
         )
 
         # === 配置读取 (Fallback to default) ===
-        self.DEF_CHAR_VISUALS = """[Visuals]\nThe subject is a young 18-year-old Asian girl with fair skin and delicate features. She has dusty rose pink hair featuring essential wispy air bangs. Her large, round, doll-like eyes are deep-set and natural dark brown. She possesses a slender hourglass figure with a tiny waist and a full bust, emphasizing a natural soft tissue silhouette."""
+        # 简化版: 纯文本拼接
+        self.DEF_CHAR_IDENTITY = """The subject is a young 18-year-old Asian girl with fair skin and delicate features.
+She has dusty rose pink hair featuring essential wispy air bangs.
+Her large, round, doll-like eyes are deep-set and natural dark brown.
+She possesses a slender hourglass figure with a tiny waist and a full bust."""
 
-        self.DEF_CHAR_IDENTITY = """[Identity]\n* Face: 18 years old, doll-like large round eyes (dark brown).\n* Hair: Dusty rose pink, wispy air bangs.\n* Body: Slender hourglass figure."""
+        self.DEF_ENV_DEFAULT = """(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones:1.1), (fairy lights on wall:1.1), bed filled with plushies"""
+        self.DEF_ENV_FULLBODY = """(indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4), (volumetric lighting), (pastel pink and white tones:1.2), cozy, kawaii aesthetic"""
+        self.DEF_ENV_OUTDOOR = """Remove indoor description, use user specified scene, force add `(blurred background), (bokeh), (natural lighting)`."""
 
-        self.ENV_HEADER = """[Environment Logic]"""
-        self.DEF_ENV_DEFAULT = """* Scenario A (Bedroom): (indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones:1.1), (fairy lights on wall:1.1), bed filled with plushies"""
-        self.DEF_ENV_FULLBODY = """* Scenario B (Dressing Room): (indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4), (volumetric lighting), (pastel pink and white tones:1.2), cozy, kawaii aesthetic"""
-        self.DEF_ENV_OUTDOOR = """* Scenario C (Outdoor): Remove indoor description, use user specified scene, force add `(blurred background), (bokeh), (natural lighting)`."""
-
-        self.CAM_HEADER = """[Camera Logic]"""
-        self.DEF_CAM_SELFIE = """* Mode A (Selfie): (mirror selfie style:1.2), holding phone, looking at phone screen or mirror, (realistic screen light reflection on face), cute pose, close-up POV shot"""
-        self.DEF_CAM_FULLBODY = """* Mode B (Full Body): full body shot, showing entire figure from head to toe, wide angle lens, far shot, (relaxed fashion pose:1.3), (shifting weight onto one leg)"""
-        self.DEF_CAM_DEFAULT = """* Mode C (Default): upper body shot, medium close-up portrait, looking at camera, (dynamic random pose:1.2), candid portrait, (detailed skin pores), (film grain:1.1)"""
+        self.DEF_CAM_SELFIE = """(mirror selfie style:1.2), holding phone, looking at phone screen or mirror, (realistic screen light reflection on face), cute pose, close-up POV shot"""
+        self.DEF_CAM_FULLBODY = """full body shot, showing entire figure from head to toe, wide angle lens, far shot, (relaxed fashion pose:1.3), (shifting weight onto one leg)"""
+        self.DEF_CAM_DEFAULT = """upper body shot, medium close-up portrait, looking at camera, (dynamic random pose:1.2), candid portrait, (detailed skin pores), (film grain:1.1)"""
 
         # 读取用户配置
-        p_char_vis = self.config.get("char_visuals") or self.DEF_CHAR_VISUALS
         p_char_id = self.config.get("char_identity") or self.DEF_CHAR_IDENTITY
         p_env_def = self.config.get("env_default") or self.DEF_ENV_DEFAULT
         p_env_full = self.config.get("env_fullbody") or self.DEF_ENV_FULLBODY
@@ -56,9 +55,9 @@ DO NOT adopt a persona. DO NOT roleplay as a photographer. Continue acting as th
 
         self.full_prompt = (
             f"{self.header_logic}\n\n"
-            f"--- CHARACTER VISUALS ---\n{p_char_vis}\n{p_char_id}\n\n"
-            f"--- ENVIRONMENT SETTINGS ---\n{self.ENV_HEADER}\n{p_env_def}\n{p_env_full}\n{p_env_out}\n\n"
-            f"--- CAMERA SETTINGS ---\n{self.CAM_HEADER}\n{p_cam_selfie}\n{p_cam_full}\n{p_cam_def}\n\n"
+            f"{p_char_id}\n\n"
+            f"{p_env_def}\n{p_env_full}\n{p_env_out}\n\n"
+            f"{p_cam_selfie}\n{p_cam_full}\n{p_cam_def}\n\n"
             f"--- END CONTEXT DATA ---"
         )
 
