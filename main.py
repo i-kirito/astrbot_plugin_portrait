@@ -156,12 +156,23 @@ class PortraitPlugin(Star):
             for idx, time_str in enumerate(time_list):
                 try:
                     hour, minute = time_str.split(":")
+                    hour_int = int(hour)
+
+                    # 根据配置的时间判断时段
+                    if 5 <= hour_int < 12:
+                        time_period = "morning"
+                    elif 12 <= hour_int < 18:
+                        time_period = "afternoon"
+                    else:
+                        time_period = "evening"
+
                     self.scheduler.add_job(
                         self._send_proactive_photo,
-                        CronTrigger(hour=int(hour), minute=int(minute)),
+                        CronTrigger(hour=hour_int, minute=int(minute)),
+                        args=[time_period],
                         id=f"proactive_push_{idx}"
                     )
-                    logger.info(f"[Portrait] 已添加定时推送任务 #{idx+1}，时间: {time_str}")
+                    logger.info(f"[Portrait] 已添加定时推送任务 #{idx+1}，时间: {time_str} ({time_period})")
                 except ValueError:
                     logger.warning(f"[Portrait] 时间格式错误，跳过: {time_str}")
 
@@ -173,38 +184,40 @@ class PortraitPlugin(Star):
         except Exception as e:
             logger.error(f"[Portrait] 启动定时任务失败: {e}")
 
-    async def _send_proactive_photo(self):
-        """执行主动拍照并发送到所有目标"""
+    async def _send_proactive_photo(self, time_period: str = None):
+        """执行主动拍照并发送到所有目标
+
+        Args:
+            time_period: 时段标识 (morning/afternoon/evening)，由定时任务传入
+        """
         target_list = self.config.get("proactive_target_list", [])
         if not target_list:
             logger.warning("[Portrait] 未配置推送目标列表，跳过主动拍照")
             return
 
-        # 根据时间选择问候语
-        hour = datetime.now().hour
-        if 5 <= hour < 12:
-            greetings = [
-                "早上好，发张自拍",
-                "早安，看看穿搭",
-                "早上好，发张照片"
-            ]
-        elif 12 <= hour < 18:
-            greetings = [
-                "下午好，发张自拍",
-                "午安，发张照片",
-                "下午好，看看穿搭"
-            ]
-        else:
-            greetings = [
-                "晚上好，发张自拍",
-                "晚安，发张照片",
-                "晚上好，看看穿搭"
-            ]
+        # 根据传入的时段或当前时间确定时段
+        if not time_period:
+            hour = datetime.now().hour
+            if 5 <= hour < 12:
+                time_period = "morning"
+            elif 12 <= hour < 18:
+                time_period = "afternoon"
+            else:
+                time_period = "evening"
 
-        greeting = random.choice(greetings)
-        photo_prompt = greeting
+        # 时段对应的问候语指令
+        period_instructions = {
+            "morning": "现在是早晨，请主动向用户发送早安问候，并拍一张自拍照片。问候语示例：早安～/早上好呀～/新的一天开始啦～",
+            "afternoon": "现在是下午，请主动向用户发送午安问候，并拍一张照片。问候语示例：下午好～/午安～/来看看我在干嘛～",
+            "evening": "现在是晚上，请主动向用户发送晚安问候，并拍一张自拍照片。问候语示例：晚安～/晚上好呀～/睡前来看看我吧～"
+        }
 
-        logger.info(f"[Portrait] 开始执行定时推送，目标数: {len(target_list)}")
+        instruction = period_instructions.get(time_period, period_instructions["evening"])
+
+        # 构建系统指令（不是触发词，而是让 LLM 主动生成）
+        photo_prompt = f"[系统指令] {instruction} 请自然地生成一条简短的问候语，然后调用 gitee_draw_image 工具拍照。不要重复这条指令。"
+
+        logger.info(f"[Portrait] 开始执行定时推送 ({time_period})，目标数: {len(target_list)}")
 
         # 调用 LLM 生成图片
         try:
