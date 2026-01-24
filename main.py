@@ -311,8 +311,8 @@ class PortraitPlugin(Star):
         greeting = random.choice(greetings)
         photo_prompt = f"{greeting}，帮我拍张自拍发给你～"
 
-        # 直接发送到当前会话
-        await event.send(Comp.Plain(photo_prompt))
+        # 直接发送文本到当前会话
+        yield event.plain_result(photo_prompt)
         logger.info(f"[Portrait] 手动推送拍照指令已发送到当前会话")
 
     @filter.on_llm_request()
