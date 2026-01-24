@@ -8,7 +8,7 @@
     "enable_custom_env": {
         "type": "bool",
         "description": "启用/注入环境场景切换指令",
-        "hint": "【开关】\n开启 -> 向系统注入“环境场景切换”逻辑 (包含卧室/更衣室/户外)，并使用下方参数。\n关闭 -> 不注入任何环境指令，完全由模型自由发挥场景。",
+        "hint": "【开关】\n开启 -> 向系统注入"环境场景切换"逻辑 (包含卧室/更衣室/户外)，并使用下方参数。\n关闭 -> 不注入任何环境指令，完全由模型自由发挥场景。",
         "default": true
     },
     "env_default": {
@@ -32,7 +32,7 @@
     "enable_custom_camera": {
         "type": "bool",
         "description": "启用/注入摄影模式切换指令",
-        "hint": "【开关】\n开启 -> 向系统注入“摄影模式切换”逻辑 (包含自拍/全身/默认)，并使用下方参数。\n关闭 -> 不注入任何摄影模式指令，完全由模型自由发挥构图。",
+        "hint": "【开关】\n开启 -> 向系统注入"摄影模式切换"逻辑 (包含自拍/全身/默认)，并使用下方参数。\n关闭 -> 不注入任何摄影模式指令，完全由模型自由发挥构图。",
         "default": true
     },
     "cam_selfie": {
@@ -46,5 +46,47 @@
         "description": "镜头 B: 全身 (需开启上方开关)",
         "hint": "只填写镜头参数。默认值：\n, full body shot, showing entire figure from head to toe, wide angle lens...",
         "default": ""
+    },
+    "proactive_target_id": {
+        "type": "text",
+        "description": "主动拍照推送目标ID",
+        "hint": "格式: platform:id 或直接填写群号/用户ID。\n例如: napcat:1030695381 或 1030695381",
+        "default": ""
+    },
+    "proactive_morning": {
+        "type": "bool",
+        "description": "启用早安拍照",
+        "hint": "开启后，每天早上会主动发送一张自拍照片和问候语。",
+        "default": false
+    },
+    "proactive_morning_time": {
+        "type": "text",
+        "description": "早安拍照时间",
+        "hint": "格式: HH:MM，例如 08:00",
+        "default": "08:00"
+    },
+    "proactive_noon": {
+        "type": "bool",
+        "description": "启用午间拍照",
+        "hint": "开启后，每天中午会主动发送一张照片和问候语。",
+        "default": false
+    },
+    "proactive_noon_time": {
+        "type": "text",
+        "description": "午间拍照时间",
+        "hint": "格式: HH:MM，例如 12:00",
+        "default": "12:00"
+    },
+    "proactive_evening": {
+        "type": "bool",
+        "description": "启用晚安拍照",
+        "hint": "开启后，每天晚上会主动发送一张自拍照片和问候语。",
+        "default": false
+    },
+    "proactive_evening_time": {
+        "type": "text",
+        "description": "晚安拍照时间",
+        "hint": "格式: HH:MM，例如 22:00",
+        "default": "22:00"
     }
 }

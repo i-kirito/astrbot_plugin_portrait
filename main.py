@@ -2,10 +2,22 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.core.provider.entities import ProviderRequest
+import astrbot.api.message_components as Comp
 import re
 import copy
+import random
+from datetime import datetime
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.6.0")
+# 尝试导入定时任务库
+try:
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    HAS_APSCHEDULER = True
+except ImportError:
+    HAS_APSCHEDULER = False
+    logger.warning("[Portrait] apscheduler 未安装，主动拍照功能已禁用。可通过 pip install apscheduler 安装。")
+
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.7.0")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -112,6 +124,227 @@ class PortraitPlugin(Star):
             f"{self.TPL_FOOTER}\n\n"
             f"--- END CONTEXT DATA ---"
         )
+
+        # === v1.7.0: 主动拍照定时任务 ===
+        self.scheduler = None
+        self._setup_proactive_photo()
+
+    def _setup_proactive_photo(self):
+        """配置主动拍照定时任务"""
+        if not HAS_APSCHEDULER:
+            return
+
+        # 检查是否启用
+        enable_morning = self.config.get("proactive_morning", False)
+        enable_noon = self.config.get("proactive_noon", False)
+        enable_evening = self.config.get("proactive_evening", False)
+
+        if not any([enable_morning, enable_noon, enable_evening]):
+            logger.debug("[Portrait] 主动拍照功能未启用")
+            return
+
+        try:
+            self.scheduler = AsyncIOScheduler()
+
+            # 早安问候 (默认 8:00)
+            if enable_morning:
+                morning_time = self.config.get("proactive_morning_time", "08:00")
+                hour, minute = morning_time.split(":")
+                self.scheduler.add_job(
+                    self._send_proactive_photo,
+                    CronTrigger(hour=int(hour), minute=int(minute)),
+                    id="proactive_morning",
+                    args=["morning"]
+                )
+                logger.info(f"[Portrait] 已启动早安拍照任务，时间: {morning_time}")
+
+            # 午间问候 (默认 12:00)
+            if enable_noon:
+                noon_time = self.config.get("proactive_noon_time", "12:00")
+                hour, minute = noon_time.split(":")
+                self.scheduler.add_job(
+                    self._send_proactive_photo,
+                    CronTrigger(hour=int(hour), minute=int(minute)),
+                    id="proactive_noon",
+                    args=["noon"]
+                )
+                logger.info(f"[Portrait] 已启动午间拍照任务，时间: {noon_time}")
+
+            # 晚安问候 (默认 22:00)
+            if enable_evening:
+                evening_time = self.config.get("proactive_evening_time", "22:00")
+                hour, minute = evening_time.split(":")
+                self.scheduler.add_job(
+                    self._send_proactive_photo,
+                    CronTrigger(hour=int(hour), minute=int(minute)),
+                    id="proactive_evening",
+                    args=["evening"]
+                )
+                logger.info(f"[Portrait] 已启动晚安拍照任务，时间: {evening_time}")
+
+            self.scheduler.start()
+
+        except Exception as e:
+            logger.error(f"[Portrait] 启动定时任务失败: {e}")
+
+    async def _send_proactive_photo(self, period: str):
+        """执行主动拍照并发送"""
+        target_id = self.config.get("proactive_target_id")
+        if not target_id:
+            logger.warning("[Portrait] 未配置推送目标ID (proactive_target_id)，跳过主动拍照")
+            return
+
+        # 根据时段生成不同的问候语和拍照指令
+        greetings = {
+            "morning": [
+                "早安～刚起床，还有点睡眼惺忪呢",
+                "早上好！今天也要元气满满哦",
+                "早～给你看看我刚醒来的样子"
+            ],
+            "noon": [
+                "午安～中午休息一下",
+                "吃午饭了吗？我也准备吃饭啦",
+                "中午好～阳光正好呢"
+            ],
+            "evening": [
+                "晚安～准备睡觉了",
+                "今天辛苦了，晚安好梦",
+                "夜深了，早点休息哦"
+            ]
+        }
+
+        # 根据时段选择镜头模式
+        camera_modes = {
+            "morning": "selfie",  # 早上自拍
+            "noon": "default",    # 中午半身照
+            "evening": "selfie"   # 晚上自拍
+        }
+
+        greeting = random.choice(greetings.get(period, greetings["morning"]))
+        camera_mode = camera_modes.get(period, "default")
+
+        logger.info(f"[Portrait] 开始执行主动拍照 ({period})...")
+
+        # 构建拍照请求消息
+        photo_request = f"[系统指令] 请立即生成一张{period}时段的照片。问候语：{greeting}。镜头模式：{camera_mode}。"
+
+        try:
+            # 尝试调用 LLM 生成图片
+            await self._request_llm_photo(target_id, greeting, camera_mode)
+        except Exception as e:
+            logger.error(f"[Portrait] 主动拍照失败: {e}")
+
+    async def _request_llm_photo(self, target_id: str, greeting: str, camera_mode: str):
+        """请求 LLM 生成照片并发送"""
+        # 构建 Visual Context 增强的消息
+        if camera_mode == "selfie":
+            photo_prompt = f"{greeting}，帮我拍张自拍发给你～"
+        else:
+            photo_prompt = f"{greeting}，看看我现在的样子吧～"
+
+        # 尝试通过平台发送消息（触发 LLM 响应）
+        try:
+            await self._send_to_target(target_id, photo_prompt)
+            logger.info(f"[Portrait] 主动拍照消息已发送: {greeting[:20]}...")
+        except Exception as e:
+            logger.error(f"[Portrait] 发送主动拍照消息失败: {e}")
+
+    async def _send_to_target(self, target_id: str, msg: str):
+        """发送消息到指定目标"""
+        platform_name = None
+        user_id = target_id
+
+        # 解析 platform:user_id 格式
+        if ":" in target_id:
+            platform_name, user_id = target_id.split(":", 1)
+
+        logger.debug(f"[Portrait] 准备推送消息，目标: {target_id}")
+
+        try:
+            # 获取平台实例
+            platforms = []
+            if hasattr(self.context, 'platform_manager'):
+                pm = self.context.platform_manager
+                if hasattr(pm, 'get_insts'):
+                    platforms = pm.get_insts()
+                elif hasattr(pm, 'platforms'):
+                    platforms = pm.platforms
+                elif hasattr(pm, 'adapters'):
+                    platforms = pm.adapters
+
+            if not platforms:
+                logger.error("[Portrait] 未找到任何平台实例")
+                return False
+
+            for platform in platforms:
+                curr_platform_name = getattr(platform, "platform_name", str(platform))
+                if platform_name and curr_platform_name != platform_name:
+                    continue
+
+                # 尝试获取底层 bot 客户端
+                bot_client = None
+                if hasattr(platform, 'get_client'):
+                    bot_client = platform.get_client()
+                elif hasattr(platform, 'client'):
+                    bot_client = platform.client
+                elif hasattr(platform, 'bot'):
+                    bot_client = platform.bot
+
+                # 尝试转换 ID 为整数
+                try:
+                    uid_int = int(user_id)
+                except ValueError:
+                    uid_int = None
+
+                # 策略 1: 使用底层 call_action
+                call_action = None
+                if bot_client:
+                    if hasattr(bot_client, 'call_action'):
+                        call_action = bot_client.call_action
+                    elif hasattr(bot_client, 'api') and hasattr(bot_client.api, 'call_action'):
+                        call_action = bot_client.api.call_action
+
+                if call_action and uid_int:
+                    message_payload = [{"type": "text", "data": {"text": msg}}]
+
+                    # 尝试发送群聊
+                    try:
+                        await call_action("send_group_msg", group_id=uid_int, message=message_payload)
+                        logger.info(f"[Portrait] 群聊推送成功 (group_id={uid_int})")
+                        return True
+                    except Exception:
+                        pass
+
+                    # 尝试发送私聊
+                    try:
+                        await call_action("send_private_msg", user_id=uid_int, message=message_payload)
+                        logger.info(f"[Portrait] 私聊推送成功 (user_id={uid_int})")
+                        return True
+                    except Exception:
+                        pass
+
+                # 策略 2: 使用 AstrBot 标准接口
+                if hasattr(platform, "send_msg"):
+                    chain = [Comp.Plain(msg)]
+                    try:
+                        await platform.send_msg(uid_int if uid_int else user_id, chain)
+                        logger.info("[Portrait] 标准接口推送成功")
+                        return True
+                    except Exception as e:
+                        logger.warning(f"[Portrait] 标准接口发送失败: {e}")
+
+            logger.error(f"[Portrait] 所有尝试均失败，无法推送到目标: {target_id}")
+            return False
+
+        except Exception as e:
+            logger.error(f"[Portrait] 推送消息致命错误: {e}")
+            return False
+
+    async def terminate(self):
+        """插件卸载时清理"""
+        if self.scheduler:
+            self.scheduler.shutdown()
+            logger.info("[Portrait] 已停止定时任务")
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):

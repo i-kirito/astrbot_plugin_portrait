@@ -43,8 +43,22 @@
 | **enable_custom_camera** | 是否启用自定义镜头参数 (开关)。 |
 | **cam_selfie** | 自拍镜头参数 (需开启开关)。 |
 | **cam_fullbody** | 全身镜头参数 (需开启开关)。 |
+| **proactive_target_id** | 主动拍照推送目标ID (格式: platform:id)。 |
+| **proactive_morning** | 启用早安拍照 (开关)。 |
+| **proactive_morning_time** | 早安拍照时间 (默认 08:00)。 |
+| **proactive_noon** | 启用午间拍照 (开关)。 |
+| **proactive_noon_time** | 午间拍照时间 (默认 12:00)。 |
+| **proactive_evening** | 启用晚安拍照 (开关)。 |
+| **proactive_evening_time** | 晚安拍照时间 (默认 22:00)。 |
 
 ## 🛠️ 版本日志
+
+### v1.7.0
+*   [Feat] **主动拍照功能**：
+    *   **定时问候**：支持早安/午间/晚安三个时段主动发送照片和问候语。
+    *   **随机问候语**：每个时段内置多条问候语，随机选择增加互动感。
+    *   **镜头模式**：早/晚自拍模式，午间半身照模式。
+    *   **依赖说明**：需安装 `apscheduler` (`pip install apscheduler`)。
 
 ### v1.6.0
 *   [Refactor] **One-Shot 单次注入架构**：

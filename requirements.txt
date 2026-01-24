@@ -1,0 +1,3 @@
+# AstrBot Plugin Portrait 依赖
+# 主动拍照功能需要 (可选)
+apscheduler>=3.10.0
