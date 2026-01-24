@@ -3,8 +3,9 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.core.provider.entities import ProviderRequest
 import re
+import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "Prompt注入器 (无摄影师人格)", "2.1.1")
+@register("astrbot_plugin_portrait", "ikirito", "Prompt注入器 (无摄影师人格)", "2.1.2")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -80,7 +81,12 @@ DO NOT adopt a persona. DO NOT roleplay as a photographer. Continue acting as th
 
             # 2. User Message 注入 (尝试性)
             if hasattr(req, "messages") and req.messages and len(req.messages) > 0:
-                last_msg = req.messages[-1]
+                # 构建新的消息列表，避免修改原始列表引用
+                new_messages = list(req.messages)
+
+                # deepcopy 最后一条消息，防止修改原始对象
+                last_msg = copy.deepcopy(new_messages[-1])
+
                 if last_msg.role == "user":
                     suffix = "\n\n(System Note: When generating images, you MUST strictly adhere to the <visual_context_injection> descriptors provided above for character appearance and style.)"
                     if isinstance(last_msg.content, str):
@@ -90,6 +96,12 @@ DO NOT adopt a persona. DO NOT roleplay as a photographer. Continue acting as th
                             if isinstance(item, dict) and item.get("type") == "text":
                                 item["text"] += suffix
                                 break
+
+                    # 更新新列表中的最后一条消息
+                    new_messages[-1] = last_msg
+
+                    # 将 request 的 messages 指向新列表
+                    req.messages = new_messages
             else:
                 logger.debug(f"[Portrait] ProviderRequest 无 messages 属性，跳过 User Message 注入")
 
