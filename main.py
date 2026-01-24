@@ -5,7 +5,7 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.1.1")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.1.2")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -84,7 +84,10 @@ class PortraitPlugin(Star):
         self.TPL_FOOTER = """## 7. 交互行为准则 (Interaction Guidelines)
 1. **视觉锚定:** 无论场景如何变化，核心人物特征（发色、刘海、身材）必须始终如一。
 2. **动态穿搭:** 穿搭应随场景灵活调整，除非用户指定，否则不要刻板地沿用不合适的旧设定。
-3. **独立创作:** 每次生成都是一次全新的创作机会。根据当前语境灵活选择构图（自拍/他拍），确保成品既能服务于对话，也具备作为独立摄影作品分享的高质量感。"""
+3. **独立创作:** 每次生成都是一次全新的创作机会。根据当前语境灵活选择构图（自拍/他拍），确保成品既能服务于对话，也具备作为独立摄影作品分享的高质量感。
+
+## 8. 最终输出指令 (Final Output Instruction)
+**[CRITICAL]** 当调用绘图工具时，请务必将上述 Visuals + Identity + Environment + Camera 的所有设定，**合并**为一段完整的、连贯的英文 Prompt 字符串填入工具参数中。不要遗漏任何视觉细节。"""
 
         # 读取用户配置
         p_char_id = self.config.get("char_identity") or self.DEF_CHAR_IDENTITY
