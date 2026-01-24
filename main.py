@@ -135,119 +135,62 @@ class PortraitPlugin(Star):
             return
 
         # 检查是否启用
-        enable_morning = self.config.get("proactive_morning", False)
-        enable_noon = self.config.get("proactive_noon", False)
-        enable_evening = self.config.get("proactive_evening", False)
+        if not self.config.get("proactive_enabled", False):
+            logger.debug("[Portrait] 定时推送功能未启用")
+            return
 
-        if not any([enable_morning, enable_noon, enable_evening]):
-            logger.debug("[Portrait] 主动拍照功能未启用")
+        # 检查目标列表
+        target_list = self.config.get("proactive_target_list", [])
+        if not target_list:
+            logger.warning("[Portrait] 定时推送已启用，但未配置目标群组列表")
             return
 
         try:
             self.scheduler = AsyncIOScheduler()
 
-            # 早安问候 (默认 8:00)
-            if enable_morning:
-                morning_time = self.config.get("proactive_morning_time", "08:00")
-                hour, minute = morning_time.split(":")
-                self.scheduler.add_job(
-                    self._send_proactive_photo,
-                    CronTrigger(hour=int(hour), minute=int(minute)),
-                    id="proactive_morning",
-                    args=["morning"]
-                )
-                logger.info(f"[Portrait] 已启动早安拍照任务，时间: {morning_time}")
+            # 获取推送时间 (默认 08:00)
+            push_time = self.config.get("proactive_time", "08:00")
+            hour, minute = push_time.split(":")
 
-            # 午间问候 (默认 12:00)
-            if enable_noon:
-                noon_time = self.config.get("proactive_noon_time", "12:00")
-                hour, minute = noon_time.split(":")
-                self.scheduler.add_job(
-                    self._send_proactive_photo,
-                    CronTrigger(hour=int(hour), minute=int(minute)),
-                    id="proactive_noon",
-                    args=["noon"]
-                )
-                logger.info(f"[Portrait] 已启动午间拍照任务，时间: {noon_time}")
-
-            # 晚安问候 (默认 22:00)
-            if enable_evening:
-                evening_time = self.config.get("proactive_evening_time", "22:00")
-                hour, minute = evening_time.split(":")
-                self.scheduler.add_job(
-                    self._send_proactive_photo,
-                    CronTrigger(hour=int(hour), minute=int(minute)),
-                    id="proactive_evening",
-                    args=["evening"]
-                )
-                logger.info(f"[Portrait] 已启动晚安拍照任务，时间: {evening_time}")
+            self.scheduler.add_job(
+                self._send_proactive_photo,
+                CronTrigger(hour=int(hour), minute=int(minute)),
+                id="proactive_push"
+            )
+            logger.info(f"[Portrait] 已启动定时推送任务，时间: {push_time}，目标数: {len(target_list)}")
 
             self.scheduler.start()
 
         except Exception as e:
             logger.error(f"[Portrait] 启动定时任务失败: {e}")
 
-    async def _send_proactive_photo(self, period: str):
-        """执行主动拍照并发送"""
-        target_id = self.config.get("proactive_target_id")
-        if not target_id:
-            logger.warning("[Portrait] 未配置推送目标ID (proactive_target_id)，跳过主动拍照")
+    async def _send_proactive_photo(self):
+        """执行主动拍照并发送到所有目标"""
+        target_list = self.config.get("proactive_target_list", [])
+        if not target_list:
+            logger.warning("[Portrait] 未配置推送目标列表，跳过主动拍照")
             return
 
-        # 根据时段生成不同的问候语和拍照指令
-        greetings = {
-            "morning": [
-                "早安～刚起床，还有点睡眼惺忪呢",
-                "早上好！今天也要元气满满哦",
-                "早～给你看看我刚醒来的样子"
-            ],
-            "noon": [
-                "午安～中午休息一下",
-                "吃午饭了吗？我也准备吃饭啦",
-                "中午好～阳光正好呢"
-            ],
-            "evening": [
-                "晚安～准备睡觉了",
-                "今天辛苦了，晚安好梦",
-                "夜深了，早点休息哦"
-            ]
-        }
+        # 随机选择问候语
+        greetings = [
+            "早安～刚起床，还有点睡眼惺忪呢",
+            "早上好！今天也要元气满满哦",
+            "早～给你看看我现在的样子",
+            "嗨～来看看我吧",
+            "给你拍张照片～"
+        ]
 
-        # 根据时段选择镜头模式
-        camera_modes = {
-            "morning": "selfie",  # 早上自拍
-            "noon": "default",    # 中午半身照
-            "evening": "selfie"   # 晚上自拍
-        }
+        greeting = random.choice(greetings)
+        photo_prompt = f"{greeting}，帮我拍张自拍发给你～"
 
-        greeting = random.choice(greetings.get(period, greetings["morning"]))
-        camera_mode = camera_modes.get(period, "default")
+        logger.info(f"[Portrait] 开始执行定时推送，目标数: {len(target_list)}")
 
-        logger.info(f"[Portrait] 开始执行主动拍照 ({period})...")
-
-        # 构建拍照请求消息
-        photo_request = f"[系统指令] 请立即生成一张{period}时段的照片。问候语：{greeting}。镜头模式：{camera_mode}。"
-
-        try:
-            # 尝试调用 LLM 生成图片
-            await self._request_llm_photo(target_id, greeting, camera_mode)
-        except Exception as e:
-            logger.error(f"[Portrait] 主动拍照失败: {e}")
-
-    async def _request_llm_photo(self, target_id: str, greeting: str, camera_mode: str):
-        """请求 LLM 生成照片并发送"""
-        # 构建 Visual Context 增强的消息
-        if camera_mode == "selfie":
-            photo_prompt = f"{greeting}，帮我拍张自拍发给你～"
-        else:
-            photo_prompt = f"{greeting}，看看我现在的样子吧～"
-
-        # 尝试通过平台发送消息（触发 LLM 响应）
-        try:
-            await self._send_to_target(target_id, photo_prompt)
-            logger.info(f"[Portrait] 主动拍照消息已发送: {greeting[:20]}...")
-        except Exception as e:
-            logger.error(f"[Portrait] 发送主动拍照消息失败: {e}")
+        # 向所有目标发送
+        for target_id in target_list:
+            try:
+                await self._send_to_target(str(target_id), photo_prompt)
+            except Exception as e:
+                logger.error(f"[Portrait] 推送到 {target_id} 失败: {e}")
 
     async def _send_to_target(self, target_id: str, msg: str):
         """发送消息到指定目标"""

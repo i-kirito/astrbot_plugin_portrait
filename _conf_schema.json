@@ -47,46 +47,22 @@
         "hint": "只填写镜头参数。默认值：\n, full body shot, showing entire figure from head to toe, wide angle lens...",
         "default": ""
     },
-    "proactive_target_id": {
-        "type": "text",
-        "description": "主动拍照推送目标ID",
-        "hint": "格式: platform:id 或直接填写群号/用户ID。\n例如: napcat:1030695381 或 1030695381",
-        "default": ""
-    },
-    "proactive_morning": {
+    "proactive_enabled": {
         "type": "bool",
-        "description": "启用早安拍照",
-        "hint": "开启后，每天早上会主动发送一张自拍照片和问候语。",
+        "description": "是否启用定时推送",
+        "hint": "启用后会在指定时间自动推送照片到配置的群组",
         "default": false
     },
-    "proactive_morning_time": {
+    "proactive_time": {
         "type": "string",
-        "description": "早安拍照时间",
-        "hint": "格式: HH:MM，例如 08:00",
+        "description": "定时推送时间 (HH:MM格式，如 08:00)",
+        "hint": "每日推送时间，24小时制，例如: 08:00 表示每天早上8点",
         "default": "08:00"
     },
-    "proactive_noon": {
-        "type": "bool",
-        "description": "启用午间拍照",
-        "hint": "开启后，每天中午会主动发送一张照片和问候语。",
-        "default": false
-    },
-    "proactive_noon_time": {
-        "type": "string",
-        "description": "午间拍照时间",
-        "hint": "格式: HH:MM，例如 12:00",
-        "default": "12:00"
-    },
-    "proactive_evening": {
-        "type": "bool",
-        "description": "启用晚安拍照",
-        "hint": "开启后，每天晚上会主动发送一张自拍照片和问候语。",
-        "default": false
-    },
-    "proactive_evening_time": {
-        "type": "string",
-        "description": "晚安拍照时间",
-        "hint": "格式: HH:MM，例如 22:00",
-        "default": "22:00"
+    "proactive_target_list": {
+        "type": "list",
+        "description": "定时推送目标群组列表",
+        "hint": "直接填写群号即可，如: 957880653。也支持 unified_msg_origin 格式",
+        "default": []
     }
 }
