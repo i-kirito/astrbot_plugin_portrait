@@ -5,13 +5,14 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "2.5.1")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "2.5.2")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
 
         # [Trigger Regex]
+        # 涵盖：画图、拍照、自拍、OOTD、看看/长啥样/在干嘛等日常询问
         self.trigger_regex = re.compile(
             r"(画|绘|生|造|搞|整|来|P|修|写|发|给|爆).{0,10}(图|照|像|片)|"
             r"(拍|自).{0,10}(照|拍)|"
@@ -23,76 +24,87 @@ class PortraitPlugin(Star):
             re.IGNORECASE
         )
 
-        # === 默认内容 v4.0 (Content Only) ===
-        self.DEF_CHAR_BASE = """> (18 year old Asian girl:1.5), (dusty rose pink hair:1.3), (essential wispy air bangs:1.4), (large round dark brown eyes:1.2), (sweet smile:1.2), slender hourglass figure, tiny waist, full bust, natural soft tissue silhouette, (korean idol makeup:1.1), (high ponytail OR twin tails:1.2)
-*   注意: 仅当场景为“睡觉/刚醒”时，发型才改为 `loose hair, messy hair`，否则强制使用 `high ponytail` 或 `twin tails`。"""
+        # === 默认内容 (Content Only) ===
+        self.DEF_CHAR_IDENTITY = """> The subject is a young 18-year-old Asian girl with fair skin and delicate features. She has dusty rose pink hair featuring essential wispy air bangs. Her large, round, doll-like eyes are deep-set and natural dark brown, looking at the viewer with a sweet, engaging smile. She possesses a slender hourglass figure with a tiny waist and a full bust, emphasizing a natural soft tissue silhouette.
 
-        self.DEF_SCENE_BEDROOM = """> , (indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones), (fairy lights on wall), background filled with plushies and anime figures, (raw photo:1.2), photorealistic"""
+* **面部与神态:** 18岁，娃娃般的大圆眼（深棕色），默认甜美微笑。
+* **头发特征:** 粉棕色发色。**必须保留轻薄的空气刘海 (essential wispy air bangs)**。这里散发只能在睡前以及睡醒两个阶段才能生成，其余时间为高马尾或者双马尾。
+* **身体特征:** 纤细沙漏型身材，极细腰，丰满胸部，强调自然质感。"""
 
-        self.DEF_SCENE_DRESSING = """> , (indoors, luxury pink dressing room:1.4), (bright sunlight from sheer curtains:1.4), (volumetric lighting), (white vanity table with mirror), (clothing rack with dresses), (pastel pink and white tones:1.2), (blurred reflection in mirror), (raw photo:1.2), photorealistic"""
+        self.DEF_ENV_A = """(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones:1.1), (fairy lights on wall:1.1), bed filled with plushies, (shelves with anime figures:1.2), gaming setup background, cozy atmosphere, clear background details, (raw photo:1.2), (authentic skin texture:1.2), photorealistic"""
 
-        self.DEF_SCENE_CUSTOM = """> , (background set in [INSERT USER LOCATION]:1.5), (blurred background), (bokeh), (natural outdoor lighting), (scenic view), photorealistic"""
+        self.DEF_ENV_B = """(indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4), (volumetric lighting), (shadows casting on floor:1.2), (white vanity table with large mirror), (pink fluffy stool), (white shelves filled with plush toys and pink accessories), (pink clothing rack with dresses), (pink utility cart), (pink curtains), (pink fluffy rugs), (pastel pink and white tones:1.2), cozy, kawaii aesthetic, (reflection in vanity mirror is blurred and indistinct:1.5), (focus away from reflection), (raw photo:1.2), (realistic texture:1.3), photorealistic"""
 
-        self.DEF_MODE_SELFIE = """> , (mirror selfie style:1.3), holding phone, looking at phone screen, (phone visible in hand), cute pose, close-up POV shot, (impertections:1.1)"""
+        self.DEF_ENV_C = """Ignore the bedroom/dressing room prompts above. Analyze the user's request (e.g., "in the park", "at the beach") or the current chat context/itinerary. Generate a scene description that matches the requested location. Force add: `(blurred background), (bokeh), (natural lighting)`."""
 
-        self.DEF_MODE_FULLBODY = """> , full body shot, showing from head to shoes, wide angle lens, (standing pose:1.2), (one leg forward), (fashion photography style), legs visible, shoes visible, (sharp focus on character)"""
+        self.DEF_CAM_A = """, (mirror selfie style:1.2), holding phone, looking at phone screen or mirror, (realistic screen light reflection on face), cute pose, close-up POV shot, (phone camera noise:1.1)"""
 
-        self.DEF_MODE_PORTRAIT = """> , upper body shot, medium close-up, looking at camera, (dynamic random pose), (candid shot), high quality portrait, (detailed skin texture:1.2)"""
+        self.DEF_CAM_B = """, full body shot, showing entire figure from head to toe, wide angle lens, far shot, (relaxed fashion pose:1.3), (shifting weight onto one leg), (casual stance), (slightly turned body), (one hand in pocket or touching hair), (natural movement snapshot), candid fashion photography, no phone, legs visible, shoes visible, (sharp focus on real person:1.4), (high dynamic range)"""
 
-        self.DEF_USER_VAR = """*   Outfit: 提取用户描述的服装。若无描述，填入: (white oversized t-shirt:1.1), (casual shorts), comfortable home wear.
-*   Action: 提取用户描述的动作。若无描述，填入: (looking at viewer), (sweet engaging smile).
-    *   *冲突处理:* 若用户指定动作（如“哭泣”、“生气”），则覆盖核心设定的“sweet smile”。"""
+        self.DEF_CAM_C = """, upper body shot, medium close-up portrait, looking at camera, (dynamic random pose:1.2), (playful gestures:1.1), (expressive face), candid portrait, no phone, (detailed skin pores), (film grain:1.1)"""
 
-        # === 模板结构 v4.0 (Template Structure) ===
-        self.TPL_HEADER = """# 图像生成核心系统指令 (Optimized Core System Instructions) v4.0 (Strict Mode)
-## 0. 核心执行协议 (Execution Protocol) - CRITICAL
-当需要生成图像时，**严禁**直接编写描述。必须严格按照以下 [4步组装法] 拼接字符串，不增加任何额外修饰词。最终 Prompt 结构公式：
-Final_Prompt = [1. Character_Base] + [2. User_Variable] + [3. Scenario_Logic] + [4. Camera_Logic]"""
+        # === 模板结构 (Template Structure) ===
+        self.TPL_HEADER = """# 图像生成核心系统指令 (Optimized Core System Instructions) v3.7
+## 0. 提示词构建逻辑 (Prompt Construction Logic)
+**[Important] The final prompt MUST be constructed in this order:**
+`[1. Character Visuals] + [2. User's Outfit & Action] + [4. Dynamic Environment & Style] + [6. Camera Parameters]`"""
 
-        self.TPL_STEP_1 = """## 1. 固定变量 [Character_Base] (不可更改)
+        self.TPL_CHAR = """## 1. 角色视觉核心 (Character Visuals) & 2. 角色身份卡 (Character Identity Card)
 {content}"""
 
-        self.TPL_STEP_2 = """## 2. 用户变量 [User_Variable] (动态填充)
-{user_var}"""
+        self.TPL_MIDDLE = """## 3. 动态内容处理 (Handling User Input)
+* **穿搭 (Outfit):** 用户未指定时，默认保持简洁风格或根据场景补全。
+* **动作 (Action):** 自然融入用户描述的动作。如果动作/表情与核心设定的“sweet smile”冲突，**以用户要求为准**。"""
 
-        self.TPL_STEP_3 = """## 3. 场景逻辑 [Scenario_Logic] (三选一)
-根据用户意图，必须且只能选择下列 ONE 个场景块拼接到 Prompt 中：
-*   IF (默认/无特定地点): -> [Scene_Bedroom]
-    {scene_bedroom}
-*   IF (用户提及"穿搭/全身/照镜子"): -> [Scene_DressingRoom]
-    {scene_dressing}
-*   IF (用户明确指定地点, e.g., "在海边", "去公园"): -> [Scene_Custom]
-    {scene_custom}"""
+        self.TPL_ENV = """## 4. 动态环境与风格 (Dynamic Environment & Style)
+* **Scenario A: 默认情况 (Default)**
+    * *触发:* 默认情况，或用户未指定特定地点时。
+    * *Scene:* **温馨卧室 (Cozy Bedroom)**。
+    * *Prompt:* > **{env_a}**
 
-        self.TPL_STEP_4 = """## 4. 镜头逻辑 [Camera_Logic] (三选一)
-根据关键词判断，必须且只能选择下列 ONE 个参数块：
-*   IF (关键词: "自拍", "selfie", "手机"): -> [Mode_Selfie]
-    {mode_selfie}
-*   IF (关键词: "全身", "full body", "穿搭", "鞋"): -> [Mode_FullBody]
-    {mode_fullbody}
-*   IF (其他所有情况/默认): -> [Mode_Portrait]
-    {mode_portrait}"""
+* **Scenario B: 查看穿搭 (Outfit Check)**
+    * *触发:* 当用户要求“看看穿搭”、“全身照”时。
+    * *Scene:* **更衣室 (Dressing Room)**。
+    * *Prompt:* > **{env_b}**
 
-        self.TPL_FOOTER = """## 5. 输出指令 (Output Instruction for Tool Use)
-调用画图插件时，仅发送拼接好的英文 Prompt 字符串。不要添加 "Here is a prompt based on..." 等任何对话前缀。"""
+* **Scenario C: 行程与动态场景 (Itinerary & Dynamic)**
+    * *触发:* 当用户指定了地点（如“去海边”、“在公园”）或根据当前对话行程判断需要改变场景时。
+    * *Action:* {env_c}"""
+
+        self.TPL_CAM = """## 6. 摄影模式切换 (Photo Format Switching)
+* **模式 A：自拍 (Selfie Mode)**
+    * *触发:* “自拍”、“selfie”、“拿着手机”、“对镜自拍”。
+    * *Camera Params:* `{cam_a}`
+
+* **模式 B：全身照 (Full Body Shot)**
+    * *触发:* “全身照”、“看看穿搭”、“full body”、”穿搭”。
+    * *Camera Params:* `{cam_b}`
+
+* **模式 C：默认/半身照 (Default)**
+    * *触发:* **当当前输入中没有上述 Mode A 或 Mode B 的关键词时，强制使用此模式。**
+    * *Camera Params:* `{cam_c}`"""
+
+        self.TPL_FOOTER = """## 7. 交互行为准则 (Interaction Guidelines)
+1. **视觉锚定:** 无论场景如何变化，核心人物特征（发色、刘海、身材）必须始终如一。
+2. **动态穿搭:** 穿搭应随场景灵活调整，除非用户指定，否则不要刻板地沿用不合适的旧设定。
+3. **独立创作:** 每次生成都是一次全新的创作机会。根据当前语境灵活选择构图（自拍/他拍），确保成品既能服务于对话，也具备作为独立摄影作品分享的高质量感。"""
 
         # 读取用户配置
-        p_char_base = self.config.get("char_identity") or self.DEF_CHAR_BASE
-        p_scene_bed = self.config.get("env_default") or self.DEF_SCENE_BEDROOM
-        p_scene_dress = self.config.get("env_fullbody") or self.DEF_SCENE_DRESSING
-        p_scene_cust = self.config.get("env_outdoor") or self.DEF_SCENE_CUSTOM
-        p_mode_selfie = self.config.get("cam_selfie") or self.DEF_MODE_SELFIE
-        p_mode_full = self.config.get("cam_fullbody") or self.DEF_MODE_FULLBODY
-        # cam_portrait 暂不暴露配置，使用默认
-        p_mode_port = self.DEF_MODE_PORTRAIT
+        p_char_id = self.config.get("char_identity") or self.DEF_CHAR_IDENTITY
+        p_env_a = self.config.get("env_default") or self.DEF_ENV_A
+        p_env_b = self.config.get("env_fullbody") or self.DEF_ENV_B
+        p_env_c = self.config.get("env_outdoor") or self.DEF_ENV_C
+        p_cam_a = self.config.get("cam_selfie") or self.DEF_CAM_A
+        p_cam_b = self.config.get("cam_fullbody") or self.DEF_CAM_B
+        p_cam_c = self.DEF_CAM_C
 
         # === 核心 Prompt 组装 ===
         self.full_prompt = (
             f"{self.TPL_HEADER}\n\n"
-            f"{self.TPL_STEP_1.format(content=p_char_base)}\n\n"
-            f"{self.TPL_STEP_2.format(user_var=self.DEF_USER_VAR)}\n\n"
-            f"{self.TPL_STEP_3.format(scene_bedroom=p_scene_bed, scene_dressing=p_scene_dress, scene_custom=p_scene_cust)}\n\n"
-            f"{self.TPL_STEP_4.format(mode_selfie=p_mode_selfie, mode_fullbody=p_mode_full, mode_portrait=p_mode_port)}\n\n"
+            f"{self.TPL_CHAR.format(content=p_char_id)}\n\n"
+            f"{self.TPL_MIDDLE}\n\n"
+            f"{self.TPL_ENV.format(env_a=p_env_a, env_b=p_env_b, env_c=p_env_c)}\n\n"
+            f"{self.TPL_CAM.format(cam_a=p_cam_a, cam_b=p_cam_b, cam_c=p_cam_c)}\n\n"
             f"{self.TPL_FOOTER}\n\n"
             f"--- END CONTEXT DATA ---"
         )
