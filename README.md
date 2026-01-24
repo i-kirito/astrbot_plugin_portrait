@@ -43,21 +43,23 @@
 | **enable_custom_camera** | 是否启用自定义镜头参数 (开关)。 |
 | **cam_selfie** | 自拍镜头参数 (需开启开关)。 |
 | **cam_fullbody** | 全身镜头参数 (需开启开关)。 |
-| **proactive_target_id** | 主动拍照推送目标ID (格式: platform:id)。 |
-| **proactive_morning** | 启用早安拍照 (开关)。 |
-| **proactive_morning_time** | 早安拍照时间 (默认 08:00)。 |
-| **proactive_noon** | 启用午间拍照 (开关)。 |
-| **proactive_noon_time** | 午间拍照时间 (默认 12:00)。 |
-| **proactive_evening** | 启用晚安拍照 (开关)。 |
-| **proactive_evening_time** | 晚安拍照时间 (默认 22:00)。 |
+| **proactive_enabled** | 是否启用定时推送 (开关)。 |
+| **proactive_time** | 定时推送时间，支持多个时间逗号分隔 (如 `08:00,22:00`)。 |
+| **proactive_target_list** | 定时推送目标群组列表。 |
 
 ## 🛠️ 版本日志
 
+### v1.8.0
+*   [Feat] **定时推送优化**：
+    *   **智能时段识别**：根据配置的推送时间自动判断时段 (早安/午安/晚安)。
+    *   **LLM 主动问候**：不再使用固定触发词，由 LLM 自然生成问候语 + 拍照。
+    *   **简化配置**：从 7 个配置项精简为 3 个 (`proactive_enabled`, `proactive_time`, `proactive_target_list`)。
+    *   **多时间点支持**：支持逗号分隔配置多个推送时间。
+*   [Feat] **手动推送指令**：新增 `/拍照推送` 指令，立即触发一次拍照推送到当前会话。
+
 ### v1.7.0
 *   [Feat] **主动拍照功能**：
-    *   **定时问候**：支持早安/午间/晚安三个时段主动发送照片和问候语。
-    *   **随机问候语**：每个时段内置多条问候语，随机选择增加互动感。
-    *   **镜头模式**：早/晚自拍模式，午间半身照模式。
+    *   **定时问候**：支持定时主动发送照片和问候语。
     *   **依赖说明**：需安装 `apscheduler` (`pip install apscheduler`)。
 
 ### v1.6.0
