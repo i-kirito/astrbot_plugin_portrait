@@ -194,14 +194,66 @@ class PortraitPlugin(Star):
 
         logger.info(f"[Portrait] 开始执行定时推送，目标数: {len(target_list)}")
 
-        # 向所有目标发送
+        # 调用 LLM 生成图片
+        try:
+            image_result = await self._generate_photo_with_llm(photo_prompt)
+            if not image_result:
+                logger.error("[Portrait] LLM 未返回图片结果")
+                return
+        except Exception as e:
+            logger.error(f"[Portrait] LLM 调用失败: {e}")
+            return
+
+        # 向所有目标发送图片
         for target_id in target_list:
             try:
-                await self._send_to_target(str(target_id), photo_prompt)
+                await self._send_to_target(str(target_id), image_result)
             except Exception as e:
                 logger.error(f"[Portrait] 推送到 {target_id} 失败: {e}")
 
-    async def _send_to_target(self, target_id: str, msg: str):
+    async def _generate_photo_with_llm(self, prompt: str):
+        """调用 LLM 生成图片，返回包含图片的消息链"""
+        try:
+            # 获取 LLM Provider
+            provider = self.context.get_using_provider()
+            if not provider:
+                logger.error("[Portrait] 未找到可用的 LLM Provider")
+                return None
+
+            # 获取工具管理器
+            tool_manager = self.context.get_llm_tool_manager()
+
+            # 构建带有 Visual Context 的系统提示词
+            system_prompt = self.full_prompt
+
+            # 调用 LLM（带工具支持）
+            from astrbot.core.provider.entities import ProviderRequest
+
+            req = ProviderRequest(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                func_tool_manager=tool_manager
+            )
+
+            # 执行 LLM 调用
+            response = await provider.text_chat(
+                prompt=prompt,
+                session_id="proactive_photo_session",
+                contexts=[],
+                system_prompt=system_prompt,
+                func_tool_manager=tool_manager
+            )
+
+            logger.info(f"[Portrait] LLM 响应: {type(response)}")
+            return response
+
+        except Exception as e:
+            logger.error(f"[Portrait] _generate_photo_with_llm 异常: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    async def _send_to_target(self, target_id: str, msg):
         """发送消息到指定目标"""
         platform_name = None
         user_id = target_id
