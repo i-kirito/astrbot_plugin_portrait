@@ -5,7 +5,7 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.3.0")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.3.1")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -20,7 +20,8 @@ class PortraitPlugin(Star):
             r"(美|帅|私)照|摄影|留念|记录.{0,10}(画面|瞬间)|"
             r"(长|长得).{0,5}(啥|什么)样|"
             r"(在|干).{0,5}(干|做|忙).{0,5}(嘛|什么|啥)|"
-            r"(给|让).{0,5}(我|).{0,5}(看|瞧|瞅|康|赏).{0,5}(看|一下|下)|" # 给我看看/让我康康
+            r"(给|让).{0,5}(我|).{0,5}(看|瞧|瞅|康|赏).{0,5}(看|一下|下)|"
+            r"(再|又).{0,5}(拍|发|来|整|画).{0,5}(一张|1张|一个|1个)|" # 再拍一张/再来一个
             r"(photo|pic|image|draw|generate|capture|portrait|selfie|outfit)",
             re.IGNORECASE
         )

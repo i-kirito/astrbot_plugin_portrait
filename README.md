@@ -57,6 +57,9 @@
 
 ## 🛠️ 版本日志
 
+### v1.3.1
+*   [Update] **正则增强**：支持了“再拍一张”、“再来一个”等表示“再次/追加”意图的自然语言指令。
+
 ### v1.3.0
 *   [Feat] **安全与质量守卫 (Safety Guard)**：新增了 `enable_safety_guard` 开关。
     *   **功能**：开启后（默认），会自动向 System Prompt 注入一段 `Negative Prompt` 指令。
