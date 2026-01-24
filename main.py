@@ -327,11 +327,14 @@ class PortraitPlugin(Star):
                 system_prompt=self.full_prompt
             )
 
-            # 发送 LLM 响应（包含图片）
-            if response and hasattr(response, 'result_chain') and response.result_chain:
-                yield event.chain_result(response.result_chain)
-            elif response and hasattr(response, 'completion_text') and response.completion_text:
-                yield event.plain_result(response.completion_text)
+            # 发送 LLM 响应
+            if response:
+                # 优先使用 completion_text
+                text = getattr(response, 'completion_text', None)
+                if text:
+                    yield event.plain_result(text)
+                else:
+                    yield event.plain_result("照片生成失败，请稍后重试")
             else:
                 yield event.plain_result("照片生成失败，请稍后重试")
 
