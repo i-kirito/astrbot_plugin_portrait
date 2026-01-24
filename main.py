@@ -5,19 +5,22 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "2.3.4")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "2.4.1")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
 
         # [Trigger Regex]
+        # 涵盖：画图、拍照、自拍、OOTD、看看/长啥样/在干嘛等日常询问
         self.trigger_regex = re.compile(
-            r"(画|绘|生|造|搞|整|来|P|修|写|发|给).{0,10}(图|照|像|片)|"
-            r"(拍|自).{0,10}(照|拍)|"
-            r"(看|查|秀|显|露).{0,10}(穿搭|造型|样子|OOTD|脸)|"
-            r"(美|帅|私)照|摄影|留念|记录.{0,10}(画面|瞬间)|"
-            r"(photo|pic|image|draw|generate|capture|portrait|selfie|outfit)",
+            r"(画|绘|生|造|搞|整|来|P|修|写|发|给|爆).{0,10}(图|照|像|片)|"  # 动作+名词
+            r"(拍|自).{0,10}(照|拍)|"  # 拍摄类
+            r"(看|查|秀|显|露|瞧|康).{0,10}(穿搭|造型|样子|OOTD|脸|你|我|私)|"  # 查看类
+            r"(美|帅|私)照|摄影|留念|记录.{0,10}(画面|瞬间)|"  # 名词/场景类
+            r"(长|长得).{0,5}(啥|什么)样|"  # 询问外貌
+            r"(在|干).{0,5}(干|做|忙).{0,5}(嘛|什么|啥)|"  # 询问状态 (看看在干嘛)
+            r"(photo|pic|image|draw|generate|capture|portrait|selfie|outfit)",  # 英文
             re.IGNORECASE
         )
 

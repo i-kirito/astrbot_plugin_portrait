@@ -1,16 +1,4 @@
 {
-    "keywords": {
-        "type": "list",
-        "description": "触发摄影师模式的关键词列表",
-        "default": [
-            "拍照",
-            "摄影",
-            "拍张照",
-            "拍个照",
-            "自拍",
-            "看穿搭"
-        ]
-    },
     "char_identity": {
         "type": "text",
         "description": "人物设定 (Content Only)",
