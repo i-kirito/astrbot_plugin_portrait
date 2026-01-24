@@ -180,17 +180,29 @@ class PortraitPlugin(Star):
             logger.warning("[Portrait] 未配置推送目标列表，跳过主动拍照")
             return
 
-        # 随机选择问候语
-        greetings = [
-            "早安～刚起床，还有点睡眼惺忪呢",
-            "早上好！今天也要元气满满哦",
-            "早～给你看看我现在的样子",
-            "嗨～来看看我吧",
-            "给你拍张照片～"
-        ]
+        # 根据时间选择问候语
+        hour = datetime.now().hour
+        if 5 <= hour < 12:
+            greetings = [
+                "早上好～看看我在干什么",
+                "早安～刚起床，给你看看我现在的样子",
+                "早～今天也要元气满满哦"
+            ]
+        elif 12 <= hour < 18:
+            greetings = [
+                "下午好～看看我在干嘛",
+                "午安～给你拍张照片",
+                "嗨～来看看我吧"
+            ]
+        else:
+            greetings = [
+                "晚安啦～给你看看我现在的样子",
+                "晚上好～睡前来看看我吧",
+                "夜深了～给你拍张照片"
+            ]
 
         greeting = random.choice(greetings)
-        photo_prompt = f"{greeting}，帮我拍张自拍发给你～"
+        photo_prompt = f"{greeting}，拍张自拍给你～"
 
         logger.info(f"[Portrait] 开始执行定时推送，目标数: {len(target_list)}")
 
@@ -353,16 +365,26 @@ class PortraitPlugin(Star):
     @filter.command("拍照推送")
     async def cmd_push_photo(self, event: AstrMessageEvent):
         """立即推送一次拍照到当前会话 - 触发 LLM 调用绘图工具"""
-        # 随机选择问候语
-        greetings = [
-            "来啦来啦～给你拍张照片",
-            "好的，马上拍一张给你看",
-            "等一下哦，我拍张自拍～",
-            "收到！看看我现在的样子吧"
-        ]
+        # 根据时间选择问候语
+        hour = datetime.now().hour
+        if 5 <= hour < 12:
+            greetings = [
+                "早上好～看看我在干什么",
+                "早安～给你看看我现在的样子"
+            ]
+        elif 12 <= hour < 18:
+            greetings = [
+                "下午好～看看我在干嘛",
+                "嗨～来看看我吧"
+            ]
+        else:
+            greetings = [
+                "晚安啦～给你看看我现在的样子",
+                "晚上好～来看看我吧"
+            ]
 
         greeting = random.choice(greetings)
-        photo_prompt = f"{greeting}，帮我拍张自拍发给你～"
+        photo_prompt = f"{greeting}，拍张自拍给你～"
 
         # 使用 request_llm 触发完整的 LLM 流程（包括工具调用）
         # Visual Context 会通过 on_llm_request hook 自动注入
