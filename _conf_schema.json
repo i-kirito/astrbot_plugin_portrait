@@ -1,8 +1,15 @@
 {
-    "max_turns": {
-        "type": "int",
-        "description": "摄影师模式持续的对话轮数",
-        "default": 3
+    "keywords": {
+        "type": "list",
+        "description": "触发摄影师模式的关键词列表",
+        "default": [
+            "拍照",
+            "摄影",
+            "拍张照",
+            "拍个照",
+            "自拍",
+            "看看穿搭"
+        ]
     },
     "char_visuals": {
         "type": "text",

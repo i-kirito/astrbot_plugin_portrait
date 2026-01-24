@@ -4,13 +4,13 @@ from astrbot.api import logger
 from astrbot.core.provider.entities import ProviderRequest
 import re
 
-@register("astrbot_plugin_portrait", "ikirito", "Prompt注入器 (无摄影师人格)", "2.0.0")
+@register("astrbot_plugin_portrait", "ikirito", "Prompt注入器 (无摄影师人格)", "2.1.0")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
-        self.max_turns = self.config.get("max_turns", 3)
 
+        # [单次注入逻辑] 不再需要 max_turns
         # 触发正则：检测画图/拍照意图
         self.trigger_regex = re.compile(
             r"(画|绘|生|造|搞|整|来|P|修|写).{0,10}(图|照|像|片)|"
@@ -22,8 +22,6 @@ class PortraitPlugin(Star):
         )
 
         # === 配置读取 (Fallback to default) ===
-        # 注意：这里的默认值依然保留了原来的粉发少女设定，作为“参数库”
-
         self.DEF_CHAR_VISUALS = """[Visuals]\nThe subject is a young 18-year-old Asian girl with fair skin and delicate features. She has dusty rose pink hair featuring essential wispy air bangs. Her large, round, doll-like eyes are deep-set and natural dark brown. She possesses a slender hourglass figure with a tiny waist and a full bust, emphasizing a natural soft tissue silhouette."""
 
         self.DEF_CHAR_IDENTITY = """[Identity]\n* Face: 18 years old, doll-like large round eyes (dark brown).\n* Hair: Dusty rose pink, wispy air bangs.\n* Body: Slender hourglass figure."""
@@ -48,7 +46,7 @@ class PortraitPlugin(Star):
         p_cam_full = self.config.get("cam_fullbody") or self.DEF_CAM_FULLBODY
         p_cam_def = self.DEF_CAM_DEFAULT
 
-        # === 核心 Prompt 构建 (去人格化) ===
+        # === 核心 Prompt 构建 ===
         self.header_logic = """# SYSTEM INJECTION: VISUAL CONTEXT DATA
 IMPORTANT: The following data provides visual descriptors for the current character.
 **IF and ONLY IF** you are generating an image or calling an image generation tool, you MUST include these visual descriptors in your prompt parameter.
@@ -62,18 +60,25 @@ DO NOT adopt a persona. DO NOT roleplay as a photographer. Continue acting as th
             f"--- END CONTEXT DATA ---"
         )
 
-        self.user_sessions = {}
+        # 记录本次请求是否需要注入 (临时状态)
+        self.active_requests = set()
 
     @filter.llm_tool(name="enter_portrait_mode")
     async def enter_portrait_mode(self, event: AstrMessageEvent, user_intent: str):
         """
         Inject visual context data for image generation.
         Use this when the user wants to generate an image/photo.
+        Args:
+            user_intent(string): Description of the image to generate.
         """
         user_id = event.get_sender_id()
-        self.user_sessions[user_id] = self.max_turns
-        logger.info(f"[Portrait] 激活 Prompt 注入 (Tool Call)，用户 {user_id}")
-        return f"Visual context data injected. Please proceed with image generation using the provided character descriptors."
+        # 显式激活，标记该用户本次请求需要注入
+        self.active_requests.add(user_id)
+
+        logger.info(f"[Portrait] Tool Call 激活注入，用户 {user_id}")
+
+        # 返回内容本身包含 Prompt，作为 Tool Result 的双重保险
+        return f"Visual context data injected for intent '{user_intent}'. Please use the following descriptors for image generation:\n\n{self.full_prompt}"
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
@@ -81,28 +86,30 @@ DO NOT adopt a persona. DO NOT roleplay as a photographer. Continue acting as th
         msg_text = event.message_str
         should_inject = False
 
+        # 1. 正则判定 (当前意图)
         if self.trigger_regex.search(msg_text):
             should_inject = True
-            self.user_sessions[user_id] = self.max_turns
-            logger.info(f"[Portrait] 正则命中，激活 Prompt 注入")
-        elif user_id in self.user_sessions:
+            logger.info(f"[Portrait] 正则命中，单次注入激活")
+
+        # 2. Tool 判定 (如果刚才 Tool 被调用了，active_requests 会有值)
+        # 注意：Tool 调用是在 LLM Request 之后发生的？不，AstrBot 流程通常是：
+        # Req1 (LLM) -> Tool Exec -> Req2 (LLM with Tool Result)
+        # 所以在 Req2 阶段，我们需要注入。
+        elif user_id in self.active_requests:
             should_inject = True
+            self.active_requests.discard(user_id) # 消费一次即销毁
 
-        if should_inject and self.user_sessions.get(user_id, 0) > 0:
-            turns = self.user_sessions[user_id]
-
+        if should_inject:
             # 1. System Prompt 注入
             injection = f"\n\n<visual_context_injection>\n{self.full_prompt}\n</visual_context_injection>"
             if not req.system_prompt: req.system_prompt = ""
             req.system_prompt += injection
 
-            # 2. User Message 注入 (纯指令，无人格)
-            if req.messages and len(req.messages) > 0:
+            # 2. User Message 注入 (尝试性)
+            if hasattr(req, "messages") and req.messages and len(req.messages) > 0:
                 last_msg = req.messages[-1]
                 if last_msg.role == "user":
-                    # 提示 LLM：这是一个纯粹的数据引用要求
                     suffix = "\n\n(System Note: When generating images, you MUST strictly adhere to the <visual_context_injection> descriptors provided above for character appearance and style.)"
-
                     if isinstance(last_msg.content, str):
                         last_msg.content += suffix
                     elif isinstance(last_msg.content, list):
@@ -110,8 +117,7 @@ DO NOT adopt a persona. DO NOT roleplay as a photographer. Continue acting as th
                             if isinstance(item, dict) and item.get("type") == "text":
                                 item["text"] += suffix
                                 break
+            else:
+                logger.debug(f"[Portrait] ProviderRequest 无 messages 属性，跳过 User Message 注入")
 
-            logger.debug(f"[LLM] Visual Prompt 已注入 (剩余 {turns} 轮)")
-            self.user_sessions[user_id] -= 1
-            if self.user_sessions[user_id] <= 0:
-                del self.user_sessions[user_id]
+            logger.debug(f"[LLM] Visual Prompt 已单次注入")
