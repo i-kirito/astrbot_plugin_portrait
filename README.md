@@ -52,6 +52,13 @@
 
 ## 🛠️ 开发日志
 
+### v2.5.0
+*   [Feature] **Prompt系统重构 v4.0 (Strict Mode)**：
+    *   引入 **[4步组装法]**：强制使用 `Final_Prompt = [Character] + [User_Var] + [Scenario] + [Camera]` 的公式拼接，杜绝 LLM 自行发挥产生幻觉。
+    *   **Logic Branching**：明确了场景（卧室/更衣室/自定义）和镜头（自拍/全身/默认）的 `IF/ELSE` 触发逻辑。
+    *   **Token优化**：精简了所有冗余的 Markdown 标题和说明，只保留核心 Prompt 标签。
+*   [Update] **视觉标签升级**：更新了默认的人物权重标签 (e.g., `(18 year old Asian girl:1.5)`) 和光影描述。
+
 ### v2.4.1
 *   [Fix] **自然语言覆盖**：大幅扩充了触发正则库，现在支持“看看你长啥样”、“看看在干嘛”、“爆照”、“给我康康”等更多口语化、间接化的拍照请求。
 
