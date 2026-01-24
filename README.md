@@ -52,6 +52,9 @@
 
 ## 🛠️ 开发日志
 
+### v2.5.1
+*   [Fix] **代码规范**：修复了 `main.py` 中 Prompt 模版结构与定义变量的不对应问题。将 "User Variable" 部分提取为 `DEF_USER_VAR` 常量，保持了代码逻辑的一致性。
+
 ### v2.5.0
 *   [Feature] **Prompt系统重构 v4.0 (Strict Mode)**：
     *   引入 **[4步组装法]**：强制使用 `Final_Prompt = [Character] + [User_Var] + [Scenario] + [Camera]` 的公式拼接，杜绝 LLM 自行发挥产生幻觉。

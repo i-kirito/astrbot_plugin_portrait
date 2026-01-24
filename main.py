@@ -5,7 +5,7 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "2.5.0")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "2.5.1")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -39,6 +39,10 @@ class PortraitPlugin(Star):
 
         self.DEF_MODE_PORTRAIT = """> , upper body shot, medium close-up, looking at camera, (dynamic random pose), (candid shot), high quality portrait, (detailed skin texture:1.2)"""
 
+        self.DEF_USER_VAR = """*   Outfit: 提取用户描述的服装。若无描述，填入: (white oversized t-shirt:1.1), (casual shorts), comfortable home wear.
+*   Action: 提取用户描述的动作。若无描述，填入: (looking at viewer), (sweet engaging smile).
+    *   *冲突处理:* 若用户指定动作（如“哭泣”、“生气”），则覆盖核心设定的“sweet smile”。"""
+
         # === 模板结构 v4.0 (Template Structure) ===
         self.TPL_HEADER = """# 图像生成核心系统指令 (Optimized Core System Instructions) v4.0 (Strict Mode)
 ## 0. 核心执行协议 (Execution Protocol) - CRITICAL
@@ -49,9 +53,7 @@ Final_Prompt = [1. Character_Base] + [2. User_Variable] + [3. Scenario_Logic] + 
 {content}"""
 
         self.TPL_STEP_2 = """## 2. 用户变量 [User_Variable] (动态填充)
-*   Outfit: 提取用户描述的服装。若无描述，填入: (white oversized t-shirt:1.1), (casual shorts), comfortable home wear.
-*   Action: 提取用户描述的动作。若无描述，填入: (looking at viewer), (sweet engaging smile).
-    *   *冲突处理:* 若用户指定动作（如“哭泣”、“生气”），则覆盖核心设定的“sweet smile”。"""
+{user_var}"""
 
         self.TPL_STEP_3 = """## 3. 场景逻辑 [Scenario_Logic] (三选一)
 根据用户意图，必须且只能选择下列 ONE 个场景块拼接到 Prompt 中：
@@ -88,7 +90,7 @@ Final_Prompt = [1. Character_Base] + [2. User_Variable] + [3. Scenario_Logic] + 
         self.full_prompt = (
             f"{self.TPL_HEADER}\n\n"
             f"{self.TPL_STEP_1.format(content=p_char_base)}\n\n"
-            f"{self.TPL_STEP_2}\n\n"
+            f"{self.TPL_STEP_2.format(user_var=self.DEF_USER_VAR)}\n\n"
             f"{self.TPL_STEP_3.format(scene_bedroom=p_scene_bed, scene_dressing=p_scene_dress, scene_custom=p_scene_cust)}\n\n"
             f"{self.TPL_STEP_4.format(mode_selfie=p_mode_selfie, mode_fullbody=p_mode_full, mode_portrait=p_mode_port)}\n\n"
             f"{self.TPL_FOOTER}\n\n"
