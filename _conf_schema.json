@@ -20,7 +20,7 @@
     "env_outdoor": {
         "type": "text",
         "description": "环境 C: 户外 (Instruction Only)",
-        "hint": "只填写指令。默认值：\nRemove indoor description, use user specified scene, force add `(blurred background), (bokeh), (natural lighting)`.",
+        "hint": "只填写指令。默认值：\nAnalyze the user's request (e.g., \"in the park\", \"at the beach\") or the current chat context/itinerary. Generate a scene description that matches the requested location. Force add: `(blurred background), (bokeh), (natural lighting)`.",
         "default": ""
     },
     "enable_safety_guard": {

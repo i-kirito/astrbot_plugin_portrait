@@ -5,7 +5,7 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.4.0")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.4.1")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -53,6 +53,7 @@ class PortraitPlugin(Star):
     > **{env_a}**
 
 * **Scenario B: 全身照模式 (Full Body Mode B)**
+    * *触发意图:* 当用户提及“看看穿搭”、“OOTD”、“全身照”时，强制使用此场景。
     * *场景:* **粉色梦幻更衣室 (Pink Dressing Room)**。
     * *Prompt Block:*
     > **{env_b}**
