@@ -1,5 +1,5 @@
 name: astrbot_plugin_portrait
-desc: AstrBot 人格注入插件 - 摄影师模式 (System Prompt Injection)
-version: v1.1.0
+desc: AstrBot 视觉上下文注入器 - 画图增强 (Visual Context Injector)
+version: v2.0.0
 author: ikirito
 repo: https://github.com/i-kirito/astrbot_plugin_portrait
