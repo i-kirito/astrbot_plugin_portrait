@@ -5,7 +5,7 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "2.3.3")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "2.3.4")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -13,7 +13,7 @@ class PortraitPlugin(Star):
 
         # [Trigger Regex]
         self.trigger_regex = re.compile(
-            r"(画|绘|生|造|搞|整|来|P|修|写).{0,10}(图|照|像|片)|"
+            r"(画|绘|生|造|搞|整|来|P|修|写|发|给).{0,10}(图|照|像|片)|"
             r"(拍|自).{0,10}(照|拍)|"
             r"(看|查|秀|显|露).{0,10}(穿搭|造型|样子|OOTD|脸)|"
             r"(美|帅|私)照|摄影|留念|记录.{0,10}(画面|瞬间)|"
