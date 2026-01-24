@@ -5,7 +5,7 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.1.0")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.1.1")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -25,11 +25,8 @@ class PortraitPlugin(Star):
         )
 
         # === 默认内容 (Content Only) ===
-        self.DEF_CHAR_IDENTITY = """> The subject is a young 18-year-old Asian girl with fair skin and delicate features. She has dusty rose pink hair featuring essential wispy air bangs. Her large, round, doll-like eyes are deep-set and natural dark brown, looking at the viewer with a sweet, engaging smile. She possesses a slender hourglass figure with a tiny waist and a full bust, emphasizing a natural soft tissue silhouette.
-
-* **面部与神态:** 18岁，娃娃般的大圆眼（深棕色），默认甜美微笑。
-* **头发特征:** 粉棕色发色。**必须保留轻薄的空气刘海 (essential wispy air bangs)**。这里散发只能在睡前以及睡醒两个阶段才能生成，其余时间为高马尾或者双马尾。
-* **身体特征:** 纤细沙漏型身材，极细腰，丰满胸部，强调自然质感。"""
+        # 默认人物设定为空，强制要求用户在后台配置
+        self.DEF_CHAR_IDENTITY = ""
 
         self.DEF_ENV_A = """(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones:1.1), (fairy lights on wall:1.1), bed filled with plushies, (shelves with anime figures:1.2), gaming setup background, cozy atmosphere, clear background details, (raw photo:1.2), (authentic skin texture:1.2), photorealistic"""
 

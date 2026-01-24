@@ -1,8 +1,8 @@
 {
     "char_identity": {
         "type": "text",
-        "description": "人物设定 (Content Only)",
-        "hint": "只填写描述内容，无需Markdown标题。默认值：\n> The subject is a young 18-year-old Asian girl...\n\n* **面部:** 18岁，娃娃脸...\n* **头发:** 粉棕色...",
+        "description": "人物设定 (Visuals & Identity)",
+        "hint": "【必填】请在此处填写角色的外貌描述。参考模板：\n> The subject is a young 18-year-old Asian girl with fair skin... (Visuals)\n\n* **Face:** ...\n* **Hair:** ...\n* **Body:** ...",
         "default": ""
     },
     "env_default": {
