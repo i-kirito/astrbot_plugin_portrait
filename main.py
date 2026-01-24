@@ -25,15 +25,15 @@ class PortraitPlugin(Star):
         # === 默认内容 (Content Only) ===
         self.DEF_CHAR_IDENTITY = """> **The subject is a young 18-year-old Asian girl with fair skin and delicate features. She has dusty rose pink hair featuring essential wispy air bangs. Her large, round, doll-like eyes are deep-set and natural dark brown. She possesses a slender hourglass figure with a tiny waist and a full bust, emphasizing a natural soft tissue silhouette.**"""
 
-        self.DEF_ENV_A = """(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones:1.1), (fairy lights on wall:1.1), bed filled with plushies, (shelves with anime figures:1.2), gaming setup background, cozy atmosphere, clear background details, (raw photo:1.2), (authentic skin texture:1.2), photorealistic"""
+        self.DEF_ENV_A = """(cute bedroom:1.3), (kawaii style:1.2), (natural window light:1.3), (warm indoor lamps), (pastel pink tones:1.2), fairy lights, plushies on bed, anime figures, gaming setup, cozy, (raw photo:1.2), photorealistic"""
 
-        self.DEF_ENV_B = """(indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4), (volumetric lighting), (shadows casting on floor:1.2), (white vanity table with large mirror), (pink fluffy stool), (white shelves filled with plush toys and pink accessories), (pink clothing rack with dresses), (pink utility cart), (pink curtains), (pink fluffy rugs), (pastel pink and white tones:1.2), cozy, kawaii aesthetic, (reflection in vanity mirror is blurred and indistinct:1.5), (focus away from reflection), (raw photo:1.2), (realistic texture:1.3), photorealistic"""
+        self.DEF_ENV_B = """(pink dressing room:1.4), (bright sunlight through sheer curtains:1.4), volumetric lighting, (white vanity with mirror), pink fluffy decor, clothing rack, (pastel pink and white:1.2), kawaii aesthetic, (mirror reflection blurred:1.5), (raw photo:1.2), photorealistic"""
 
-        self.DEF_ENV_C = """Ignore the bedroom/dressing room prompts above. Analyze the user's request (e.g., "in the park", "at the beach") or the current chat context/itinerary. Generate a scene description that matches the requested location. Force add: `(blurred background), (bokeh), (natural lighting)`."""
+        self.DEF_ENV_C = """根据用户指定地点生成场景。必须添加: (blurred background), (bokeh), (natural lighting)"""
 
         self.DEF_CAM_A = """, (mirror selfie style:1.2), holding phone, looking at phone screen or mirror, (realistic screen light reflection on face), cute pose, close-up POV shot, (phone camera noise:1.1)"""
 
-        self.DEF_CAM_B = """, full body shot, showing entire figure from head to toe, wide angle lens, far shot, (relaxed fashion pose:1.3), (shifting weight onto one leg), (casual stance), (slightly turned body), (one hand in pocket or touching hair), (natural movement snapshot), candid fashion photography, no phone, legs visible, shoes visible, (sharp focus on real person:1.4), (high dynamic range)"""
+        self.DEF_CAM_B = """, full body shot, head to toe visible, wide angle, far shot, (relaxed fashion pose:1.3), casual stance, (natural candid moment:1.4), (looking away from camera:1.2), (subtle closed-mouth smile:1.3), (dreamy soft gaze:1.2), (lost in thought expression:1.1), no phone, legs and shoes visible, (sharp focus:1.3), (fashion editorial style:1.2)"""
 
         self.DEF_CAM_C = """, upper body shot, medium close-up portrait, looking at camera, (dynamic random pose:1.2), (playful gestures:1.1), (expressive face), candid portrait, no phone, (detailed skin pores), (film grain:1.1)"""
 
@@ -47,39 +47,20 @@ class PortraitPlugin(Star):
 **Core Appearance (Always Active):**
 {content}"""
 
-        self.TPL_MIDDLE = """## 2. Action & Outfit (Contextual)
-*   **Outfit**: Use user's description. If unspecified, infer from scene (e.g., pajamas for bedroom) or keep default.
-*   **Action**: Prioritize user's requested action. Blend naturally with the character's personality."""
+        self.TPL_MIDDLE = """## 2. Outfit & Action
+**Outfit:** 用户指定 > 场景推断 (卧室→睡衣, 更衣室→时装) > 默认
+**Action:** 优先用户描述，自然融入角色性格"""
 
-        self.TPL_ENV = """## 3. 动态环境与风格 (Dynamic Environment & Style) - [真实光效版]
-**逻辑判断 (Logic Branching):**
-* **Scenario A: 默认情况 (自拍 Mode A / 半身照 Mode C)**
-    * *场景:* **温馨卧室 (Cozy Bedroom)**。
-    * *Prompt Block:*
-    > **{env_a}**
+        self.TPL_ENV = """## 3. Environment (场景选择)
+**A. 默认 (卧室):** 关键词无特殊指定时 → `{env_a}`
+**B. 全身照 (更衣室):** "穿搭/OOTD/全身" → `{env_b}`
+**C. 户外/指定场景:** 用户明确指定地点 → {env_c}"""
 
-* **Scenario B: 全身照模式 (Full Body Mode B)**
-    * *触发意图:* 当用户提及“看看穿搭”、“OOTD”、“全身照”时，强制使用此场景。
-    * *场景:* **粉色梦幻更衣室 (Pink Dressing Room)**。
-    * *Prompt Block:*
-    > **{env_b}**
-
-* **Scenario C: 户外/特定场景 (User Specified)**
-    * *操作:* {env_c}"""
-
-        self.TPL_CAM = """## 4. 摄影模式切换 (Photo Format Switching) - [强制重置逻辑]
-**指令:** 检查**当前用户输入 (Current Input)** 中的关键词。**不要**参考历史记录中的摄影模式。
-* **模式 A：自拍 (Selfie Mode)**
-    * *触发 (必须在当前句中出现):* “自拍”、“selfie”、“拿着手机”、“对镜自拍”。
-    * *Camera Params:* `{cam_a}`
-
-* **模式 B：全身照 (Full Body Shot)**
-    * *触发 (必须在当前句中出现):* “全身照”、“看看穿搭”、“full body”、”穿搭”。
-    * *Camera Params:* `{cam_b}`
-
-* **模式 C：默认/半身照 (Default)**
-    * *触发:* **当当前输入中没有上述 Mode A 或 Mode B 的关键词时，强制使用此模式。**
-    * *Camera Params:* `{cam_c}`"""
+        self.TPL_CAM = """## 4. Camera (镜头模式)
+检查**当前输入**关键词，忽略历史记录：
+**A. 自拍:** "自拍/selfie/对镜" → `{cam_a}`
+**B. 全身:** "全身照/穿搭/full body" → `{cam_b}`
+**C. 默认(半身):** 无上述关键词 → `{cam_c}`"""
 
         self.TPL_FOOTER = """---"""
 
