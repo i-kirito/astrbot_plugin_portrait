@@ -299,7 +299,7 @@ class PortraitPlugin(Star):
 
     @filter.command("拍照推送")
     async def cmd_push_photo(self, event: AstrMessageEvent):
-        """立即推送一次拍照到当前会话"""
+        """立即推送一次拍照到当前会话 - 触发 LLM 调用绘图工具"""
         # 随机选择问候语
         greetings = [
             "来啦来啦～给你拍张照片",
@@ -311,9 +311,38 @@ class PortraitPlugin(Star):
         greeting = random.choice(greetings)
         photo_prompt = f"{greeting}，帮我拍张自拍发给你～"
 
-        # 直接发送文本到当前会话
-        yield event.plain_result(photo_prompt)
-        logger.info(f"[Portrait] 手动推送拍照指令已发送到当前会话")
+        try:
+            # 获取当前使用的 LLM 提供者
+            provider = self.context.get_using_provider()
+            if not provider:
+                yield event.plain_result("未配置 LLM 提供者，无法生成照片")
+                return
+
+            # 构造带有 Visual Context 的请求
+            from astrbot.core.provider.entities import ProviderRequest
+            req = ProviderRequest(
+                prompt=photo_prompt,
+                session_id=event.unified_msg_origin
+            )
+            # 注入 Visual Context
+            req.system_prompt = self.full_prompt
+
+            # 调用 LLM 生成图片
+            response = await provider.text_chat(req)
+
+            # 发送 LLM 响应（包含图片）
+            if response and response.result_chain:
+                yield event.chain_result(response.result_chain)
+            elif response and response.completion_text:
+                yield event.plain_result(response.completion_text)
+            else:
+                yield event.plain_result("照片生成失败，请稍后重试")
+
+            logger.info(f"[Portrait] 手动推送拍照已完成")
+
+        except Exception as e:
+            logger.error(f"[Portrait] 调用 LLM 生成照片失败: {e}")
+            yield event.plain_result(f"照片生成失败: {e}")
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
