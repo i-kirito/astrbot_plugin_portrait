@@ -47,20 +47,39 @@ class PortraitPlugin(Star):
 **Core Appearance (Always Active):**
 {content}"""
 
-        self.TPL_MIDDLE = """## 2. Outfit & Action
-**Outfit:** 用户指定 > 场景推断 (卧室→睡衣, 更衣室→时装) > 默认
-**Action:** 优先用户描述，自然融入角色性格"""
+        self.TPL_MIDDLE = """## 2. 动态内容处理 (Handling User Input)
+* **穿搭 (Outfit):** 用户未指定时，默认保持简洁风格或根据场景补全。
+* **动作 (Action):** 自然融入用户描述的动作。如果动作/表情与核心设定的冲突，**以用户要求为准**"""
 
-        self.TPL_ENV = """## 3. Environment (场景选择)
-**A. 默认 (卧室):** 关键词无特殊指定时 → `{env_a}`
-**B. 全身照 (更衣室):** "穿搭/OOTD/全身" → `{env_b}`
-**C. 户外/指定场景:** 用户明确指定地点 → {env_c}"""
+        self.TPL_ENV = """## 3. 动态环境与风格 (Dynamic Environment & Style) - [真实光效版]
+**逻辑判断 (Logic Branching):**
+* **Scenario A: 默认情况 (自拍 Mode A / 半身照 Mode C)**
+    * *场景:* **温馨卧室 (Cozy Bedroom)**。
+    * *Prompt Block:*
+    > **{env_a}**
 
-        self.TPL_CAM = """## 4. Camera (镜头模式)
-检查**当前输入**关键词，忽略历史记录：
-**A. 自拍:** "自拍/selfie/对镜" → `{cam_a}`
-**B. 全身:** "全身照/穿搭/full body" → `{cam_b}`
-**C. 默认(半身):** 无上述关键词 → `{cam_c}`"""
+* **Scenario B: 全身照模式 (Full Body Mode B)**
+    * *触发意图:* 当用户提及"看看穿搭"、"OOTD"、"全身照"时，强制使用此场景。
+    * *场景:* **粉色梦幻更衣室 (Pink Dressing Room)**。
+    * *Prompt Block:*
+    > **{env_b}**
+
+* **Scenario C: 户外/特定场景 (User Specified)**
+    * *操作:* {env_c}"""
+
+        self.TPL_CAM = """## 4. 摄影模式切换 (Photo Format Switching) - [强制重置逻辑]
+**指令:** 检查**当前用户输入 (Current Input)** 中的关键词。**不要**参考历史记录中的摄影模式。
+* **模式 A：自拍 (Selfie Mode)**
+    * *触发 (必须在当前句中出现):* "自拍"、"selfie"、"拿着手机"、"对镜自拍"。
+    * *Camera Params:* `{cam_a}`
+
+* **模式 B：全身照 (Full Body Shot)**
+    * *触发 (必须在当前句中出现):* "全身照"、"看看穿搭"、"full body"、"穿搭"。
+    * *Camera Params:* `{cam_b}`
+
+* **模式 C：默认/半身照 (Default)**
+    * *触发:* **当当前输入中没有上述 Mode A 或 Mode B 的关键词时，强制使用此模式。**
+    * *Camera Params:* `{cam_c}`"""
 
         self.TPL_FOOTER = """---"""
 
