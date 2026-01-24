@@ -60,7 +60,7 @@
         "default": false
     },
     "proactive_morning_time": {
-        "type": "text",
+        "type": "string",
         "description": "早安拍照时间",
         "hint": "格式: HH:MM，例如 08:00",
         "default": "08:00"
@@ -72,7 +72,7 @@
         "default": false
     },
     "proactive_noon_time": {
-        "type": "text",
+        "type": "string",
         "description": "午间拍照时间",
         "hint": "格式: HH:MM，例如 12:00",
         "default": "12:00"
@@ -84,7 +84,7 @@
         "default": false
     },
     "proactive_evening_time": {
-        "type": "text",
+        "type": "string",
         "description": "晚安拍照时间",
         "hint": "格式: HH:MM，例如 22:00",
         "default": "22:00"
