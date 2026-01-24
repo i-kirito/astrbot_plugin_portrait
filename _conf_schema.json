@@ -23,15 +23,21 @@
         "hint": "只填写指令。默认值：\nRemove indoor description, use user specified scene, force add `(blurred background), (bokeh), (natural lighting)`.",
         "default": ""
     },
+    "enable_custom_camera": {
+        "type": "bool",
+        "description": "启用/注入摄影模式切换指令",
+        "hint": "【开关】\n开启 -> 向系统注入“摄影模式切换”逻辑 (包含自拍/全身/默认)，并使用下方参数。\n关闭 -> 不注入任何摄影模式指令，完全由模型自由发挥构图。",
+        "default": false
+    },
     "cam_selfie": {
         "type": "text",
-        "description": "镜头 A: 自拍 (Params Only)",
+        "description": "镜头 A: 自拍 (需开启上方开关)",
         "hint": "只填写镜头参数。默认值：\n, (mirror selfie style:1.2), holding phone, looking at phone screen or mirror...",
         "default": ""
     },
     "cam_fullbody": {
         "type": "text",
-        "description": "镜头 B: 全身 (Params Only)",
+        "description": "镜头 B: 全身 (需开启上方开关)",
         "hint": "只填写镜头参数。默认值：\n, full body shot, showing entire figure from head to toe, wide angle lens...",
         "default": ""
     }

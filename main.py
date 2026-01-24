@@ -5,7 +5,7 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.1.4")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.2.1")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -43,7 +43,7 @@ class PortraitPlugin(Star):
         self.TPL_HEADER = """# 图像生成核心系统指令 (Optimized Core System Instructions)
 ## 0. 提示词构建逻辑 (Prompt Construction Logic)
 **[Important] The final prompt MUST be constructed in this order:**
-`[1. Character Visuals] + [2. User's Outfit & Action] + [4. Dynamic Environment & Style] + [6. Camera Parameters]`"""
+`[1. Character Visuals] + [2. User's Outfit & Action] + [3. Dynamic Environment & Style] + [4. Camera Parameters]`"""
 
         self.TPL_CHAR = """## 1. 角色视觉核心 (Character Visuals) - [不可变前缀]
 **Block 1 (Always Start with):**
@@ -53,7 +53,7 @@ class PortraitPlugin(Star):
 * **穿搭 (Outfit):** 用户未指定时，默认保持简洁风格或根据场景补全。
 * **动作 (Action):** 自然融入用户描述的动作。如果动作/表情与核心设定的冲突，**以用户要求为准**"""
 
-        self.TPL_ENV = """## 4. 动态环境与风格 (Dynamic Environment & Style) - [真实光效版]
+        self.TPL_ENV = """## 3. 动态环境与风格 (Dynamic Environment & Style) - [真实光效版]
 **逻辑判断 (Logic Branching):**
 * **Scenario A: 默认情况 (自拍 Mode A / 半身照 Mode C)**
     * *场景:* **温馨卧室 (Cozy Bedroom)**。
@@ -68,7 +68,7 @@ class PortraitPlugin(Star):
 * **Scenario C: 户外/特定场景 (User Specified)**
     * *操作:* {env_c}"""
 
-        self.TPL_CAM = """## 6. 摄影模式切换 (Photo Format Switching) - [强制重置逻辑]
+        self.TPL_CAM = """## 4. 摄影模式切换 (Photo Format Switching) - [强制重置逻辑]
 **指令:** 检查**当前用户输入 (Current Input)** 中的关键词。**不要**参考历史记录中的摄影模式。
 * **模式 A：自拍 (Selfie Mode)**
     * *触发 (必须在当前句中出现):* “自拍”、“selfie”、“拿着手机”、“对镜自拍”。
@@ -89,9 +89,19 @@ class PortraitPlugin(Star):
         p_env_a = self.config.get("env_default") or self.DEF_ENV_A
         p_env_b = self.config.get("env_fullbody") or self.DEF_ENV_B
         p_env_c = self.config.get("env_outdoor") or self.DEF_ENV_C
-        p_cam_a = self.config.get("cam_selfie") or self.DEF_CAM_A
-        p_cam_b = self.config.get("cam_fullbody") or self.DEF_CAM_B
-        p_cam_c = self.DEF_CAM_C
+
+        # 镜头参数逻辑：根据开关决定是否注入
+        enable_custom_cam = self.config.get("enable_custom_camera", False)
+
+        if enable_custom_cam:
+            p_cam_a = self.config.get("cam_selfie") or self.DEF_CAM_A
+            p_cam_b = self.config.get("cam_fullbody") or self.DEF_CAM_B
+            p_cam_c = self.DEF_CAM_C
+            # 格式化 Camera 部分
+            section_camera = self.TPL_CAM.format(cam_a=p_cam_a, cam_b=p_cam_b, cam_c=p_cam_c)
+        else:
+            # 关闭开关：完全不注入 Camera Logic
+            section_camera = ""
 
         # === 核心 Prompt 组装 ===
         self.full_prompt = (
@@ -99,7 +109,7 @@ class PortraitPlugin(Star):
             f"{self.TPL_CHAR.format(content=p_char_id)}\n\n"
             f"{self.TPL_MIDDLE}\n\n"
             f"{self.TPL_ENV.format(env_a=p_env_a, env_b=p_env_b, env_c=p_env_c)}\n\n"
-            f"{self.TPL_CAM.format(cam_a=p_cam_a, cam_b=p_cam_b, cam_c=p_cam_c)}\n\n"
+            f"{section_camera}\n\n"
             f"{self.TPL_FOOTER}\n\n"
             f"--- END CONTEXT DATA ---"
         )
