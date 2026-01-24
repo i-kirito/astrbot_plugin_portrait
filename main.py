@@ -297,6 +297,24 @@ class PortraitPlugin(Star):
             self.scheduler.shutdown()
             logger.info("[Portrait] 已停止定时任务")
 
+    @filter.command("拍照推送")
+    async def cmd_push_photo(self, event: AstrMessageEvent):
+        """立即推送一次拍照到当前会话"""
+        # 随机选择问候语
+        greetings = [
+            "来啦来啦～给你拍张照片",
+            "好的，马上拍一张给你看",
+            "等一下哦，我拍张自拍～",
+            "收到！看看我现在的样子吧"
+        ]
+
+        greeting = random.choice(greetings)
+        photo_prompt = f"{greeting}，帮我拍张自拍发给你～"
+
+        # 直接发送到当前会话
+        await event.send(Comp.Plain(photo_prompt))
+        logger.info(f"[Portrait] 手动推送拍照指令已发送到当前会话")
+
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
         # v1.6.0: One-Shot 单次注入策略
