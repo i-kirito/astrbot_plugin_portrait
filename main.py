@@ -5,7 +5,7 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "Prompt注入器 (无摄影师人格)", "2.2.1")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "2.2.2")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -57,7 +57,7 @@ IMPORTANT: The following data provides visual descriptors for the current charac
             f"{p_char_id}\n\n"
             f"{p_env_def}\n{p_env_full}\n{p_env_out}\n\n"
             f"{p_cam_selfie}\n{p_cam_full}\n{p_cam_def}\n\n"
-            f"--- [上述状态仅供需要时参考，无需主动提及] ---"
+            f"--- END CONTEXT DATA ---"
         )
 
     @filter.on_llm_request()
