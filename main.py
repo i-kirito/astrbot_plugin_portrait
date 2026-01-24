@@ -311,38 +311,14 @@ class PortraitPlugin(Star):
         greeting = random.choice(greetings)
         photo_prompt = f"{greeting}，帮我拍张自拍发给你～"
 
-        try:
-            # 获取当前使用的 LLM 提供者
-            provider = self.context.get_using_provider()
-            if not provider:
-                yield event.plain_result("未配置 LLM 提供者，无法生成照片")
-                return
-
-            # 直接调用 LLM，传递 prompt 和 system_prompt
-            response = await provider.text_chat(
-                prompt=photo_prompt,
-                session_id=event.unified_msg_origin,
-                image_urls=[],
-                func_tool_manager=None,
-                system_prompt=self.full_prompt
-            )
-
-            # 发送 LLM 响应
-            if response:
-                # 优先使用 completion_text
-                text = getattr(response, 'completion_text', None)
-                if text:
-                    yield event.plain_result(text)
-                else:
-                    yield event.plain_result("照片生成失败，请稍后重试")
-            else:
-                yield event.plain_result("照片生成失败，请稍后重试")
-
-            logger.info(f"[Portrait] 手动推送拍照已完成")
-
-        except Exception as e:
-            logger.error(f"[Portrait] 调用 LLM 生成照片失败: {e}")
-            yield event.plain_result(f"照片生成失败: {e}")
+        # 使用 request_llm 触发完整的 LLM 流程（包括工具调用）
+        # Visual Context 会通过 on_llm_request hook 自动注入
+        yield event.request_llm(
+            prompt=photo_prompt,
+            func_tool_manager=self.context.get_llm_tool_manager(),
+            session_id=event.unified_msg_origin
+        )
+        logger.info(f"[Portrait] 手动推送拍照已触发 LLM 流程")
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
