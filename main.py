@@ -5,7 +5,7 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "2.3.1")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "2.3.2")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -32,7 +32,7 @@ class PortraitPlugin(Star):
 
         self.DEF_ENV_B = """(indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4), (volumetric lighting), (shadows casting on floor:1.2), (white vanity table with large mirror), (pink fluffy stool), (white shelves filled with plush toys and pink accessories), (pink clothing rack with dresses), (pink utility cart), (pink curtains), (pink fluffy rugs), (pastel pink and white tones:1.2), cozy, kawaii aesthetic, (reflection in vanity mirror is blurred and indistinct:1.5), (focus away from reflection), (raw photo:1.2), (realistic texture:1.3), photorealistic"""
 
-        self.DEF_ENV_C = """Remove indoor description, use user specified scene, force add `(blurred background), (bokeh), (natural lighting)`."""
+        self.DEF_ENV_C = """Ignore the bedroom/dressing room prompts above. Analyze the user's request (e.g., "in the park", "at the beach") or the current chat context/itinerary. Generate a scene description that matches the requested location. Force add: `(blurred background), (bokeh), (natural lighting)`."""
 
         self.DEF_CAM_A = """, (mirror selfie style:1.2), holding phone, looking at phone screen or mirror, (realistic screen light reflection on face), cute pose, close-up POV shot, (phone camera noise:1.1)"""
 
@@ -56,18 +56,19 @@ class PortraitPlugin(Star):
 * **动作 (Action):** 自然融入用户描述的动作。如果动作/表情与核心设定的“sweet smile”冲突，**以用户要求为准**。"""
 
         self.TPL_ENV = """## 4. 动态环境与风格 (Dynamic Environment & Style)
-* **Scenario A: 默认情况 (自拍 Mode A / 半身照 Mode C)**
-    * *场景:* **温馨卧室 (Cozy Bedroom)**。
-    * *Prompt Block:*
-    > **{env_a}**
+* **Scenario A: 默认情况 (Default)**
+    * *触发:* 默认情况，或用户未指定特定地点时。
+    * *Scene:* **温馨卧室 (Cozy Bedroom)**。
+    * *Prompt:* > **{env_a}**
 
-* **Scenario B: 全身照模式 (Full Body Mode B)**
-    * *场景:* **粉色梦幻更衣室 (Pink Dressing Room)**。
-    * *Prompt Block:*
-    > **{env_b}**
+* **Scenario B: 查看穿搭 (Outfit Check)**
+    * *触发:* 当用户要求“看看穿搭”、“全身照”时。
+    * *Scene:* **更衣室 (Dressing Room)**。
+    * *Prompt:* > **{env_b}**
 
-* **Scenario C: 户外/特定场景 (User Specified)**
-    * *操作:* {env_c}"""
+* **Scenario C: 行程与动态场景 (Itinerary & Dynamic)**
+    * *触发:* 当用户指定了地点（如“去海边”、“在公园”）或根据当前对话行程判断需要改变场景时。
+    * *Action:* {env_c}"""
 
         self.TPL_CAM = """## 6. 摄影模式切换 (Photo Format Switching)
 * **模式 A：自拍 (Selfie Mode)**
