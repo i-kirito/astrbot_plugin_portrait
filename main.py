@@ -318,22 +318,19 @@ class PortraitPlugin(Star):
                 yield event.plain_result("未配置 LLM 提供者，无法生成照片")
                 return
 
-            # 构造带有 Visual Context 的请求
-            from astrbot.core.provider.entities import ProviderRequest
-            req = ProviderRequest(
+            # 直接调用 LLM，传递 prompt 和 system_prompt
+            response = await provider.text_chat(
                 prompt=photo_prompt,
-                session_id=event.unified_msg_origin
+                session_id=event.unified_msg_origin,
+                image_urls=[],
+                func_tool_manager=None,
+                system_prompt=self.full_prompt
             )
-            # 注入 Visual Context
-            req.system_prompt = self.full_prompt
-
-            # 调用 LLM 生成图片
-            response = await provider.text_chat(req)
 
             # 发送 LLM 响应（包含图片）
-            if response and response.result_chain:
+            if response and hasattr(response, 'result_chain') and response.result_chain:
                 yield event.chain_result(response.result_chain)
-            elif response and response.completion_text:
+            elif response and hasattr(response, 'completion_text') and response.completion_text:
                 yield event.plain_result(response.completion_text)
             else:
                 yield event.plain_result("照片生成失败，请稍后重试")
