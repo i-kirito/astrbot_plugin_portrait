@@ -31,21 +31,19 @@ class PortraitPlugin(Star):
 
         self.DEF_CAM_C = """, upper body shot, medium close-up portrait, looking at camera, (dynamic random pose:1.2), (playful gestures:1.1), (expressive face), candid portrait, no phone, (detailed skin pores), (film grain:1.1)"""
 
-        self.DEF_NEGATIVE = """(nsfw:2.0), (nude), (worst quality:1.4), (low quality:1.4), (bad anatomy), (bad hands), (text), (error), (missing fingers), (extra digit), (fewer digits), (cropped), (jpeg artifacts), (signature), (watermark), (username), (blurry), (extra limbs), (fused fingers), (too many fingers), (long neck), (mutated hands), (polar lowres)"""
+        self.TPL_HEADER = """# Visual Context Injection (System Override)
+## 0. Chain of Thought & Trigger Logic
+1.  **Analyze User Intent**: specific keywords like "draw", "photo", "selfie", "show me", "look at you", or implicitly asking for a visual representation.
+2.  **If Drawing Intent Detected**: You MUST incorporate the Visual Data below into your image generation prompt.
+3.  **Prompt Structure**: `[Character Visuals] + [User Action/Outfit] + [Environment] + [Camera]`"""
 
-        # === 模板结构 (Template Structure) ===
-        self.TPL_HEADER = """# 图像生成核心系统指令 (Optimized Core System Instructions)
-## 0. 提示词构建逻辑 (Prompt Construction Logic)
-**[Important] The final prompt MUST be constructed in this order:**
-`[1. Character Visuals] + [2. User's Outfit & Action] + [3. Dynamic Environment & Style] + [4. Camera Parameters] + [5. Negative Prompt]`"""
-
-        self.TPL_CHAR = """## 1. 角色视觉核心 (Character Visuals) - [不可变前缀]
-**Block 1 (Always Start with):**
+        self.TPL_CHAR = """## 1. Character Visuals (Fixed Identity)
+**Core Appearance (Always Active):**
 {content}"""
 
-        self.TPL_MIDDLE = """## 2. 动态内容处理 (Handling User Input)
-* **穿搭 (Outfit):** 用户未指定时，默认保持简洁风格或根据场景补全。
-* **动作 (Action):** 自然融入用户描述的动作。如果动作/表情与核心设定的冲突，**以用户要求为准**"""
+        self.TPL_MIDDLE = """## 2. Action & Outfit (Contextual)
+*   **Outfit**: Use user's description. If unspecified, infer from scene (e.g., pajamas for bedroom) or keep default.
+*   **Action**: Prioritize user's requested action. Blend naturally with the character's personality."""
 
         self.TPL_ENV = """## 3. 动态环境与风格 (Dynamic Environment & Style) - [真实光效版]
 **逻辑判断 (Logic Branching):**
@@ -77,10 +75,6 @@ class PortraitPlugin(Star):
     * *触发:* **当当前输入中没有上述 Mode A 或 Mode B 的关键词时，强制使用此模式。**
     * *Camera Params:* `{cam_c}`"""
 
-        self.TPL_NEGATIVE = """## 5. 负面提示与安全 (Negative Prompt & Safety) - [CRITICAL]
-为了防止画面崩坏或违规，生成图片时**必须**在参数中携带以下负面提示词 (Negative Prompt)：
-> {negative_content}"""
-
         self.TPL_FOOTER = """---"""
 
         # 读取用户配置
@@ -102,14 +96,6 @@ class PortraitPlugin(Star):
             # 关闭开关：完全不注入 Camera Logic
             section_camera = ""
 
-        # 安全守卫逻辑
-        enable_safety = self.config.get("enable_safety_guard", True)
-        if enable_safety:
-            p_neg = self.config.get("negative_content") or self.DEF_NEGATIVE
-            section_negative = self.TPL_NEGATIVE.format(negative_content=p_neg)
-        else:
-            section_negative = ""
-
         # === 核心 Prompt 组装 ===
         self.full_prompt = (
             f"{self.TPL_HEADER}\n\n"
@@ -117,7 +103,6 @@ class PortraitPlugin(Star):
             f"{self.TPL_MIDDLE}\n\n"
             f"{self.TPL_ENV.format(env_a=p_env_a, env_b=p_env_b, env_c=p_env_c)}\n\n"
             f"{section_camera}\n\n"
-            f"{section_negative}\n\n"
             f"{self.TPL_FOOTER}\n\n"
             f"--- END CONTEXT DATA ---"
         )

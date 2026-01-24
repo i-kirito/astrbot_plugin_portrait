@@ -43,8 +43,6 @@
 | **enable_custom_camera** | 是否启用自定义镜头参数 (开关)。 |
 | **cam_selfie** | 自拍镜头参数 (需开启开关)。 |
 | **cam_fullbody** | 全身镜头参数 (需开启开关)。 |
-| **enable_safety_guard** | 安全与质量守卫开关 (默认开启)。 |
-| **negative_content** | 负面提示词内容 (Negative Prompt)。 |
 
 ## 🛠️ 版本日志
 
