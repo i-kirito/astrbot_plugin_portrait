@@ -54,6 +54,12 @@
 
 ## 🛠️ 版本日志
 
+### v1.1.4
+*   [Refactor] **输出格式定制**：根据用户需求调整了 System Prompt 的最终输出结构。
+    *   恢复了默认的 "18-year-old Asian girl" 人物设定作为兜底。
+    *   调整了段落编号：Section 2 为动态内容处理，Section 4 为环境逻辑。
+    *   精简了结尾，移除了额外的交互准则，确保 Prompt 更加紧凑。
+
 ### v1.1.3
 *   [Refactor] **Prompt结构重构**：完全按照用户指定的 v3.7 格式重写了 System Prompt 模板，包含精准的 `Logic Branching` 和 `Format Switching` 指令，移除冗余的尾部指令，确保注入内容与预期完全一致。
 

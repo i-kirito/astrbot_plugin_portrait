@@ -5,7 +5,7 @@ from astrbot.core.provider.entities import ProviderRequest
 import re
 import copy
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.1.3")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.1.4")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -25,8 +25,7 @@ class PortraitPlugin(Star):
         )
 
         # === 默认内容 (Content Only) ===
-        # 默认人物设定为空，强制要求用户在后台配置
-        self.DEF_CHAR_IDENTITY = ""
+        self.DEF_CHAR_IDENTITY = """> **The subject is a young 18-year-old Asian girl with fair skin and delicate features. She has dusty rose pink hair featuring essential wispy air bangs. Her large, round, doll-like eyes are deep-set and natural dark brown. She possesses a slender hourglass figure with a tiny waist and a full bust, emphasizing a natural soft tissue silhouette.**"""
 
         self.DEF_ENV_A = """(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones:1.1), (fairy lights on wall:1.1), bed filled with plushies, (shelves with anime figures:1.2), gaming setup background, cozy atmosphere, clear background details, (raw photo:1.2), (authentic skin texture:1.2), photorealistic"""
 
@@ -41,16 +40,18 @@ class PortraitPlugin(Star):
         self.DEF_CAM_C = """, upper body shot, medium close-up portrait, looking at camera, (dynamic random pose:1.2), (playful gestures:1.1), (expressive face), candid portrait, no phone, (detailed skin pores), (film grain:1.1)"""
 
         # === 模板结构 (Template Structure) ===
-        self.TPL_HEADER = """# 图像生成核心系统指令 (Optimized Core System Instructions) v3.7
+        self.TPL_HEADER = """# 图像生成核心系统指令 (Optimized Core System Instructions)
 ## 0. 提示词构建逻辑 (Prompt Construction Logic)
 **[Important] The final prompt MUST be constructed in this order:**
 `[1. Character Visuals] + [2. User's Outfit & Action] + [4. Dynamic Environment & Style] + [6. Camera Parameters]`"""
 
-        self.TPL_CHAR = """{content}"""
+        self.TPL_CHAR = """## 1. 角色视觉核心 (Character Visuals) - [不可变前缀]
+**Block 1 (Always Start with):**
+{content}"""
 
-        self.TPL_MIDDLE = """## 3. 动态内容处理 (Handling User Input)
+        self.TPL_MIDDLE = """## 2. 动态内容处理 (Handling User Input)
 * **穿搭 (Outfit):** 用户未指定时，默认保持简洁风格或根据场景补全。
-* **动作 (Action):** 自然融入用户描述的动作。如果动作/表情与核心设定的“sweet smile”冲突，**以用户要求为准**。"""
+* **动作 (Action):** 自然融入用户描述的动作。如果动作/表情与核心设定的冲突，**以用户要求为准**"""
 
         self.TPL_ENV = """## 4. 动态环境与风格 (Dynamic Environment & Style) - [真实光效版]
 **逻辑判断 (Logic Branching):**
