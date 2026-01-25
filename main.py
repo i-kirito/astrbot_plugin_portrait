@@ -128,11 +128,14 @@ class PortraitPlugin(Star):
 
         # === v1.7.0: 主动拍照定时任务 ===
         self.scheduler = None
-        self._setup_proactive_photo()
+        self._scheduler_started = False
+        # 延迟启动 scheduler，因为 __init__ 时事件循环可能未准备好
+        self._init_scheduler_jobs()
 
-    def _setup_proactive_photo(self):
-        """配置主动拍照定时任务"""
+    def _init_scheduler_jobs(self):
+        """初始化定时任务配置（不启动 scheduler）"""
         if not HAS_APSCHEDULER:
+            logger.warning("[Portrait] apscheduler 未安装，定时推送功能不可用")
             return
 
         # 检查是否启用
@@ -146,14 +149,31 @@ class PortraitPlugin(Star):
             logger.warning("[Portrait] 定时推送已启用，但未配置目标群组列表")
             return
 
+        # 获取推送时间
+        push_times = self.config.get("proactive_time", "08:00,22:00")
+        self._scheduled_times = [t.strip() for t in push_times.split(",") if t.strip()]
+
+        if self._scheduled_times:
+            logger.info(f"[Portrait] 定时推送已配置，共 {len(self._scheduled_times)} 个时间点: {', '.join(self._scheduled_times)}")
+
+    def _ensure_scheduler_started(self):
+        """确保 scheduler 已启动（在事件循环运行后调用）"""
+        if self._scheduler_started or not HAS_APSCHEDULER:
+            return
+
+        if not self.config.get("proactive_enabled", False):
+            return
+
+        if not hasattr(self, '_scheduled_times') or not self._scheduled_times:
+            return
+
         try:
+            from apscheduler.schedulers.asyncio import AsyncIOScheduler
+            from apscheduler.triggers.cron import CronTrigger
+
             self.scheduler = AsyncIOScheduler()
 
-            # 获取推送时间 (支持多个时间，逗号分隔)
-            push_times = self.config.get("proactive_time", "08:00,22:00")
-            time_list = [t.strip() for t in push_times.split(",") if t.strip()]
-
-            for idx, time_str in enumerate(time_list):
+            for idx, time_str in enumerate(self._scheduled_times):
                 try:
                     hour, minute = time_str.split(":")
                     hour_int = int(hour)
@@ -176,13 +196,14 @@ class PortraitPlugin(Star):
                 except ValueError:
                     logger.warning(f"[Portrait] 时间格式错误，跳过: {time_str}")
 
-            if time_list:
-                logger.info(f"[Portrait] 定时推送已启动，共 {len(time_list)} 个时间点，目标数: {len(target_list)}")
-
             self.scheduler.start()
+            self._scheduler_started = True
+            logger.info(f"[Portrait] 定时推送 scheduler 已启动")
 
         except Exception as e:
             logger.error(f"[Portrait] 启动定时任务失败: {e}")
+            import traceback
+            traceback.print_exc()
 
     async def _send_proactive_photo(self, time_period: str = None):
         """执行主动拍照并发送到所有目标
@@ -412,6 +433,9 @@ class PortraitPlugin(Star):
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
+        # 确保 scheduler 已启动（延迟启动，此时事件循环已运行）
+        self._ensure_scheduler_started()
+
         # v1.6.0: One-Shot 单次注入策略
         # 仅在检测到绘图意图时注入 Visual Context
 
