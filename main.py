@@ -258,8 +258,26 @@ class PortraitPlugin(Star):
         使用 tool_loop_agent 调用 LLM 生成图片，然后直接发送到群组
         """
         try:
-            # 构建绘图提示词（让 LLM 调用绘图工具）
-            draw_prompt = f"请画一张自拍照片，场景是{time_period == 'morning' and '早晨刚起床' or time_period == 'afternoon' and '下午休闲' or '晚上'}的样子。"
+            # 随机选择拍照模式（自拍/全身/半身）
+            photo_modes = [
+                ("自拍", "拍一张对镜自拍"),
+                ("全身照", "拍一张全身穿搭照"),
+                ("半身照", "拍一张半身照")
+            ]
+            mode_name, mode_desc = random.choice(photo_modes)
+
+            # 根据时段构建场景描述
+            time_scenes = {
+                "morning": "早晨刚起床，阳光透过窗帘",
+                "afternoon": "下午休闲时光，温馨惬意",
+                "evening": "晚上，柔和的灯光"
+            }
+            scene = time_scenes.get(time_period, time_scenes["evening"])
+
+            # 构建绘图提示词
+            draw_prompt = f"请{mode_desc}，场景是{scene}的样子。"
+
+            logger.info(f"[Portrait] 推送模式: {mode_name}，提示词: {draw_prompt}")
 
             # 尝试使用 tool_loop_agent 调用 LLM
             llm_response = None
