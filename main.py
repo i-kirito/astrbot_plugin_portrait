@@ -17,7 +17,7 @@ except ImportError:
     HAS_APSCHEDULER = False
     logger.warning("[Portrait] apscheduler 未安装，主动拍照功能已禁用。可通过 pip install apscheduler 安装。")
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.8.1")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.8.2")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -232,30 +232,70 @@ class PortraitPlugin(Star):
             else:
                 time_period = "evening"
 
-        # 时段对应的问候语
+        # 时段对应的问候语（仅问候，不要求回复）
         period_greetings = {
-            "morning": ["早安～", "早上好呀～", "新的一天开始啦～"],
-            "afternoon": ["下午好～", "午安～", "来看看我在干嘛～"],
-            "evening": ["晚安～", "晚上好呀～", "睡前来看看我吧～"]
+            "morning": ["早安～", "早上好呀～", "新的一天开始啦～", "起床啦～"],
+            "afternoon": ["下午好～", "午安～", "下午茶时间～"],
+            "evening": ["晚安～", "晚上好呀～", "睡前问候～", "今天辛苦了～"]
         }
 
         greeting = random.choice(period_greetings.get(time_period, period_greetings["evening"]))
-        photo_prompt = f"{greeting} 发张自拍"
 
-        logger.info(f"[Portrait] 开始执行定时推送 ({time_period})，目标数: {len(target_list)}，提示词: {photo_prompt}")
+        logger.info(f"[Portrait] 开始执行定时推送 ({time_period})，目标数: {len(target_list)}")
 
-        # 向所有目标发送触发消息，让用户会话中的 LLM 处理
+        # 向所有目标生成图片并发送
         for target_id in target_list:
             try:
-                await self._trigger_photo_in_session(str(target_id), photo_prompt)
+                await self._generate_and_send_photo(str(target_id), greeting, time_period)
             except Exception as e:
                 logger.error(f"[Portrait] 推送到 {target_id} 失败: {e}")
                 import traceback
                 traceback.print_exc()
 
-    async def _trigger_photo_in_session(self, target_id: str, prompt: str):
-        """在目标会话中触发拍照请求"""
-        # 尝试通过 AstrBot 的消息发送接口发送触发消息
+    async def _generate_and_send_photo(self, target_id: str, greeting: str, time_period: str):
+        """生成图片并发送到目标群组
+
+        使用 tool_loop_agent 调用 LLM 生成图片，然后直接发送到群组
+        """
+        try:
+            # 构建绘图提示词（让 LLM 调用绘图工具）
+            draw_prompt = f"请画一张自拍照片，场景是{time_period == 'morning' and '早晨刚起床' or time_period == 'afternoon' and '下午休闲' or '晚上'}的样子。"
+
+            # 尝试使用 tool_loop_agent 调用 LLM
+            llm_response = None
+            try:
+                # 获取当前 Provider ID
+                provider_id = None
+                if hasattr(self.context, 'get_using_provider'):
+                    provider = self.context.get_using_provider()
+                    if provider and hasattr(provider, 'provider_id'):
+                        provider_id = provider.provider_id
+
+                if hasattr(self.context, 'tool_loop_agent'):
+                    # 使用 tool_loop_agent 调用 LLM（带工具支持）
+                    llm_response = await self.context.tool_loop_agent(
+                        event=None,  # 无事件触发
+                        chat_provider_id=provider_id,
+                        prompt=draw_prompt,
+                        system_prompt=self.full_prompt,  # 注入 Visual Context
+                        max_steps=10,
+                        tool_call_timeout=120
+                    )
+                    logger.info(f"[Portrait] LLM 生成完成: {type(llm_response)}")
+            except Exception as e:
+                logger.warning(f"[Portrait] tool_loop_agent 调用失败: {e}")
+                llm_response = None
+
+            # 获取平台并发送消息
+            await self._send_message_to_target(target_id, greeting, llm_response)
+
+        except Exception as e:
+            logger.error(f"[Portrait] _generate_and_send_photo 异常: {e}")
+            import traceback
+            traceback.print_exc()
+
+    async def _send_message_to_target(self, target_id: str, greeting: str, llm_response=None):
+        """发送消息到目标群组"""
         try:
             # 获取平台管理器
             platforms = []
@@ -289,8 +329,6 @@ class PortraitPlugin(Star):
                 if platform_filter and platform_name != platform_filter:
                     continue
 
-                logger.debug(f"[Portrait] 尝试通过平台 {platform_name} 发送")
-
                 # 尝试获取底层客户端
                 client = None
                 for attr in ['client', 'bot', '_client', '_bot']:
@@ -308,19 +346,38 @@ class PortraitPlugin(Star):
                         call_action = client.api.call_action
 
                     if call_action:
-                        msg_payload = [{"type": "text", "data": {"text": f"[定时推送] {prompt}"}}]
+                        # 构建消息：问候语 + LLM 返回内容（如果有图片）
+                        message_parts = []
 
-                        # 尝试群聊
+                        # 添加问候语
+                        message_parts.append({"type": "text", "data": {"text": greeting}})
+
+                        # 如果 LLM 返回了内容，尝试解析图片
+                        if llm_response:
+                            response_text = ""
+                            if hasattr(llm_response, 'completion_text'):
+                                response_text = llm_response.completion_text or ""
+                            elif isinstance(llm_response, str):
+                                response_text = llm_response
+
+                            # 尝试提取图片 URL
+                            import re
+                            img_urls = re.findall(r'https?://[^\s\]\)]+\.(?:jpg|jpeg|png|gif|webp)', response_text, re.IGNORECASE)
+                            for url in img_urls[:1]:  # 只取第一张图
+                                message_parts.append({"type": "image", "data": {"url": url}})
+                                logger.info(f"[Portrait] 提取到图片 URL: {url}")
+
+                        # 尝试群聊发送
                         try:
-                            await call_action("send_group_msg", group_id=uid_int, message=msg_payload)
+                            await call_action("send_group_msg", group_id=uid_int, message=message_parts)
                             logger.info(f"[Portrait] 定时推送成功 (群 {uid_int})")
                             return True
                         except Exception as e1:
                             logger.debug(f"[Portrait] 群聊发送失败: {e1}")
 
-                        # 尝试私聊
+                        # 尝试私聊发送
                         try:
-                            await call_action("send_private_msg", user_id=uid_int, message=msg_payload)
+                            await call_action("send_private_msg", user_id=uid_int, message=message_parts)
                             logger.info(f"[Portrait] 定时推送成功 (私聊 {uid_int})")
                             return True
                         except Exception as e2:
@@ -330,7 +387,7 @@ class PortraitPlugin(Star):
             return False
 
         except Exception as e:
-            logger.error(f"[Portrait] _trigger_photo_in_session 异常: {e}")
+            logger.error(f"[Portrait] _send_message_to_target 异常: {e}")
             import traceback
             traceback.print_exc()
             return False
