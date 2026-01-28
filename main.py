@@ -457,8 +457,9 @@ class PortraitPlugin(Star):
 
         # 使用 request_llm 触发完整的 LLM 流程（包括工具调用）
         # Visual Context 会通过 on_llm_request hook 自动注入
+        # 添加指令：第一次响应只调用工具，不发文字，避免重复消息
         yield event.request_llm(
-            prompt=photo_prompt,
+            prompt=f"{photo_prompt}（请直接调用绘图工具生成图片，生成完成后再回复文字）",
             func_tool_manager=self.context.get_llm_tool_manager(),
             session_id=event.unified_msg_origin
         )
