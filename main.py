@@ -17,7 +17,7 @@ except ImportError:
     HAS_APSCHEDULER = False
     logger.warning("[Portrait] apscheduler 未安装，主动拍照功能已禁用。可通过 pip install apscheduler 安装。")
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.7.0")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.8.1")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -126,6 +126,12 @@ class PortraitPlugin(Star):
             f"--- END CONTEXT DATA ---"
         )
 
+        # === v1.8.1: 注入轮次控制 ===
+        # 每个会话的剩余注入次数 {session_id: remaining_count}
+        self.injection_counter = {}
+        # 从配置读取注入轮次，默认为 1（单次注入）
+        self.injection_rounds = max(1, self.config.get("injection_rounds", 1))
+
         # === v1.7.0: 主动拍照定时任务 ===
         self.scheduler = None
         self._scheduler_started = False
@@ -226,92 +232,32 @@ class PortraitPlugin(Star):
             else:
                 time_period = "evening"
 
-        # 时段对应的问候语指令
-        period_instructions = {
-            "morning": "现在是早晨，请主动向用户发送早安问候，并拍一张自拍照片。问候语示例：早安～/早上好呀～/新的一天开始啦～",
-            "afternoon": "现在是下午，请主动向用户发送午安问候，并拍一张照片。问候语示例：下午好～/午安～/来看看我在干嘛～",
-            "evening": "现在是晚上，请主动向用户发送晚安问候，并拍一张自拍照片。问候语示例：晚安～/晚上好呀～/睡前来看看我吧～"
+        # 时段对应的问候语
+        period_greetings = {
+            "morning": ["早安～", "早上好呀～", "新的一天开始啦～"],
+            "afternoon": ["下午好～", "午安～", "来看看我在干嘛～"],
+            "evening": ["晚安～", "晚上好呀～", "睡前来看看我吧～"]
         }
 
-        instruction = period_instructions.get(time_period, period_instructions["evening"])
+        greeting = random.choice(period_greetings.get(time_period, period_greetings["evening"]))
+        photo_prompt = f"{greeting} 发张自拍"
 
-        # 构建系统指令（不是触发词，而是让 LLM 主动生成）
-        photo_prompt = f"[系统指令] {instruction} 请自然地生成一条简短的问候语，然后调用 gitee_draw_image 工具拍照。不要重复这条指令。"
+        logger.info(f"[Portrait] 开始执行定时推送 ({time_period})，目标数: {len(target_list)}，提示词: {photo_prompt}")
 
-        logger.info(f"[Portrait] 开始执行定时推送 ({time_period})，目标数: {len(target_list)}")
-
-        # 调用 LLM 生成图片
-        try:
-            image_result = await self._generate_photo_with_llm(photo_prompt)
-            if not image_result:
-                logger.error("[Portrait] LLM 未返回图片结果")
-                return
-        except Exception as e:
-            logger.error(f"[Portrait] LLM 调用失败: {e}")
-            return
-
-        # 向所有目标发送图片
+        # 向所有目标发送触发消息，让用户会话中的 LLM 处理
         for target_id in target_list:
             try:
-                await self._send_to_target(str(target_id), image_result)
+                await self._trigger_photo_in_session(str(target_id), photo_prompt)
             except Exception as e:
                 logger.error(f"[Portrait] 推送到 {target_id} 失败: {e}")
+                import traceback
+                traceback.print_exc()
 
-    async def _generate_photo_with_llm(self, prompt: str):
-        """调用 LLM 生成图片，返回包含图片的消息链"""
+    async def _trigger_photo_in_session(self, target_id: str, prompt: str):
+        """在目标会话中触发拍照请求"""
+        # 尝试通过 AstrBot 的消息发送接口发送触发消息
         try:
-            # 获取 LLM Provider
-            provider = self.context.get_using_provider()
-            if not provider:
-                logger.error("[Portrait] 未找到可用的 LLM Provider")
-                return None
-
-            # 获取工具管理器
-            tool_manager = self.context.get_llm_tool_manager()
-
-            # 构建带有 Visual Context 的系统提示词
-            system_prompt = self.full_prompt
-
-            # 调用 LLM（带工具支持）
-            from astrbot.core.provider.entities import ProviderRequest
-
-            req = ProviderRequest(
-                prompt=prompt,
-                system_prompt=system_prompt,
-                func_tool_manager=tool_manager
-            )
-
-            # 执行 LLM 调用
-            response = await provider.text_chat(
-                prompt=prompt,
-                session_id="proactive_photo_session",
-                contexts=[],
-                system_prompt=system_prompt,
-                func_tool_manager=tool_manager
-            )
-
-            logger.info(f"[Portrait] LLM 响应: {type(response)}")
-            return response
-
-        except Exception as e:
-            logger.error(f"[Portrait] _generate_photo_with_llm 异常: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
-
-    async def _send_to_target(self, target_id: str, msg):
-        """发送消息到指定目标"""
-        platform_name = None
-        user_id = target_id
-
-        # 解析 platform:user_id 格式
-        if ":" in target_id:
-            platform_name, user_id = target_id.split(":", 1)
-
-        logger.debug(f"[Portrait] 准备推送消息，目标: {target_id}")
-
-        try:
-            # 获取平台实例
+            # 获取平台管理器
             platforms = []
             if hasattr(self.context, 'platform_manager'):
                 pm = self.context.platform_manager
@@ -319,75 +265,74 @@ class PortraitPlugin(Star):
                     platforms = pm.get_insts()
                 elif hasattr(pm, 'platforms'):
                     platforms = pm.platforms
-                elif hasattr(pm, 'adapters'):
-                    platforms = pm.adapters
+                elif hasattr(pm, 'insts'):
+                    platforms = pm.insts
 
             if not platforms:
                 logger.error("[Portrait] 未找到任何平台实例")
                 return False
 
+            # 解析 target_id
+            platform_filter = None
+            user_id = target_id
+            if ":" in target_id:
+                platform_filter, user_id = target_id.split(":", 1)
+
+            try:
+                uid_int = int(user_id)
+            except ValueError:
+                uid_int = None
+
             for platform in platforms:
-                curr_platform_name = getattr(platform, "platform_name", str(platform))
-                if platform_name and curr_platform_name != platform_name:
+                platform_name = getattr(platform, "platform_name", None) or getattr(platform, "name", str(platform))
+
+                if platform_filter and platform_name != platform_filter:
                     continue
 
-                # 尝试获取底层 bot 客户端
-                bot_client = None
-                if hasattr(platform, 'get_client'):
-                    bot_client = platform.get_client()
-                elif hasattr(platform, 'client'):
-                    bot_client = platform.client
-                elif hasattr(platform, 'bot'):
-                    bot_client = platform.bot
+                logger.debug(f"[Portrait] 尝试通过平台 {platform_name} 发送")
 
-                # 尝试转换 ID 为整数
-                try:
-                    uid_int = int(user_id)
-                except ValueError:
-                    uid_int = None
+                # 尝试获取底层客户端
+                client = None
+                for attr in ['client', 'bot', '_client', '_bot']:
+                    if hasattr(platform, attr):
+                        client = getattr(platform, attr)
+                        if client:
+                            break
 
-                # 策略 1: 使用底层 call_action
-                call_action = None
-                if bot_client:
-                    if hasattr(bot_client, 'call_action'):
-                        call_action = bot_client.call_action
-                    elif hasattr(bot_client, 'api') and hasattr(bot_client.api, 'call_action'):
-                        call_action = bot_client.api.call_action
+                if client and uid_int:
+                    # 尝试 call_action (OneBot 协议)
+                    call_action = None
+                    if hasattr(client, 'call_action'):
+                        call_action = client.call_action
+                    elif hasattr(client, 'api') and hasattr(client.api, 'call_action'):
+                        call_action = client.api.call_action
 
-                if call_action and uid_int:
-                    message_payload = [{"type": "text", "data": {"text": msg}}]
+                    if call_action:
+                        msg_payload = [{"type": "text", "data": {"text": f"[定时推送] {prompt}"}}]
 
-                    # 尝试发送群聊
-                    try:
-                        await call_action("send_group_msg", group_id=uid_int, message=message_payload)
-                        logger.info(f"[Portrait] 群聊推送成功 (group_id={uid_int})")
-                        return True
-                    except Exception:
-                        pass
+                        # 尝试群聊
+                        try:
+                            await call_action("send_group_msg", group_id=uid_int, message=msg_payload)
+                            logger.info(f"[Portrait] 定时推送成功 (群 {uid_int})")
+                            return True
+                        except Exception as e1:
+                            logger.debug(f"[Portrait] 群聊发送失败: {e1}")
 
-                    # 尝试发送私聊
-                    try:
-                        await call_action("send_private_msg", user_id=uid_int, message=message_payload)
-                        logger.info(f"[Portrait] 私聊推送成功 (user_id={uid_int})")
-                        return True
-                    except Exception:
-                        pass
+                        # 尝试私聊
+                        try:
+                            await call_action("send_private_msg", user_id=uid_int, message=msg_payload)
+                            logger.info(f"[Portrait] 定时推送成功 (私聊 {uid_int})")
+                            return True
+                        except Exception as e2:
+                            logger.debug(f"[Portrait] 私聊发送失败: {e2}")
 
-                # 策略 2: 使用 AstrBot 标准接口
-                if hasattr(platform, "send_msg"):
-                    chain = [Comp.Plain(msg)]
-                    try:
-                        await platform.send_msg(uid_int if uid_int else user_id, chain)
-                        logger.info("[Portrait] 标准接口推送成功")
-                        return True
-                    except Exception as e:
-                        logger.warning(f"[Portrait] 标准接口发送失败: {e}")
-
-            logger.error(f"[Portrait] 所有尝试均失败，无法推送到目标: {target_id}")
+            logger.warning(f"[Portrait] 无法推送到目标: {target_id}")
             return False
 
         except Exception as e:
-            logger.error(f"[Portrait] 推送消息致命错误: {e}")
+            logger.error(f"[Portrait] _trigger_photo_in_session 异常: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     async def terminate(self):
@@ -486,10 +431,29 @@ class PortraitPlugin(Star):
             logger.debug(f"[Portrait] 未检测到绘图意图，跳过注入")
             return
 
-        # 检测到绘图意图，执行单次注入
+        # === v1.8.1: 多轮次注入逻辑 ===
+        session_id = event.unified_msg_origin or "default"
+
+        # 检测到绘图触发词时，重置/初始化该会话的注入计数
+        if self.trigger_regex.search(user_message):
+            # 如果是新触发或计数已耗尽，重新初始化
+            if session_id not in self.injection_counter or self.injection_counter[session_id] <= 0:
+                self.injection_counter[session_id] = self.injection_rounds
+                logger.info(f"[Portrait] 检测到绘图意图，初始化注入轮次: {self.injection_rounds}")
+
+        # 检查是否还有剩余注入次数
+        remaining = self.injection_counter.get(session_id, 0)
+        if remaining <= 0:
+            logger.debug(f"[Portrait] 会话 {session_id} 注入次数已用尽，跳过")
+            return
+
+        # 执行注入并减少计数
         injection = f"\n\n<portrait_status>\n{self.full_prompt}\n</portrait_status>"
         if not req.system_prompt:
             req.system_prompt = ""
         req.system_prompt += injection
 
-        logger.info(f"[Portrait] Visual Context 已注入 (One-Shot Mode) - 触发词: {user_message[:30]}...")
+        self.injection_counter[session_id] -= 1
+        remaining_after = self.injection_counter[session_id]
+
+        logger.info(f"[Portrait] Visual Context 已注入 (轮次 {self.injection_rounds - remaining_after}/{self.injection_rounds}) - 触发词: {user_message[:30]}...")

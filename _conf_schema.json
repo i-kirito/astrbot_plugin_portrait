@@ -5,6 +5,12 @@
         "hint": "【必填】请在此处填写角色的外貌描述。",
         "default": ""
     },
+    "injection_rounds": {
+        "type": "int",
+        "description": "注入轮次 (每次触发后连续注入的次数)",
+        "hint": "检测到绘图意图后，连续多少轮对话都注入 Visual Context。默认为 1（单次注入）。设置为 3 表示触发后连续 3 轮都会注入。",
+        "default": 1
+    },
     "enable_custom_env": {
         "type": "bool",
         "description": "启用/注入环境场景切换指令",
