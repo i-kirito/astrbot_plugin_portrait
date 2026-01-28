@@ -135,8 +135,10 @@ class PortraitPlugin(Star):
         # === v1.7.0: 主动拍照定时任务 ===
         self.scheduler = None
         self._scheduler_started = False
-        # 延迟启动 scheduler，因为 __init__ 时事件循环可能未准备好
+        # 初始化定时任务配置
         self._init_scheduler_jobs()
+        # 尝试立即启动 scheduler（如果事件循环已就绪）
+        self._try_start_scheduler()
 
     def _init_scheduler_jobs(self):
         """初始化定时任务配置（不启动 scheduler）"""
@@ -161,6 +163,17 @@ class PortraitPlugin(Star):
 
         if self._scheduled_times:
             logger.info(f"[Portrait] 定时推送已配置，共 {len(self._scheduled_times)} 个时间点: {', '.join(self._scheduled_times)}")
+
+    def _try_start_scheduler(self):
+        """尝试启动 scheduler（插件加载时调用）"""
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            if loop:
+                self._ensure_scheduler_started()
+        except RuntimeError:
+            # 事件循环未运行，将在 on_llm_request 中延迟启动
+            logger.debug("[Portrait] 事件循环未就绪，scheduler 将延迟启动")
 
     def _ensure_scheduler_started(self):
         """确保 scheduler 已启动（在事件循环运行后调用）"""
