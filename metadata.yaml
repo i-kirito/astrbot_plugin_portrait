@@ -1,4 +1,5 @@
 name: astrbot_plugin_portrait
+display_name: 人格临时注入
 desc: AstrBot 视觉上下文注入器 - 画图增强 (Visual Context Injector)
 version: v1.8.2
 author: ikirito
