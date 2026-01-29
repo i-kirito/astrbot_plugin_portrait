@@ -1,9 +1,8 @@
 name: astrbot_plugin_portrait
 display_name: 人格临时注入
 desc: AstrBot 视觉上下文注入器 - 画图增强 (Visual Context Injector)
-version: 1.8.7
+version: 1.8.8
 author: ikirito
 repo: https://github.com/i-kirito/astrbot_plugin_portrait
-logo: assets/logo.jpeg
 pip_dependencies:
   - apscheduler>=3.10.0
