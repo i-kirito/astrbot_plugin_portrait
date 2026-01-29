@@ -1,74 +1,74 @@
 {
     "char_identity": {
         "type": "text",
-        "description": "人物设定 (Visuals & Identity)",
-        "hint": "【必填】请在此处填写角色的外貌描述。",
+        "description": "人物外貌设定",
+        "hint": "填写角色的固定外貌描述，建议使用英文 Prompt 格式。例如: The subject is a young Asian girl with fair skin, dusty rose pink hair, large round eyes...",
         "default": ""
     },
     "injection_rounds": {
         "type": "int",
-        "description": "注入轮次 (每次触发后连续注入的次数)",
-        "hint": "检测到绘图意图后，连续多少轮对话都注入 Visual Context。默认为 1（单次注入）。设置为 3 表示触发后连续 3 轮都会注入。",
+        "description": "连续注入轮次",
+        "hint": "检测到绘图意图后，连续多少轮对话注入 Visual Context。设为 1 表示仅当前轮注入，设为 3 表示触发后连续 3 轮都会注入",
         "default": 1
     },
     "enable_custom_env": {
         "type": "bool",
-        "description": "启用/注入环境场景切换指令",
-        "hint": "【开关】\n开启 -> 向系统注入「环境场景切换」逻辑 (包含卧室/更衣室/户外)，并使用下方参数。\n关闭 -> 不注入任何环境指令，完全由模型自由发挥场景。",
+        "description": "启用环境场景切换",
+        "hint": "开启: 注入卧室/更衣室/户外三种场景切换逻辑，使用下方自定义参数\n关闭: 不注入环境指令，由模型自由发挥场景",
         "default": true
     },
     "env_default": {
         "type": "text",
-        "description": "环境 A: 卧室 (需开启上方开关)",
-        "hint": "只填写Prompt标签。默认值：\n(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3)...",
+        "description": "场景 A: 卧室环境",
+        "hint": "自拍/半身照的默认场景。留空使用内置默认值 (kawaii bedroom aesthetic, natural lighting...)",
         "default": ""
     },
     "env_fullbody": {
         "type": "text",
-        "description": "环境 B: 更衣室 (需开启上方开关)",
-        "hint": "只填写Prompt标签。默认值：\n(indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4)...",
+        "description": "场景 B: 更衣室环境",
+        "hint": "全身照/穿搭展示的场景。留空使用内置默认值 (pink dressing room, vanity mirror...)",
         "default": ""
     },
     "env_outdoor": {
         "type": "text",
-        "description": "环境 C: 户外 (需开启上方开关)",
-        "hint": "只填写指令。默认值：\nAnalyze the user's request (e.g., 'in the park', 'at the beach') or the current chat context/itinerary. Generate a scene description that matches the requested location. Force add: (blurred background), (bokeh), (natural lighting).",
+        "description": "场景 C: 户外环境",
+        "hint": "用户指定地点时的场景生成指令。留空使用内置默认值 (根据用户描述生成场景，添加 bokeh 效果)",
         "default": ""
     },
     "enable_custom_camera": {
         "type": "bool",
-        "description": "启用/注入摄影模式切换指令",
-        "hint": "【开关】\n开启 -> 向系统注入「摄影模式切换」逻辑 (包含自拍/全身/默认)，并使用下方参数。\n关闭 -> 不注入任何摄影模式指令，完全由模型自由发挥构图。",
+        "description": "启用摄影模式切换",
+        "hint": "开启: 注入自拍/全身/半身三种镜头切换逻辑，使用下方自定义参数\n关闭: 不注入镜头指令，由模型自由发挥构图",
         "default": true
     },
     "cam_selfie": {
         "type": "text",
-        "description": "镜头 A: 自拍 (需开启上方开关)",
-        "hint": "只填写镜头参数。默认值：\n, (mirror selfie style:1.2), holding phone, looking at phone screen or mirror...",
+        "description": "镜头 A: 自拍模式",
+        "hint": "触发词「自拍」「对镜」时的镜头参数。留空使用内置默认值 (mirror selfie, holding phone...)",
         "default": ""
     },
     "cam_fullbody": {
         "type": "text",
-        "description": "镜头 B: 全身 (需开启上方开关)",
-        "hint": "只填写镜头参数。默认值：\n, full body shot, showing entire figure from head to toe, wide angle lens...",
+        "description": "镜头 B: 全身模式",
+        "hint": "触发词「全身照」「穿搭」时的镜头参数。留空使用内置默认值 (full body shot, wide angle...)",
         "default": ""
     },
     "proactive_enabled": {
         "type": "bool",
-        "description": "是否启用定时推送",
-        "hint": "启用后会在指定时间自动推送照片到配置的群组",
+        "description": "启用定时主动拍照",
+        "hint": "开启后会在指定时间自动生成照片并推送到配置的群组，实现「早安/晚安」等主动问候",
         "default": false
     },
     "proactive_time": {
         "type": "string",
-        "description": "定时推送时间 (支持多个时间，逗号分隔)",
-        "hint": "每日推送时间，24小时制。支持多个时间用逗号分隔，例如: 08:00,22:00 表示每天早上8点和晚上10点",
+        "description": "定时推送时间",
+        "hint": "24小时制，多个时间用英文逗号分隔。例如 08:00,22:00 表示早8点和晚10点各推送一次",
         "default": "08:00,22:00"
     },
     "proactive_target_list": {
         "type": "list",
-        "description": "定时推送目标群组列表",
-        "hint": "直接填写群号即可，如: 957880653。也支持 unified_msg_origin 格式",
+        "description": "推送目标群组列表",
+        "hint": "填写群号，支持多个群组。例如: [\"123456789\", \"987654321\"]。也支持 unified_msg_origin 格式",
         "default": []
     }
 }

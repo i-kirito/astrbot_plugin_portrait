@@ -129,8 +129,12 @@ class PortraitPlugin(Star):
         # === v1.8.1: 注入轮次控制 ===
         # 每个会话的剩余注入次数 {session_id: remaining_count}
         self.injection_counter = {}
+        # 会话最后活跃时间，用于清理过期条目 {session_id: timestamp}
+        self.injection_last_active = {}
         # 从配置读取注入轮次，默认为 1（单次注入）
         self.injection_rounds = max(1, self.config.get("injection_rounds", 1))
+        # 会话过期时间（秒），默认 1 小时
+        self.session_ttl = 3600
 
         # === v1.7.0: 主动拍照定时任务 ===
         self.scheduler = None
@@ -168,12 +172,14 @@ class PortraitPlugin(Star):
         """尝试启动 scheduler（插件加载时调用）"""
         import asyncio
         try:
+            # 尝试获取运行中的事件循环
             loop = asyncio.get_running_loop()
-            if loop:
-                self._ensure_scheduler_started()
+            # 事件循环已运行，立即启动 scheduler
+            self._ensure_scheduler_started()
+            logger.debug("[Portrait] 事件循环已就绪，scheduler 已启动")
         except RuntimeError:
-            # 事件循环未运行，将在 on_llm_request 中延迟启动
-            logger.debug("[Portrait] 事件循环未就绪，scheduler 将延迟启动")
+            # 事件循环未运行，延迟启动机制已在 on_llm_request 中实现
+            logger.debug("[Portrait] 事件循环未就绪，scheduler 将在首次 LLM 请求时启动")
 
     def _ensure_scheduler_started(self):
         """确保 scheduler 已启动（在事件循环运行后调用）"""
@@ -522,6 +528,21 @@ class PortraitPlugin(Star):
 
         # === v1.8.1: 多轮次注入逻辑 ===
         session_id = event.unified_msg_origin or "default"
+        current_time = datetime.now().timestamp()
+
+        # 清理过期会话（防止内存无限增长）
+        expired_sessions = [
+            sid for sid, last_active in self.injection_last_active.items()
+            if current_time - last_active > self.session_ttl
+        ]
+        for sid in expired_sessions:
+            self.injection_counter.pop(sid, None)
+            self.injection_last_active.pop(sid, None)
+        if expired_sessions:
+            logger.debug(f"[Portrait] 已清理 {len(expired_sessions)} 个过期会话")
+
+        # 更新当前会话的活跃时间
+        self.injection_last_active[session_id] = current_time
 
         # 检测到绘图触发词时，重置/初始化该会话的注入计数
         if self.trigger_regex.search(user_message):
