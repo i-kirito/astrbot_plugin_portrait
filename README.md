@@ -48,37 +48,37 @@
 | **proactive_time** | 定时推送时间，支持多个时间逗号分隔 (如 `08:00,22:00`)。 |
 | **proactive_target_list** | 定时推送目标群组列表。 |
 
-## 🛠️ 版本日志
+## 🛠️ 版本历史
 
-### v1.8.6
-- [Security] **内存管理优化**：新增会话过期清理机制，防止 `injection_counter` 字典无限增长
-- [Optimize] **配置优化**：全面优化 `_conf_schema.json` 描述和提示，更清晰易懂
+### v1.8.6 (2026-1-29)
+- [Security] 新增会话过期清理机制，防止内存泄漏
+- [Optimize] 全面优化 `_conf_schema.json` 描述和提示
 
-### v1.8.2
-- [Refactor] **定时推送重构**：使用 `tool_loop_agent` API 调用 LLM 生成图片
-- [Optimize] 问候语改为简短自然的问候（如"早安～"），支持直接发送问候语 + 图片到群组
+### v1.8.2 (2026-1-28)
+- [Refactor] 定时推送使用 `tool_loop_agent` API 调用 LLM 生成图片
+- [Optimize] 问候语改为简短自然的问候
 
-### v1.8.0 ~ v1.8.1
-- [Feat] **多轮注入支持**：新增 `injection_rounds` 配置项，支持触发后连续多轮注入
-- [Feat] **手动推送指令**：新增 `/拍照推送` 指令，立即触发一次拍照推送
-- [Feat] **智能时段识别**：根据配置的推送时间自动判断时段 (早安/午安/晚安)
-- [Fix] 修复 `vv1.x.x` 双重前缀的问题
+### v1.8.0 ~ v1.8.1 (2026-1-27)
+- [Feat] 多轮注入支持：新增 `injection_rounds` 配置项
+- [Feat] 手动推送指令：新增 `/拍照推送` 指令
+- [Feat] 智能时段识别：自动判断早安/午安/晚安
+- [Fix] 修复 `vv1.x.x` 双重前缀问题
 
-### v1.7.0
-- [Feat] **主动拍照功能**：支持定时主动发送照片和问候语（需安装 `apscheduler`）
+### v1.7.0 (2026-1-26)
+- [Feat] 主动拍照功能：支持定时发送照片和问候语
 
-### v1.6.0
-- [Refactor] **One-Shot 单次注入架构**：恢复正则匹配，仅在检测到绘图意图时注入
-- [Optimize] 移除负面提示词注入功能，简化 Prompt 结构
+### v1.6.0 (2026-1-25)
+- [Refactor] One-Shot 单次注入架构
+- [Optimize] 移除负面提示词注入，简化 Prompt 结构
 - [Optimize] 支持丰富触发词：画/拍/照/自拍/穿搭/看看/康康/爆照/ootd 等
 
-### v1.4.0 ~ v1.5.1
-- [Feat] **环境场景开关**：新增 `enable_custom_env` 开关
-- [Feat] **安全守卫 (Safety Guard)**：自动注入负面提示词，减少画面崩坏
-- [Refactor] **Always-On 架构**：采用被动注入策略，依赖 LLM 语义理解触发
+### v1.4.0 ~ v1.5.1 (2026-1-24)
+- [Feat] 环境场景开关：新增 `enable_custom_env` 开关
+- [Feat] 安全守卫 (Safety Guard)：自动注入负面提示词
+- [Refactor] Always-On 架构：采用被动注入策略
 
-### v1.3.0 ~ v1.3.1
-- [Feat] 新增 `enable_safety_guard` 开关，防崩坏负面提示词
+### v1.3.0 ~ v1.3.1 (2026-1-23)
+- [Feat] 新增 `enable_safety_guard` 开关
 - [Update] 正则增强：支持"再拍一张"、"再来一个"等追加意图
 
 ---
