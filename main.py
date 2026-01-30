@@ -129,9 +129,6 @@ class PortraitPlugin(Star):
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
-        # 确保 scheduler 已启动（延迟启动，此时事件循环已运行）
-        self._ensure_scheduler_started()
-
         # v1.6.0: One-Shot 单次注入策略
         # 仅在检测到绘图意图时注入 Visual Context
 

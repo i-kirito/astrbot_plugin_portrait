@@ -52,23 +52,5 @@
         "description": "镜头 B: 全身模式",
         "hint": "触发词「全身照」「穿搭」时的镜头参数。留空使用内置默认值 (full body shot, wide angle...)",
         "default": ""
-    },
-    "proactive_enabled": {
-        "type": "bool",
-        "description": "启用定时主动拍照",
-        "hint": "开启后会在指定时间自动生成照片并推送到配置的群组，实现「早安/晚安」等主动问候",
-        "default": false
-    },
-    "proactive_time": {
-        "type": "string",
-        "description": "定时推送时间",
-        "hint": "24小时制，多个时间用英文逗号分隔。例如 08:00,22:00 表示早8点和晚10点各推送一次",
-        "default": "08:00,22:00"
-    },
-    "proactive_target_list": {
-        "type": "list",
-        "description": "推送目标群组列表",
-        "hint": "填写群号，支持多个群组。例如: [\"123456789\", \"987654321\"]。也支持 unified_msg_origin 格式",
-        "default": []
     }
 }

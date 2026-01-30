@@ -4,5 +4,3 @@ desc: AstrBot 视觉上下文注入器 - 画图增强 (Visual Context Injector)
 version: 1.8.9
 author: ikirito
 repo: https://github.com/i-kirito/astrbot_plugin_portrait
-pip_dependencies:
-  - apscheduler>=3.10.0
