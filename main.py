@@ -8,11 +8,17 @@ import copy
 import random
 from datetime import datetime
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.8.2")
+@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.9.0")
 class PortraitPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
+
+        # === v1.9.0: 生命周期管理 ===
+        # 防止重载时旧实例复活
+        self._is_terminated = False
+        # 后台任务追踪（用于生命周期清理）
+        self._bg_tasks = set()
 
         # v1.6.0: One-Shot 单次注入策略
         # 仅在检测到绘图意图时注入 Visual Context，节省 Token 并避免上下文污染
@@ -127,8 +133,27 @@ class PortraitPlugin(Star):
         # 会话过期时间（秒），默认 1 小时
         self.session_ttl = 3600
 
+    async def terminate(self):
+        """插件卸载/重载时的清理逻辑"""
+        self._is_terminated = True
+        try:
+            # 取消所有后台任务
+            for task in self._bg_tasks:
+                if not task.done():
+                    task.cancel()
+            # 清理会话缓存
+            self.injection_counter.clear()
+            self.injection_last_active.clear()
+            logger.info("[Portrait] 插件已停止，清理资源完成")
+        except Exception as e:
+            logger.error(f"[Portrait] 停止插件出错: {e}")
+
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
+        # 生命周期检查：防止旧实例继续工作
+        if self._is_terminated:
+            return
+
         # v1.6.0: One-Shot 单次注入策略
         # 仅在检测到绘图意图时注入 Visual Context
 
