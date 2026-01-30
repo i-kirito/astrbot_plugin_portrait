@@ -157,21 +157,12 @@ class PortraitPlugin(Star):
         # v1.6.0: One-Shot 单次注入策略
         # 仅在检测到绘图意图时注入 Visual Context
 
-        # 获取用户消息内容 - 多种方式尝试提取
+        # 获取用户消息内容 - 优先使用原始消息，避免被其他插件修改
         user_message = ""
 
-        # 方式1: 从 req.prompt 获取（最新用户输入）
-        if hasattr(req, 'prompt') and req.prompt:
-            if isinstance(req.prompt, str):
-                user_message = req.prompt
-            elif isinstance(req.prompt, list):
-                # 如果是消息列表，提取最后一条用户消息
-                for msg in reversed(req.prompt):
-                    if isinstance(msg, dict) and msg.get('role') == 'user':
-                        content = msg.get('content', '')
-                        if isinstance(content, str):
-                            user_message = content
-                        break
+        # 方式1 (优先): 从 event.message_str 获取（用户原始消息，未被其他插件修改）
+        if hasattr(event, 'message_str') and event.message_str:
+            user_message = event.message_str
 
         # 方式2: 从 event.message 获取
         if not user_message and hasattr(event, 'message') and event.message:
@@ -185,11 +176,20 @@ class PortraitPlugin(Star):
             if not user_message and hasattr(event.message, 'raw_message'):
                 user_message = event.message.raw_message or ""
 
-        # 方式3: 从 event 直接获取
-        if not user_message and hasattr(event, 'message_str'):
-            user_message = event.message_str or ""
+        # 方式3 (备选): 从 req.prompt 获取（可能被记忆插件等修改过）
+        if not user_message and hasattr(req, 'prompt') and req.prompt:
+            if isinstance(req.prompt, str):
+                user_message = req.prompt
+            elif isinstance(req.prompt, list):
+                # 如果是消息列表，提取最后一条用户消息
+                for msg in reversed(req.prompt):
+                    if isinstance(msg, dict) and msg.get('role') == 'user':
+                        content = msg.get('content', '')
+                        if isinstance(content, str):
+                            user_message = content
+                        break
 
-        # 方式4: 从 req.messages 获取最后一条用户消息
+        # 方式4 (最后备选): 从 req.messages 获取最后一条用户消息
         if not user_message and hasattr(req, 'messages') and req.messages:
             for msg in reversed(req.messages):
                 if hasattr(msg, 'role') and msg.role == 'user':
