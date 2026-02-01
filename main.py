@@ -52,7 +52,8 @@ class PortraitPlugin(Star):
 2.  **If Drawing Intent Detected**: You MUST call the `gitee_draw_image` tool (NOT banana_image_generation) with the Visual Data below.
 3.  **Prompt Structure**: `[Character Visuals] + [User Action/Outfit] + [Environment] + [Camera]`
 4.  **IMPORTANT**: Always use `gitee_draw_image` tool for image generation.
-5.  **CRITICAL**: When calling any tool, do NOT output any text content in the same response. Call the tool ONLY, then wait for the result before responding to the user."""
+5.  **CRITICAL**: When calling any tool, do NOT output any text content in the same response. Call the tool ONLY, then wait for the result before responding to the user.
+6.  **MANDATORY**: You MUST copy the EXACT prompt blocks from the Environment and Camera sections below verbatim. Do NOT simplify, summarize, or omit any parameters. Include ALL lighting, style, and quality tags exactly as written."""
 
         self.TPL_CHAR = """## 1. Character Visuals (Fixed Identity)
 **Core Appearance (Always Active):**
