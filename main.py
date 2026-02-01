@@ -51,7 +51,8 @@ class PortraitPlugin(Star):
 1.  **Analyze User Intent**: specific keywords like "draw", "photo", "selfie", "show me", "look at you", or implicitly asking for a visual representation.
 2.  **If Drawing Intent Detected**: You MUST call the `gitee_draw_image` tool (NOT banana_image_generation) with the Visual Data below.
 3.  **Prompt Structure**: `[Character Visuals] + [User Action/Outfit] + [Environment] + [Camera]`
-4.  **IMPORTANT**: Always use `gitee_draw_image` tool for image generation."""
+4.  **IMPORTANT**: Always use `gitee_draw_image` tool for image generation.
+5.  **CRITICAL**: When calling any tool, do NOT output any text content in the same response. Call the tool ONLY, then wait for the result before responding to the user."""
 
         self.TPL_CHAR = """## 1. Character Visuals (Fixed Identity)
 **Core Appearance (Always Active):**
@@ -205,7 +206,10 @@ class PortraitPlugin(Star):
             return
 
         # === v1.8.1: 多轮次注入逻辑 ===
-        session_id = event.unified_msg_origin or "default"
+        # 修复：使用 群ID + 用户ID 作为 session key，避免群内用户互相污染
+        group_id = event.unified_msg_origin or "default"
+        user_id = str(event.get_sender_id()) if hasattr(event, 'get_sender_id') else "unknown"
+        session_id = f"{group_id}:{user_id}"
         current_time = datetime.now().timestamp()
 
         # 清理过期会话（防止内存无限增长）
