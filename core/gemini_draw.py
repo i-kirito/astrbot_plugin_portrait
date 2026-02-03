@@ -11,13 +11,6 @@ from astrbot.api import logger
 
 from .image_manager import ImageManager
 
-# 允许的 base_url 域名白名单（防止 SSRF）
-ALLOWED_GEMINI_HOSTS = frozenset({
-    "generativelanguage.googleapis.com",
-    "aiplatform.googleapis.com",
-    "api.openai.com",  # OpenAI 兼容接口
-})
-
 
 class GeminiDrawService:
     """Google Gemini AI 文生图服务
@@ -58,7 +51,7 @@ class GeminiDrawService:
 
     @staticmethod
     def _validate_base_url(url: str) -> str:
-        """校验 base_url，只允许白名单域名（防止 SSRF）"""
+        """校验并清理 base_url"""
         url = (url or "").strip().rstrip("/")
         if not url:
             return "https://generativelanguage.googleapis.com"
@@ -66,6 +59,7 @@ class GeminiDrawService:
         try:
             parsed = urlparse(url)
             host = parsed.netloc.lower()
+            scheme = parsed.scheme or "https"
 
             # 移除可能存在的路径后缀
             path = parsed.path
@@ -74,15 +68,10 @@ class GeminiDrawService:
                     path = path[:-len(suffix)]
                     break
 
-            # 检查是否在白名单中
-            if host not in ALLOWED_GEMINI_HOSTS:
-                logger.warning(
-                    f"[GeminiDrawService] base_url '{url}' 不在允许列表中，使用默认值"
-                )
-                return "https://generativelanguage.googleapis.com"
+            # 确保使用 HTTPS（除非是 localhost）
+            if scheme == "http" and host not in ("localhost", "127.0.0.1"):
+                scheme = "https"
 
-            # 确保使用 HTTPS
-            scheme = "https"
             clean_url = f"{scheme}://{host}{path}".rstrip("/")
             return clean_url
 
