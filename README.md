@@ -111,6 +111,12 @@
 
 ## 🛠️ 版本历史
 
+### v2.7.1 (2026-02-04)
+- [Refactor] 修复 Codex Review 发现的三个代码质量问题
+  - Issue 1: 重构 `trigger_regex` 为列表格式，提升可维护性
+  - Issue 2: 将模板常量移至模块级别，减少 `__init__` 复杂度
+  - Issue 3: 新增 config 类型验证，防止依赖注入异常
+
 ### v2.7.0 (2026-02-04)
 - [Feat] 新增 `/后台管理` 命令，支持手动启动/关闭 WebUI
 - [Fix] 修复 `__init__` 中 `create_task` 生命周期问题，WebUI 延迟到首次请求启动

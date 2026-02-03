@@ -18,6 +18,29 @@ from .core.utils import close_session
 from .web_server import WebServer
 
 
+# === Issue 2 fix: Move template constants to module level ===
+TPL_HEADER = """# Visual Context Injection (System Override)
+## 0. Chain of Thought & Trigger Logic
+1.  **Analyze User Intent**: specific keywords like "draw", "photo", "selfie", "show me", "look at you", or implicitly asking for a visual representation.
+2.  **If Drawing Intent Detected**: You MUST call the `portrait_draw_image` tool with the Visual Data below.
+3.  **Prompt Structure**: `[Character Visuals] + [User Action/Outfit] + [Environment] + [Camera]`
+4.  **IMPORTANT**: Always use `portrait_draw_image` tool for image generation.
+5.  **CRITICAL**: When calling any tool, do NOT output any text content in the same response. Call the tool ONLY, then wait for the result before responding to the user.
+6.  **MANDATORY**: You MUST copy the EXACT prompt blocks from the Environment and Camera sections below verbatim. Do NOT simplify, summarize, or omit any parameters. Include ALL lighting, style, and quality tags exactly as written."""
+
+TPL_CHAR = """## 1. Character Visuals (Fixed Identity)
+**Core Appearance (Always Active):**
+{content}"""
+
+TPL_MIDDLE = """## 2. 动态内容处理 (Handling User Input)
+* **穿搭 (Outfit):** 用户未指定时，默认保持简洁风格或根据场景补全。
+* **动作 (Action):** 自然融入用户描述的动作。如果动作/表情与核心设定的冲突，**以用户要求为准**"""
+
+TPL_FOOTER = """---"""
+
+DEF_CHAR_IDENTITY = """> **The subject is a young 18-year-old Asian girl with fair skin and delicate features. She has dusty rose pink hair featuring essential wispy air bangs. Her large, round, doll-like eyes are deep-set and natural dark brown. She possesses a slender hourglass figure with a tiny waist and a full bust, emphasizing a natural soft tissue silhouette.**"""
+
+
 class PortraitPlugin(Star):
     """人物特征Prompt注入器,增强美化画图,内置Gitee AI文生图"""
 
@@ -58,8 +81,13 @@ class PortraitPlugin(Star):
         }
     ]
 
-    def __init__(self, context: Context, config: dict):
+    def __init__(self, context: Context, config: dict | None):
         super().__init__(context)
+
+        # === Config validation (Issue 3 fix) ===
+        if not isinstance(config, dict):
+            logger.warning(f"[Portrait] Invalid config type {type(config).__name__}; using defaults")
+            config = {}
         self.config = config
         self.data_dir = StarTools.get_data_dir()
 
@@ -82,39 +110,18 @@ class PortraitPlugin(Star):
 
         # v1.6.0: One-Shot 单次注入策略
         # 仅在检测到绘图意图时注入 Visual Context，节省 Token 并避免上下文污染
-        self.trigger_regex = re.compile(
-            r'(画|拍|照|自拍|全身|穿搭|看看|康康|瞧瞧|瞅瞅|爆照|形象|样子|'
-            r'draw|photo|selfie|picture|image|shot|snap|'
-            r'给我[看康瞧]|让我[看康瞧]|发[张个一]|来[张个一]|'
-            r'在干[嘛啥什么]|干什么呢|现在.{0,3}样子|'
-            r'ootd|outfit|look|再来一|再拍|再画)',
-            re.IGNORECASE
-        )
-
-        # === 默认内容 (Content Only) ===
-        self.DEF_CHAR_IDENTITY = """> **The subject is a young 18-year-old Asian girl with fair skin and delicate features. She has dusty rose pink hair featuring essential wispy air bangs. Her large, round, doll-like eyes are deep-set and natural dark brown. She possesses a slender hourglass figure with a tiny waist and a full bust, emphasizing a natural soft tissue silhouette.**"""
-
-        self.TPL_HEADER = """# Visual Context Injection (System Override)
-## 0. Chain of Thought & Trigger Logic
-1.  **Analyze User Intent**: specific keywords like "draw", "photo", "selfie", "show me", "look at you", or implicitly asking for a visual representation.
-2.  **If Drawing Intent Detected**: You MUST call the `portrait_draw_image` tool with the Visual Data below.
-3.  **Prompt Structure**: `[Character Visuals] + [User Action/Outfit] + [Environment] + [Camera]`
-4.  **IMPORTANT**: Always use `portrait_draw_image` tool for image generation.
-5.  **CRITICAL**: When calling any tool, do NOT output any text content in the same response. Call the tool ONLY, then wait for the result before responding to the user.
-6.  **MANDATORY**: You MUST copy the EXACT prompt blocks from the Environment and Camera sections below verbatim. Do NOT simplify, summarize, or omit any parameters. Include ALL lighting, style, and quality tags exactly as written."""
-
-        self.TPL_CHAR = """## 1. Character Visuals (Fixed Identity)
-**Core Appearance (Always Active):**
-{content}"""
-
-        self.TPL_MIDDLE = """## 2. 动态内容处理 (Handling User Input)
-* **穿搭 (Outfit):** 用户未指定时，默认保持简洁风格或根据场景补全。
-* **动作 (Action):** 自然融入用户描述的动作。如果动作/表情与核心设定的冲突，**以用户要求为准**"""
-
-        self.TPL_FOOTER = """---"""
+        # === Issue 1 fix: Refactored to list format for easier maintenance ===
+        trigger_keywords = [
+            '画', '拍', '照', '自拍', '全身', '穿搭', '看看', '康康', '瞧瞧', '瞅瞅', '爆照', '形象', '样子',
+            'draw', 'photo', 'selfie', 'picture', 'image', 'shot', 'snap',
+            '给我[看康瞧]', '让我[看康瞧]', '发[张个一]', '来[张个一]',
+            '在干[嘛啥什么]', '干什么呢', r'现在.{0,3}样子',
+            'ootd', 'outfit', 'look', '再来一', '再拍', '再画'
+        ]
+        self.trigger_regex = re.compile(f"({'|'.join(trigger_keywords)})", re.IGNORECASE)
 
         # 读取用户配置
-        p_char_id = self.config.get("char_identity") or self.DEF_CHAR_IDENTITY
+        p_char_id = self.config.get("char_identity") or DEF_CHAR_IDENTITY
         # 存储角色外貌配置，用于在画图时自动添加
         self.char_identity = p_char_id.replace("> **", "").replace("**", "").strip()
 
@@ -183,15 +190,15 @@ class PortraitPlugin(Star):
 
         # === 核心 Prompt 组装 ===
         prompt_parts = [
-            self.TPL_HEADER,
-            self.TPL_CHAR.format(content=p_char_id),
-            self.TPL_MIDDLE,
+            TPL_HEADER,
+            TPL_CHAR.format(content=p_char_id),
+            TPL_MIDDLE,
         ]
         if section_env:
             prompt_parts.append(section_env)
         if section_camera:
             prompt_parts.append(section_camera)
-        prompt_parts.append(self.TPL_FOOTER)
+        prompt_parts.append(TPL_FOOTER)
         prompt_parts.append("--- END CONTEXT DATA ---")
 
         self.full_prompt = "\n\n".join(prompt_parts)
@@ -425,15 +432,15 @@ class PortraitPlugin(Star):
 
         # 组装完整 Prompt
         prompt_parts = [
-            self.TPL_HEADER,
-            self.TPL_CHAR.format(content=p_char_id),
-            self.TPL_MIDDLE,
+            TPL_HEADER,
+            TPL_CHAR.format(content=p_char_id),
+            TPL_MIDDLE,
         ]
         if section_env:
             prompt_parts.append(section_env)
         if section_camera:
             prompt_parts.append(section_camera)
-        prompt_parts.append(self.TPL_FOOTER)
+        prompt_parts.append(TPL_FOOTER)
         prompt_parts.append("--- END CONTEXT DATA ---")
 
         self.full_prompt = "\n\n".join(prompt_parts)
