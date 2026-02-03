@@ -3,6 +3,7 @@ Portrait Plugin WebUI Server
 基于 aiohttp 的 Web 管理界面后端
 """
 
+import asyncio
 import json
 import os
 from pathlib import Path
