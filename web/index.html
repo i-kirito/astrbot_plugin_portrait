@@ -435,10 +435,16 @@
                             <el-form-item label="API 密钥（每行一个）">
                                 <el-input
                                     v-model="giteeKeysText"
-                                    type="textarea"
+                                    :type="showGiteeKeys ? 'textarea' : 'password'"
                                     :autosize="{ minRows: 2, maxRows: 4 }"
                                     placeholder="从 https://ai.gitee.com 获取 API Key"
-                                />
+                                >
+                                    <template #suffix>
+                                        <span @click="showGiteeKeys = !showGiteeKeys" style="cursor: pointer; font-size: 1.1rem;">
+                                            {{ showGiteeKeys ? '&#128065;' : '&#128586;' }}
+                                        </span>
+                                    </template>
+                                </el-input>
                             </el-form-item>
                             <el-row :gutter="24">
                                 <el-col :span="12">
@@ -496,8 +502,15 @@
                             <el-form-item label="API 密钥">
                                 <el-input
                                     v-model="geminiConfig.api_key"
+                                    :type="showGeminiKey ? 'text' : 'password'"
                                     placeholder="从 https://aistudio.google.com/apikey 获取"
-                                />
+                                >
+                                    <template #suffix>
+                                        <span @click="showGeminiKey = !showGeminiKey" style="cursor: pointer; font-size: 1.1rem;">
+                                            {{ showGeminiKey ? '&#128065;' : '&#128586;' }}
+                                        </span>
+                                    </template>
+                                </el-input>
                             </el-form-item>
                             <el-form-item label="Base URL">
                                 <el-input
@@ -843,6 +856,10 @@
                     timeout: 300,
                     max_retries: 2,
                 });
+
+                // 密钥显示控制
+                const showGiteeKeys = ref(false);
+                const showGeminiKey = ref(false);
 
                 // 尺寸选项列表
                 const sizeOptions = [
@@ -1296,6 +1313,8 @@
                     config,
                     giteeConfig,
                     giteeKeysText,
+                    showGiteeKeys,
+                    showGeminiKey,
                     sizeOptions,
                     geminiConfig,
                     providerConfig,
