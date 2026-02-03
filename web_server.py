@@ -652,9 +652,6 @@ class WebServer:
                     {"success": False, "error": "未上传有效文件"}, status=400
                 )
 
-            # 更新配置中的参考照列表
-            self._update_selfie_refs_config()
-
             logger.info(f"[Portrait WebUI] 已上传 {len(uploaded)} 张参考照")
             return web.json_response({
                 "success": True,
@@ -697,9 +694,6 @@ class WebServer:
 
             os.remove(file_path)
 
-            # 更新配置中的参考照列表
-            self._update_selfie_refs_config()
-
             logger.info(f"[Portrait WebUI] 已删除参考照: {name}")
             return web.json_response({"success": True, "deleted": name})
 
@@ -707,28 +701,3 @@ class WebServer:
             logger.error(f"[Portrait WebUI] 删除参考照失败: {e}")
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
-    def _update_selfie_refs_config(self):
-        """更新配置中的参考照列表"""
-        try:
-            if not self.selfie_refs_dir.exists():
-                ref_list = []
-            else:
-                allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
-                ref_list = [
-                    f"selfie_refs/{f.name}"
-                    for f in self.selfie_refs_dir.iterdir()
-                    if f.is_file() and f.suffix.lower() in allowed_exts
-                ]
-
-            # 更新插件配置
-            if "selfie_config" not in self.plugin.config:
-                self.plugin.config["selfie_config"] = {}
-            self.plugin.config["selfie_config"]["reference_images"] = ref_list
-
-            # 更新插件实例变量
-            self.plugin.selfie_reference_images = ref_list
-
-            logger.debug(f"[Portrait WebUI] 参考照列表已更新: {len(ref_list)} 张")
-
-        except Exception as e:
-            logger.error(f"[Portrait WebUI] 更新参考照配置失败: {e}")
