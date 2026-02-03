@@ -110,10 +110,14 @@ class PortraitPlugin(Star):
 
         # 读取用户配置
         p_char_id = self.config.get("char_identity") or self.DEF_CHAR_IDENTITY
+        # 存储角色外貌配置，用于在画图时自动添加
+        self.char_identity = p_char_id.replace("> **", "").replace("**", "").strip()
 
         # 读取开关配置
         self.enable_env_injection = self.config.get("enable_env_injection", True)
         self.enable_camera_injection = self.config.get("enable_camera_injection", True)
+        # 是否自动添加角色外貌到 prompt
+        self.auto_prepend_identity = self.config.get("auto_prepend_identity", True)
 
         # === 动态环境与镜头处理（从独立配置文件加载）===
         # 1. 环境列表（根据开关决定是否生成）
@@ -643,7 +647,17 @@ class PortraitPlugin(Star):
             prompt(string): 图片提示词，需要包含主体、场景、风格等描述
         """
         try:
-            image_path = await self._generate_image(prompt)
+            # 自动添加角色外貌到 prompt 开头（如果启用且 prompt 中没有包含核心特征）
+            final_prompt = prompt
+            if self.auto_prepend_identity and self.char_identity:
+                # 检查 prompt 是否已包含核心特征关键词
+                identity_keywords = ["asian girl", "pink hair", "rose pink", "dusty rose", "air bangs"]
+                has_identity = any(kw.lower() in prompt.lower() for kw in identity_keywords)
+                if not has_identity:
+                    final_prompt = f"{self.char_identity} {prompt}"
+                    logger.debug(f"[Portrait] 自动添加角色外貌到 prompt")
+
+            image_path = await self._generate_image(final_prompt)
             # 发送图片
             await event.send(
                 event.chain_result([Comp.Image.fromFileSystem(str(image_path))])
@@ -669,8 +683,18 @@ class PortraitPlugin(Star):
             resolution(string): 分辨率，可选 "1K"、"2K"、"4K"
         """
         try:
+            # 自动添加角色外貌到 prompt 开头（如果启用且 prompt 中没有包含核心特征）
+            final_prompt = prompt
+            if self.auto_prepend_identity and self.char_identity:
+                # 检查 prompt 是否已包含核心特征关键词
+                identity_keywords = ["asian girl", "pink hair", "rose pink", "dusty rose", "air bangs"]
+                has_identity = any(kw.lower() in prompt.lower() for kw in identity_keywords)
+                if not has_identity:
+                    final_prompt = f"{self.char_identity} {prompt}"
+                    logger.debug(f"[Portrait] 自动添加角色外貌到 prompt")
+
             image_path = await self._generate_image(
-                prompt,
+                final_prompt,
                 size=size or None,
                 resolution=resolution or None,
             )
