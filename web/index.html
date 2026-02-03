@@ -377,7 +377,7 @@
                     </div>
                     <div class="nav-item" :class="{ active: activeTab === 'selfie' }" @click="activeTab = 'selfie'">
                         <span class="icon">&#128248;</span>
-                        <span>参考照管理</span>
+                        <span>人像参考</span>
                     </div>
                     <div class="nav-item" :class="{ active: activeTab === 'gallery' }" @click="activeTab = 'gallery'">
                         <span class="icon">&#128444;</span>
@@ -678,10 +678,10 @@
                     </div>
                 </div>
 
-                <!-- 参考照管理页面 -->
+                <!-- 人像参考页面 -->
                 <div v-if="activeTab === 'selfie'" class="max-w-4xl mx-auto fade-in">
                     <div class="page-header">
-                        <h2 class="page-title">参考照管理</h2>
+                        <h2 class="page-title">人像参考</h2>
                         <el-button type="primary" :loading="savingSelfie" @click="saveSelfieConfig">
                             <span style="margin-right: 8px;">&#128190;</span> 保存设置
                         </el-button>
@@ -693,11 +693,11 @@
                         <template #header>
                             <div class="card-title">
                                 <span class="icon">&#9881;</span>
-                                <span>参考照设置</span>
+                                <span>人像参考</span>
                             </div>
                         </template>
                         <el-form label-position="left">
-                            <el-form-item label="启用自拍参考照功能" style="margin-bottom: 0;">
+                            <el-form-item label="启用人像参考功能" style="margin-bottom: 0;">
                                 <div class="flex items-center gap-4">
                                     <el-switch v-model="selfieConfig.enabled" />
                                     <span class="text-sm text-gray-500">启用后，使用 Gemini 生图时会自动传入参考人像</span>
@@ -711,7 +711,7 @@
                         <template #header>
                             <div class="card-title">
                                 <span class="icon">&#128248;</span>
-                                <span>上传参考照</span>
+                                <span>上传人像参考</span>
                             </div>
                         </template>
                         <el-upload
@@ -744,12 +744,12 @@
                         </div>
                     </el-card>
 
-                    <!-- 已有参考照列表 -->
+                    <!-- 已有人像参考列表 -->
                     <el-card>
                         <template #header>
                             <div class="card-title">
                                 <span class="icon">&#128444;</span>
-                                <span>已上传参考照 ({{ selfieRefs.length }})</span>
+                                <span>已上传人像参考 ({{ selfieRefs.length }})</span>
                                 <el-button v-if="selfieRefs.length > 0" type="danger" size="small" style="margin-left: auto;" @click="deleteAllSelfieRefs">
                                     清空全部
                                 </el-button>
@@ -757,7 +757,7 @@
                         </template>
                         <div v-if="selfieRefs.length === 0" class="empty-state" style="padding: 40px 20px;">
                             <div class="icon" style="font-size: 2.5rem;">&#128248;</div>
-                            <p class="text-base mb-2">暂无参考照</p>
+                            <p class="text-base mb-2">暂无人像参考</p>
                             <p class="text-sm">上传清晰正脸照作为形象参考</p>
                         </div>
                         <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -1021,7 +1021,7 @@
                 const detailVisible = ref(false);
                 const detailImage = ref(null);
 
-                // 自拍参考照相关
+                // 人像参考相关
                 const selfieConfig = reactive({
                     enabled: false,
                     reference_images: [],
@@ -1169,13 +1169,13 @@
                                     keywordsStr: (c.keywords || []).join(', ')
                                 }));
                             }
-                            // 加载自拍参考照配置
+                            // 加载人像参考配置
                             if (data.config.selfie_config) {
                                 selfieConfig.enabled = data.config.selfie_config.enabled || false;
                                 selfieConfig.reference_images = data.config.selfie_config.reference_images || [];
                             }
                         }
-                        // 加载自拍参考照列表
+                        // 加载人像参考列表
                         await loadSelfieRefs();
                     } catch (e) {
                         ElementPlus.ElMessage.error('加载配置失败: ' + e.message);
@@ -1418,7 +1418,7 @@
                     return new Date(timestamp * 1000).toLocaleString('zh-CN');
                 }
 
-                // ========== 自拍参考照管理 ==========
+                // ========== 自拍人像参考 ==========
                 async function loadSelfieRefs() {
                     try {
                         const res = await apiFetch('/api/selfie-refs');
@@ -1427,7 +1427,7 @@
                             selfieRefs.value = data.refs || [];
                         }
                     } catch (e) {
-                        console.error('加载参考照失败:', e);
+                        console.error('加载人像参考失败:', e);
                     }
                 }
 
@@ -1453,7 +1453,7 @@
                         });
                         const data = await res.json();
                         if (data.success) {
-                            ElementPlus.ElMessage.success(`成功上传 ${data.uploaded || selfieUploadFiles.value.length} 张参考照`);
+                            ElementPlus.ElMessage.success(`成功上传 ${data.uploaded || selfieUploadFiles.value.length} 张人像参考`);
                             selfieUploadFiles.value = [];
                             await loadSelfieRefs();
                         } else {
@@ -1469,7 +1469,7 @@
                 async function deleteSelfieRef(ref) {
                     try {
                         await ElementPlus.ElMessageBox.confirm(
-                            `确定要删除参考照 "${ref.name}" 吗？`,
+                            `确定要删除人像参考 "${ref.name}" 吗？`,
                             '确认删除',
                             { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
                         );
@@ -1478,7 +1478,7 @@
                         });
                         const data = await res.json();
                         if (data.success) {
-                            ElementPlus.ElMessage.success('参考照已删除');
+                            ElementPlus.ElMessage.success('人像参考已删除');
                             await loadSelfieRefs();
                         } else {
                             ElementPlus.ElMessage.error(data.error || '删除失败');
@@ -1494,7 +1494,7 @@
                     if (selfieRefs.value.length === 0) return;
                     try {
                         await ElementPlus.ElMessageBox.confirm(
-                            `确定要删除全部 ${selfieRefs.value.length} 张参考照吗？`,
+                            `确定要删除全部 ${selfieRefs.value.length} 张人像参考吗？`,
                             '确认清空',
                             { confirmButtonText: '全部删除', cancelButtonText: '取消', type: 'warning' }
                         );
@@ -1504,7 +1504,7 @@
                                 method: 'DELETE'
                             });
                         }
-                        ElementPlus.ElMessage.success('已清空全部参考照');
+                        ElementPlus.ElMessage.success('已清空全部人像参考');
                         await loadSelfieRefs();
                     } catch (e) {
                         if (e !== 'cancel') {
@@ -1531,7 +1531,7 @@
                         });
                         const data = await res.json();
                         if (data.success) {
-                            ElementPlus.ElMessage.success('参考照设置已保存');
+                            ElementPlus.ElMessage.success('人像参考已保存');
                         } else {
                             ElementPlus.ElMessage.error(data.error || '保存失败');
                         }
@@ -1591,7 +1591,7 @@
                     copyPrompt,
                     formatDate,
                     formatSize,
-                    // 自拍参考照
+                    // 人像参考
                     selfieConfig,
                     selfieRefs,
                     selfieUploadFiles,
