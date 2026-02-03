@@ -6,6 +6,8 @@ Portrait Plugin WebUI Server
 import asyncio
 import json
 import os
+import secrets
+import hashlib
 from pathlib import Path
 from datetime import datetime
 
@@ -48,10 +50,12 @@ class WebServer:
         if not self.token:
             return await handler(request)
 
-        # 静态资源不需要认证（index.html、CSS、JS、图片等）
+        # 静态资源不需要认证（index.html、CSS、JS 等）
+        # 注意：/images/、/thumbnails/、/selfie-refs/ 需要认证保护
         if request.path in ["/", "/index.html"]:
             return await handler(request)
-        if request.path.startswith(("/static/", "/web/", "/images/", "/thumbnails/", "/selfie-refs/")):
+        if request.path.startswith(("/static/", "/web/")):
+            return await handler(request)
             return await handler(request)
 
         # 从 query 参数或 header 获取 token
@@ -86,21 +90,18 @@ class WebServer:
         self.app.router.add_get("/", self.handle_index)
         self.app.router.add_get("/index.html", self.handle_index)
 
-        # 静态资源
+        # 静态资源（CSS/JS 无需认证）
         if self.static_dir.exists():
             self.app.router.add_static("/web", self.static_dir, show_index=False)
 
-        # 图片静态服务（确保目录存在）
+        # 图片/缩略图/参考照使用动态路由（需要认证）
         self.images_dir.mkdir(parents=True, exist_ok=True)
-        self.app.router.add_static("/images", str(self.images_dir), show_index=False)
-
-        # 缩略图静态服务
         self.thumbnails_dir.mkdir(parents=True, exist_ok=True)
-        self.app.router.add_static("/thumbnails", str(self.thumbnails_dir), show_index=False)
-
-        # 自拍参考照静态服务
         self.selfie_refs_dir.mkdir(parents=True, exist_ok=True)
-        self.app.router.add_static("/selfie-refs", str(self.selfie_refs_dir), show_index=False)
+
+        self.app.router.add_get("/images/{name}", self.handle_serve_image)
+        self.app.router.add_get("/thumbnails/{name}", self.handle_serve_thumbnail)
+        self.app.router.add_get("/selfie-refs/{name}", self.handle_serve_selfie_ref)
 
     @property
     def imgr(self) -> ImageManager:
@@ -491,13 +492,14 @@ class WebServer:
                     {"success": False, "error": "非法路径"}, status=400
                 )
 
-            os.remove(file_path)
+            # 使用 asyncio.to_thread 避免阻塞事件循环
+            await asyncio.to_thread(os.remove, file_path)
             # 删除缩略图
             thumb_path = self.thumbnails_dir / name
             if thumb_path.exists():
-                os.remove(thumb_path)
+                await asyncio.to_thread(os.remove, thumb_path)
             # 清理元数据
-            self.imgr.remove_metadata(name)
+            await self.imgr.remove_metadata_async(name)
             logger.info(f"[Portrait WebUI] 已删除图片: {name}")
 
             return web.json_response({"success": True, "deleted": name})
@@ -637,27 +639,30 @@ class WebServer:
                     if ext not in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
                         continue
 
-                    # 生成唯一文件名
-                    timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
-                    safe_name = f"ref_{timestamp}{ext}"
+                    # 生成不可预测的唯一文件名（时间戳 + 安全随机数）
+                    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                    random_suffix = secrets.token_hex(16)  # 128-bit 随机数
+                    safe_name = f"ref_{timestamp}_{random_suffix}{ext}"
                     file_path = self.selfie_refs_dir / safe_name
 
-                    # 流式写入文件，带大小限制
+                    # 先读取全部内容到内存，然后异步写入
+                    chunks = []
                     total_size = 0
-                    with open(file_path, 'wb') as f:
-                        while True:
-                            chunk = await field.read_chunk()
-                            if not chunk:
-                                break
-                            total_size += len(chunk)
-                            if total_size > MAX_FILE_SIZE:
-                                f.close()
-                                file_path.unlink(missing_ok=True)
-                                return web.json_response(
-                                    {"success": False, "error": f"文件过大，限制 {MAX_FILE_SIZE // 1024 // 1024}MB"},
-                                    status=413
-                                )
-                            f.write(chunk)
+                    while True:
+                        chunk = await field.read_chunk()
+                        if not chunk:
+                            break
+                        total_size += len(chunk)
+                        if total_size > MAX_FILE_SIZE:
+                            return web.json_response(
+                                {"success": False, "error": f"文件过大，限制 {MAX_FILE_SIZE // 1024 // 1024}MB"},
+                                status=413
+                            )
+                        chunks.append(chunk)
+
+                    # 使用 asyncio.to_thread 非阻塞写入
+                    content = b''.join(chunks)
+                    await asyncio.to_thread(file_path.write_bytes, content)
 
                     uploaded.append({
                         "name": safe_name,
@@ -709,7 +714,7 @@ class WebServer:
                     {"success": False, "error": "非法路径"}, status=400
                 )
 
-            os.remove(file_path)
+            await asyncio.to_thread(os.remove, file_path)
 
             logger.info(f"[Portrait WebUI] 已删除参考照: {name}")
             return web.json_response({"success": True, "deleted": name})
@@ -717,4 +722,56 @@ class WebServer:
         except Exception as e:
             logger.error(f"[Portrait WebUI] 删除参考照失败: {e}")
             return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    # === 安全的静态文件服务（需要 token 认证）===
+
+    async def _serve_file(self, base_dir: Path, name: str) -> web.Response:
+        """通用安全文件服务"""
+        if not name:
+            raise web.HTTPBadRequest(reason="文件名为空")
+
+        # 安全检查：防止路径遍历
+        if "/" in name or "\\" in name or ".." in name:
+            raise web.HTTPBadRequest(reason="非法文件名")
+
+        file_path = base_dir / name
+        if not file_path.exists():
+            raise web.HTTPNotFound(reason="文件不存在")
+
+        # 确保文件在目标目录内
+        try:
+            file_path.relative_to(base_dir)
+        except ValueError:
+            raise web.HTTPBadRequest(reason="非法路径")
+
+        # 非阻塞读取文件
+        content = await asyncio.to_thread(file_path.read_bytes)
+
+        # 推断 Content-Type
+        suffix = file_path.suffix.lower()
+        content_types = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+        }
+        content_type = content_types.get(suffix, "application/octet-stream")
+
+        return web.Response(body=content, content_type=content_type)
+
+    async def handle_serve_image(self, request: web.Request) -> web.Response:
+        """服务生成的图片（需要认证）"""
+        name = request.match_info.get("name", "")
+        return await self._serve_file(self.images_dir, name)
+
+    async def handle_serve_thumbnail(self, request: web.Request) -> web.Response:
+        """服务缩略图（需要认证）"""
+        name = request.match_info.get("name", "")
+        return await self._serve_file(self.thumbnails_dir, name)
+
+    async def handle_serve_selfie_ref(self, request: web.Request) -> web.Response:
+        """服务参考照（需要认证）"""
+        name = request.match_info.get("name", "")
+        return await self._serve_file(self.selfie_refs_dir, name)
 
