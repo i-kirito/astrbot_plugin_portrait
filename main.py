@@ -637,10 +637,10 @@ class PortraitPlugin(Star):
             await event.send(
                 event.chain_result([Comp.Image.fromFileSystem(str(image_path))])
             )
-            return "图片已生成并发送。"
+            return "[SUCCESS] 图片已成功生成并发送给用户。任务完成，无需再次调用此工具。"
         except Exception as e:
             logger.error(f"[Portrait] 文生图失败: {e}")
-            return f"生成图片失败: {str(e)}"
+            return f"[ERROR] 生成图片失败: {str(e)}"
 
     @filter.llm_tool(name="portrait_generate_image")
     async def portrait_generate_image(
@@ -667,10 +667,10 @@ class PortraitPlugin(Star):
             await event.send(
                 event.chain_result([Comp.Image.fromFileSystem(str(image_path))])
             )
-            return "图片已生成并发送。"
+            return "[SUCCESS] 图片已成功生成并发送给用户。任务完成，无需再次调用此工具。"
         except Exception as e:
             logger.error(f"[Portrait] 文生图失败: {e}")
-            return f"生成图片失败: {str(e)}"
+            return f"[ERROR] 生成图片失败: {str(e)}"
 
     # === v2.5.0: 画图帮助指令 ===
     @filter.command("画图帮助")
