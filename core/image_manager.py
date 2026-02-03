@@ -48,6 +48,9 @@ class ImageManager:
         self._metadata: dict = self._load_metadata()
         self._metadata_mtime: float = self._get_metadata_mtime()
         self._favorites: set = self._load_favorites()
+        # 并发锁：保护元数据和收藏文件的读写
+        self._metadata_lock = asyncio.Lock()
+        self._favorites_lock = asyncio.Lock()
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -122,6 +125,11 @@ class ImageManager:
         self._save_metadata()
         self._metadata_mtime = self._get_metadata_mtime()
 
+    async def set_metadata_async(self, filename: str, prompt: str) -> None:
+        """设置图片元数据（异步版本，带锁）"""
+        async with self._metadata_lock:
+            self.set_metadata(filename, prompt)
+
     def is_favorite(self, filename: str) -> bool:
         """检查是否为收藏"""
         return filename in self._favorites
@@ -137,12 +145,23 @@ class ImageManager:
             self._save_favorites()
             return True
 
+    async def toggle_favorite_async(self, filename: str) -> bool:
+        """切换收藏状态（异步版本，带锁）"""
+        async with self._favorites_lock:
+            return self.toggle_favorite(filename)
+
     def remove_metadata(self, filename: str) -> None:
         """删除图片元数据"""
         self._metadata.pop(filename, None)
         self._favorites.discard(filename)
         self._save_metadata()
         self._save_favorites()
+
+    async def remove_metadata_async(self, filename: str) -> None:
+        """删除图片元数据（异步版本，带锁）"""
+        async with self._metadata_lock:
+            async with self._favorites_lock:
+                self.remove_metadata(filename)
 
     async def close(self) -> None:
         if self._session is not None:
@@ -166,7 +185,7 @@ class ImageManager:
 
         await asyncio.to_thread(path.write_bytes, data)
         if prompt:
-            self.set_metadata(filename, prompt)
+            await self.set_metadata_async(filename, prompt)
         logger.debug(f"[ImageManager] 图片已保存: {path}")
         return path
 
@@ -187,7 +206,7 @@ class ImageManager:
 
         await asyncio.to_thread(path.write_bytes, data)
         if prompt:
-            self.set_metadata(filename, prompt)
+            await self.set_metadata_async(filename, prompt)
         logger.debug(f"[ImageManager] 图片已保存: {path}")
         return path
 

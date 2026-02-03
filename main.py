@@ -252,6 +252,7 @@ class PortraitPlugin(Star):
 
         # === v2.1.0: WebUI 服务器 ===
         self.web_server: WebServer | None = None
+        self._webui_started = False
         webui_conf = self.config.get("webui_config", {}) or {}
         if webui_conf.get("enabled", False):
             self.web_server = WebServer(
@@ -260,9 +261,8 @@ class PortraitPlugin(Star):
                 port=webui_conf.get("port", 8088) or 8088,
                 token=webui_conf.get("token", "") or "",
             )
-            # 启动 WebUI 服务器（后台任务）
-            task = asyncio.create_task(self._start_webui())
-            self._bg_tasks.add(task)
+            # WebUI 启动延迟到首次 LLM 请求时（避免 __init__ 中调用 create_task）
+            # 注：如果仅使用 WebUI 而不触发 LLM，可通过触发任意绘图关键词来启动服务
 
     def _load_dynamic_config(self) -> dict:
         """从独立文件加载动态配置（环境和摄影模式）"""
@@ -322,7 +322,12 @@ class PortraitPlugin(Star):
     async def _start_webui(self):
         """启动 WebUI 服务器"""
         if self.web_server:
-            await self.web_server.start()
+            try:
+                await self.web_server.start()
+            except Exception as e:
+                logger.error(f"[Portrait] WebUI 启动失败: {e}")
+                self._webui_started = False  # 重置标志以允许重试
+                raise
 
     def _load_selfie_reference_images(self) -> list[bytes]:
         """加载人像参考照片 - 自动扫描 selfie_refs 目录"""
@@ -463,6 +468,12 @@ class PortraitPlugin(Star):
         # 生命周期检查：防止旧实例继续工作
         if self._is_terminated:
             return
+
+        # 延迟启动 WebUI（首次 LLM 请求时，此时事件循环已在运行）
+        if self.web_server and not self._webui_started:
+            self._webui_started = True
+            task = asyncio.create_task(self._start_webui())
+            self._bg_tasks.add(task)
 
         # v1.6.0: One-Shot 单次注入策略
         # 仅在检测到绘图意图时注入 Visual Context
@@ -677,6 +688,18 @@ class PortraitPlugin(Star):
         else:
             raise ValueError("图片生成失败，备用提供商也未配置")
 
+    def _build_final_prompt(self, prompt: str) -> str:
+        """构建最终 prompt（自动添加角色外貌）"""
+        if not self.auto_prepend_identity or not self.char_identity:
+            return prompt
+        # 检查 prompt 是否已包含核心特征关键词
+        identity_keywords = ["asian girl", "pink hair", "rose pink", "dusty rose", "air bangs"]
+        has_identity = any(kw.lower() in prompt.lower() for kw in identity_keywords)
+        if not has_identity:
+            logger.debug("[Portrait] 自动添加角色外貌到 prompt")
+            return f"{self.char_identity} {prompt}"
+        return prompt
+
     # === v2.0.0: LLM 工具调用 - 文生图 ===
     @filter.llm_tool(name="portrait_draw_image")
     async def portrait_draw_image(self, event: AstrMessageEvent, prompt: str):
@@ -686,16 +709,7 @@ class PortraitPlugin(Star):
             prompt(string): 图片提示词，需要包含主体、场景、风格等描述
         """
         try:
-            # 自动添加角色外貌到 prompt 开头（如果启用且 prompt 中没有包含核心特征）
-            final_prompt = prompt
-            if self.auto_prepend_identity and self.char_identity:
-                # 检查 prompt 是否已包含核心特征关键词
-                identity_keywords = ["asian girl", "pink hair", "rose pink", "dusty rose", "air bangs"]
-                has_identity = any(kw.lower() in prompt.lower() for kw in identity_keywords)
-                if not has_identity:
-                    final_prompt = f"{self.char_identity} {prompt}"
-                    logger.debug(f"[Portrait] 自动添加角色外貌到 prompt")
-
+            final_prompt = self._build_final_prompt(prompt)
             image_path = await self._generate_image(final_prompt)
             # 发送图片
             await event.send(
@@ -722,16 +736,7 @@ class PortraitPlugin(Star):
             resolution(string): 分辨率，可选 "1K"、"2K"、"4K"
         """
         try:
-            # 自动添加角色外貌到 prompt 开头（如果启用且 prompt 中没有包含核心特征）
-            final_prompt = prompt
-            if self.auto_prepend_identity and self.char_identity:
-                # 检查 prompt 是否已包含核心特征关键词
-                identity_keywords = ["asian girl", "pink hair", "rose pink", "dusty rose", "air bangs"]
-                has_identity = any(kw.lower() in prompt.lower() for kw in identity_keywords)
-                if not has_identity:
-                    final_prompt = f"{self.char_identity} {prompt}"
-                    logger.debug(f"[Portrait] 自动添加角色外貌到 prompt")
-
+            final_prompt = self._build_final_prompt(prompt)
             image_path = await self._generate_image(
                 final_prompt,
                 size=size or None,
@@ -773,4 +778,66 @@ class PortraitPlugin(Star):
 """
 
         yield event.plain_result(help_text)
+
+    # === v2.7.0: WebUI 管理指令 ===
+    @filter.command("后台管理")
+    async def webui_control(self, event: AstrMessageEvent, action: str = ""):
+        """手动启动或关闭 WebUI 后台管理界面
+
+        Args:
+            action: 操作类型，可选 "开" 或 "关"
+        """
+        action = action.strip()
+
+        # 检查 WebUI 是否已配置
+        if not self.web_server:
+            yield event.plain_result("WebUI 未启用，请在插件配置中开启 webui_config.enabled")
+            return
+
+        if action == "开":
+            if self._webui_started:
+                host = self.web_server.host
+                port = self.web_server.port
+                yield event.plain_result(f"WebUI 已在运行中\n地址: http://{host}:{port}")
+                return
+
+            try:
+                self._webui_started = True
+                task = asyncio.create_task(self._start_webui())
+                self._bg_tasks.add(task)
+                await asyncio.sleep(0.5)  # 等待启动
+
+                host = self.web_server.host
+                port = self.web_server.port
+                yield event.plain_result(f"WebUI 已启动\n地址: http://{host}:{port}")
+            except Exception as e:
+                yield event.plain_result(f"WebUI 启动失败: {e}")
+
+        elif action == "关":
+            if not self._webui_started:
+                yield event.plain_result("WebUI 未在运行")
+                return
+
+            try:
+                await self.web_server.stop()
+                self._webui_started = False
+                yield event.plain_result("WebUI 已关闭")
+            except Exception as e:
+                yield event.plain_result(f"WebUI 关闭失败: {e}")
+
+        else:
+            # 显示当前状态
+            status = "运行中" if self._webui_started else "已停止"
+            host = self.web_server.host
+            port = self.web_server.port
+            msg = f"""WebUI 后台管理
+━━━━━━━━━━━━━━━
+状态: {status}
+地址: http://{host}:{port}
+
+用法:
+  /后台管理 开  - 启动 WebUI
+  /后台管理 关  - 关闭 WebUI
+━━━━━━━━━━━━━━━"""
+            yield event.plain_result(msg)
 
