@@ -50,7 +50,7 @@ def save_images(image_result: list[tuple[str, str]], path_dir: Path) -> list[tup
         with open(save_path, "wb") as f:
             f.write(image_bytes)
         saved_paths.append((file_name, save_path))
-        logger.info(f"[BIG BANANA] 图片已保存到 {save_path}")
+        logger.info(f"[Portrait] 图片已保存到 {save_path}")
     return saved_paths
 
 
@@ -67,13 +67,13 @@ def read_file(path, allowed_dir=None) -> tuple[str | None, str | None]:
         if allowed_dir is not None:
             allowed_resolved = Path(allowed_dir).resolve()
             if not str(resolved_path).startswith(str(allowed_resolved)):
-                logger.warning(f"[BIG BANANA] 路径穿越尝试被阻止: {path}")
+                logger.warning(f"[Portrait] 路径穿越尝试被阻止: {path}")
                 return None, None
 
         # 检查文件名是否包含危险字符
         filename = resolved_path.name
         if ".." in filename or filename.startswith("/"):
-            logger.warning(f"[BIG BANANA] 不安全的文件名: {filename}")
+            logger.warning(f"[Portrait] 不安全的文件名: {filename}")
             return None, None
 
         with open(resolved_path, "rb") as f:
@@ -82,22 +82,22 @@ def read_file(path, allowed_dir=None) -> tuple[str | None, str | None]:
             b64_data = base64.b64encode(file_data).decode("utf-8")
             return mime_type, b64_data
     except Exception as e:
-        logger.error(f"[BIG BANANA] 读取参考图片 {path} 失败: {e}")
+        logger.error(f"[Portrait] 读取参考图片 {path} 失败: {e}")
         return None, None
 
 
 def clear_cache(temp_dir: Path):
     """清理缓存文件，应当在图片发送完成后调用"""
     if not temp_dir.exists():
-        logger.warning(f"[BIG BANANA] 缓存目录 {temp_dir} 不存在")
+        logger.warning(f"[Portrait] 缓存目录 {temp_dir} 不存在")
         return
     for file in temp_dir.iterdir():
         try:
             if file.is_file():
                 file.unlink()
-                logger.debug(f"[BIG BANANA] 已删除缓存文件: {file}")
+                logger.debug(f"[Portrait] 已删除缓存文件: {file}")
         except Exception as e:
-            logger.error(f"[BIG BANANA] 删除缓存文件 {file} 失败: {e}")
+            logger.error(f"[Portrait] 删除缓存文件 {file} 失败: {e}")
 
 
 def random_string(length: int) -> str:
