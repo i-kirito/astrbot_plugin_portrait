@@ -567,29 +567,30 @@ class WebServer:
             if not self.selfie_refs_dir.exists():
                 return web.json_response({
                     "success": True,
-                    "images": [],
+                    "refs": [],
                     "enabled": self.plugin.selfie_enabled,
                 })
 
-            images = []
+            refs = []
             allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
             for file_path in self.selfie_refs_dir.iterdir():
                 if file_path.is_file() and file_path.suffix.lower() in allowed_exts:
                     stat = file_path.stat()
-                    images.append({
+                    refs.append({
                         "name": file_path.name,
                         "url": f"/selfie-refs/{file_path.name}",
+                        "rel_path": f"selfie_refs/{file_path.name}",
                         "size": stat.st_size,
                         "mtime": int(stat.st_mtime),
                     })
 
             # 按修改时间倒序
-            images.sort(key=lambda x: x["mtime"], reverse=True)
+            refs.sort(key=lambda x: x["mtime"], reverse=True)
 
             return web.json_response({
                 "success": True,
-                "images": images,
+                "refs": refs,
                 "enabled": self.plugin.selfie_enabled,
             })
 
