@@ -173,9 +173,13 @@
             justify-content: center;
             opacity: 0;
             transition: opacity 0.3s ease;
+            pointer-events: none;
         }
         .image-card:hover .actions {
             opacity: 1;
+        }
+        .image-card .actions .flex {
+            pointer-events: auto;
         }
         .image-card .image-info {
             padding: 12px;
