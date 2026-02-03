@@ -144,10 +144,9 @@ class GeminiDrawService:
             ],
         }
 
-        # Gemini 原生接口暂不支持指定输出尺寸，由模型自动决定
-        # 注：gemini-3 系列的 imageSize 参数需要在 imageGenerationConfig 中设置
-        # if "gemini-3" in self.model.lower() and self.image_size != "1K":
-        #     payload["generationConfig"]["imageGenerationConfig"] = {"outputImageWidth": 1024}
+        # 仅 gemini-3 系列支持 imageSize 参数（1K/2K/4K）
+        if "gemini-3" in self.model.lower():
+            payload["generationConfig"]["imageConfig"] = {"imageSize": self.image_size}
 
         logger.debug(f"[Gemini Native] URL: {url}")
 
