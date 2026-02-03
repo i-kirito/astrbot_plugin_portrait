@@ -84,13 +84,17 @@ class ImageManager:
             self._metadata_mtime = current_mtime
         return {}
 
-    def _save_metadata(self) -> None:
-        """保存图片元数据"""
+    def _save_metadata_sync(self) -> None:
+        """保存图片元数据（同步版本，内部使用）"""
         try:
             with open(self.metadata_file, "w", encoding="utf-8") as f:
                 json.dump(self._metadata, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"[ImageManager] 保存元数据失败: {e}")
+
+    def _save_metadata(self) -> None:
+        """保存图片元数据（兼容旧接口）"""
+        self._save_metadata_sync()
 
     def _load_favorites(self) -> set:
         """加载收藏列表"""
@@ -102,13 +106,17 @@ class ImageManager:
                 logger.warning(f"[ImageManager] 加载收藏列表失败: {e}")
         return set()
 
-    def _save_favorites(self) -> None:
-        """保存收藏列表"""
+    def _save_favorites_sync(self) -> None:
+        """保存收藏列表（同步版本，内部使用）"""
         try:
             with open(self.favorites_file, "w", encoding="utf-8") as f:
                 json.dump(list(self._favorites), f, ensure_ascii=False)
         except Exception as e:
             logger.error(f"[ImageManager] 保存收藏列表失败: {e}")
+
+    def _save_favorites(self) -> None:
+        """保存收藏列表（兼容旧接口）"""
+        self._save_favorites_sync()
 
     def get_metadata(self, filename: str) -> dict | None:
         """获取图片元数据"""
@@ -126,9 +134,14 @@ class ImageManager:
         self._metadata_mtime = self._get_metadata_mtime()
 
     async def set_metadata_async(self, filename: str, prompt: str) -> None:
-        """设置图片元数据（异步版本，带锁）"""
+        """设置图片元数据（异步版本，带锁，非阻塞 I/O）"""
         async with self._metadata_lock:
-            self.set_metadata(filename, prompt)
+            self._metadata[filename] = {
+                "prompt": prompt,
+                "created_at": int(time.time()),
+            }
+            await asyncio.to_thread(self._save_metadata_sync)
+            self._metadata_mtime = self._get_metadata_mtime()
 
     def is_favorite(self, filename: str) -> bool:
         """检查是否为收藏"""
@@ -146,9 +159,16 @@ class ImageManager:
             return True
 
     async def toggle_favorite_async(self, filename: str) -> bool:
-        """切换收藏状态（异步版本，带锁）"""
+        """切换收藏状态（异步版本，带锁，非阻塞 I/O）"""
         async with self._favorites_lock:
-            return self.toggle_favorite(filename)
+            if filename in self._favorites:
+                self._favorites.discard(filename)
+                await asyncio.to_thread(self._save_favorites_sync)
+                return False
+            else:
+                self._favorites.add(filename)
+                await asyncio.to_thread(self._save_favorites_sync)
+                return True
 
     def remove_metadata(self, filename: str) -> None:
         """删除图片元数据"""
@@ -158,10 +178,13 @@ class ImageManager:
         self._save_favorites()
 
     async def remove_metadata_async(self, filename: str) -> None:
-        """删除图片元数据（异步版本，带锁）"""
+        """删除图片元数据（异步版本，带锁，非阻塞 I/O）"""
         async with self._metadata_lock:
             async with self._favorites_lock:
-                self.remove_metadata(filename)
+                self._metadata.pop(filename, None)
+                self._favorites.discard(filename)
+                await asyncio.to_thread(self._save_metadata_sync)
+                await asyncio.to_thread(self._save_favorites_sync)
 
     async def close(self) -> None:
         if self._session is not None:
@@ -217,15 +240,20 @@ class ImageManager:
 
         try:
             allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
-            images: list[tuple[Path, int, float]] = []  # (path, size, mtime)
 
-            for file_path in self.images_dir.iterdir():
-                if file_path.is_file() and file_path.suffix.lower() in allowed_exts:
-                    # 跳过收藏的图片
-                    if file_path.name in self._favorites:
-                        continue
-                    stat = file_path.stat()
-                    images.append((file_path, stat.st_size, stat.st_mtime))
+            def _scan_images() -> list[tuple[Path, int, float]]:
+                """扫描图片（同步，在线程池执行）"""
+                result = []
+                for file_path in self.images_dir.iterdir():
+                    if file_path.is_file() and file_path.suffix.lower() in allowed_exts:
+                        if file_path.name in self._favorites:
+                            continue
+                        stat = file_path.stat()
+                        result.append((file_path, stat.st_size, stat.st_mtime))
+                return result
+
+            # 在线程池中扫描文件
+            images = await asyncio.to_thread(_scan_images)
 
             if not images:
                 return 0
@@ -255,12 +283,12 @@ class ImageManager:
                         total_size -= images[idx][1]
                     idx += 1
 
-            # 执行删除
+            # 执行删除（使用异步版本避免竞态）
             deleted = 0
             for path in to_delete:
                 try:
-                    path.unlink()
-                    self.remove_metadata(path.name)
+                    await asyncio.to_thread(path.unlink)
+                    await self.remove_metadata_async(path.name)
                     deleted += 1
                 except Exception as e:
                     logger.warning(f"[ImageManager] 删除图片失败 {path.name}: {e}")

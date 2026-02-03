@@ -802,15 +802,13 @@ class PortraitPlugin(Star):
                 return
 
             try:
+                await self._start_webui()
                 self._webui_started = True
-                task = asyncio.create_task(self._start_webui())
-                self._bg_tasks.add(task)
-                await asyncio.sleep(0.5)  # 等待启动
-
                 host = self.web_server.host
                 port = self.web_server.port
                 yield event.plain_result(f"WebUI 已启动\n地址: http://{host}:{port}")
             except Exception as e:
+                self._webui_started = False
                 yield event.plain_result(f"WebUI 启动失败: {e}")
 
         elif action == "关":
