@@ -68,10 +68,7 @@ class GeminiDrawService:
                     path = path[:-len(suffix)]
                     break
 
-            # 确保使用 HTTPS（除非是 localhost）
-            if scheme == "http" and host not in ("localhost", "127.0.0.1"):
-                scheme = "https"
-
+            # 保留用户指定的 scheme（允许 HTTP）
             clean_url = f"{scheme}://{host}{path}".rstrip("/")
             return clean_url
 
