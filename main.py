@@ -282,14 +282,11 @@ class PortraitPlugin(Star):
             await self.web_server.start()
 
     def _load_selfie_reference_images(self) -> list[bytes]:
-        """加载自拍参考照片 - 自动扫描 selfie_refs 目录"""
-        logger.info(f"[Portrait] selfie_enabled = {self.selfie_enabled}")
+        """加载人像参考照片 - 自动扫描 selfie_refs 目录"""
         if not self.selfie_enabled:
-            logger.info("[Portrait] 人像参考功能未启用")
             return []
 
         selfie_refs_dir = self.data_dir / "selfie_refs"
-        logger.info(f"[Portrait] selfie_refs_dir = {selfie_refs_dir}, exists = {selfie_refs_dir.exists()}")
         if not selfie_refs_dir.exists():
             return []
 
@@ -300,14 +297,11 @@ class PortraitPlugin(Star):
             if file_path.is_file() and file_path.suffix.lower() in allowed_exts:
                 try:
                     images.append(file_path.read_bytes())
-                    logger.info(f"[Portrait] 加载参考照: {file_path.name}")
                 except Exception as e:
                     logger.warning(f"[Portrait] 读取参考照失败: {file_path.name}, {e}")
 
         if images:
             logger.info(f"[Portrait] 已加载 {len(images)} 张人像参考")
-        else:
-            logger.info("[Portrait] selfie_refs 目录为空")
         return images
 
     def get_dynamic_config(self) -> dict:
