@@ -564,6 +564,9 @@ class WebServer:
     async def handle_list_selfie_refs(self, request: web.Request) -> web.Response:
         """列出自拍参考照"""
         try:
+            logger.info(f"[Portrait WebUI] selfie_refs_dir = {self.selfie_refs_dir}")
+            logger.info(f"[Portrait WebUI] exists = {self.selfie_refs_dir.exists()}")
+
             if not self.selfie_refs_dir.exists():
                 return web.json_response({
                     "success": True,
@@ -575,6 +578,7 @@ class WebServer:
             allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
             for file_path in self.selfie_refs_dir.iterdir():
+                logger.info(f"[Portrait WebUI] found file: {file_path}")
                 if file_path.is_file() and file_path.suffix.lower() in allowed_exts:
                     stat = file_path.stat()
                     refs.append({
@@ -587,6 +591,8 @@ class WebServer:
 
             # 按修改时间倒序
             refs.sort(key=lambda x: x["mtime"], reverse=True)
+
+            logger.info(f"[Portrait WebUI] 返回 {len(refs)} 张参考照")
 
             return web.json_response({
                 "success": True,
