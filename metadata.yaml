@@ -1,6 +1,6 @@
 name: astrbot_plugin_portrait
 display_name: 人物形象
-desc: AstrBot 视觉上下文注入器 + Gitee/Gemini AI 文生图 + Web 管理界面
+desc: 检测到绘图意图时自动注入视觉描述符，通过 Gitee/Gemini AI 生成图片，支持 WebUI 管理和人像参考
 version: 2.5.1
 author: ikirito
 repo: https://github.com/i-kirito/astrbot_plugin_portrait
