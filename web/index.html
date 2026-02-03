@@ -606,9 +606,11 @@
                                 <div class="flex-1">
                                     <div class="flex gap-4 mb-3 items-center">
                                         <el-input v-model="env.name" placeholder="场景名称" style="width: 200px;" />
-                                        <el-input v-model="env.keywordsStr" placeholder="触发关键词（逗号分隔）" @input="parseKeywords(env)" class="flex-1" />
                                     </div>
-                                    <div class="mb-2">
+                                    <div class="mb-3">
+                                        <el-input v-model="env.keywordsStr" placeholder="触发关键词（逗号分隔，如：户外,公园,街道）" @input="parseKeywords(env)" />
+                                    </div>
+                                    <div class="mb-2" v-if="env.keywords && env.keywords.length > 0">
                                         <span v-for="kw in env.keywords" :key="kw" class="keyword-tag">{{ kw }}</span>
                                     </div>
                                     <el-input
@@ -656,9 +658,11 @@
                                 <div class="flex-1">
                                     <div class="flex gap-4 mb-3 items-center">
                                         <el-input v-model="cam.name" placeholder="模式名称" style="width: 200px;" />
-                                        <el-input v-model="cam.keywordsStr" placeholder="触发关键词（逗号分隔）" @input="parseKeywords(cam)" class="flex-1" />
                                     </div>
-                                    <div class="mb-2">
+                                    <div class="mb-3">
+                                        <el-input v-model="cam.keywordsStr" placeholder="触发关键词（逗号分隔，如：全身,穿搭,OOTD）" @input="parseKeywords(cam)" />
+                                    </div>
+                                    <div class="mb-2" v-if="cam.keywords && cam.keywords.length > 0">
                                         <span v-for="kw in cam.keywords" :key="kw" class="keyword-tag">{{ kw }}</span>
                                     </div>
                                     <el-input
