@@ -824,9 +824,6 @@
                             <img :src="img.thumbnail || img.url" :alt="img.name" @click="openImageDetail(img)" class="cursor-pointer" loading="lazy" />
                             <div class="actions">
                                 <div class="flex gap-2">
-                                    <el-button type="primary" circle @click.stop="openImageDetail(img)" title="查看详情">
-                                        <span>&#128065;</span>
-                                    </el-button>
                                     <el-button :type="img.favorite ? 'warning' : 'default'" circle @click.stop="toggleFavorite(img)" :title="img.favorite ? '取消收藏' : '添加收藏'">
                                         <span>{{ img.favorite ? '&#9829;' : '&#9825;' }}</span>
                                     </el-button>
