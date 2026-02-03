@@ -18,13 +18,13 @@
 ## 🖼️ WebUI 界面预览
 
 ### 配置设置
-![配置设置](assets/webui_settings.png)
+![配置设置](https://raw.githubusercontent.com/i-kirito/astrbot_plugin_portrait/main/assets/webui_settings.png)
 
 ### 人像参考
-![人像参考](assets/webui_selfie.png)
+![人像参考](https://raw.githubusercontent.com/i-kirito/astrbot_plugin_portrait/main/assets/webui_selfie.png)
 
 ### 图片画廊
-![图片画廊](assets/webui_gallery.png)
+![图片画廊](https://raw.githubusercontent.com/i-kirito/astrbot_plugin_portrait/main/assets/webui_gallery.png)
 
 ## 📦 安装
 
