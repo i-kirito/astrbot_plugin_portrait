@@ -581,11 +581,22 @@ class PortraitPlugin(Star):
             if images:
                 all_images.extend(images)
 
-        # 有参考图时，只能使用 Gemini
+        # 有参考图时，优先使用 Gemini，失败则降级到 Gitee（不带参考图）
         if all_images:
-            if not self.gemini_draw.enabled:
+            if self.gemini_draw.enabled:
+                try:
+                    return await self.gemini_draw.generate(prompt, all_images)
+                except Exception as e:
+                    logger.warning(f"[Portrait] Gemini 生成失败: {e}")
+                    if self.enable_fallback and self.gitee_draw.enabled:
+                        logger.info("[Portrait] 切换到备用提供商 Gitee（不带参考图）")
+                        return await self.gitee_draw.generate(prompt, size=size, resolution=resolution)
+                    raise
+            elif self.gitee_draw.enabled:
+                logger.warning("[Portrait] Gemini 未配置，降级到 Gitee（不带参考图）")
+                return await self.gitee_draw.generate(prompt, size=size, resolution=resolution)
+            else:
                 raise ValueError("参考图功能需要配置 Gemini API Key")
-            return await self.gemini_draw.generate(prompt, all_images)
 
         # 确定主备提供商
         if self.draw_provider == "gemini":
