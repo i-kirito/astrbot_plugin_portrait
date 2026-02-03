@@ -144,9 +144,16 @@ class GeminiDrawService:
             ],
         }
 
-        # 仅 gemini-3 系列支持 imageSize 参数
+        # 仅 gemini-3 系列支持 outputImageSize 参数
         if "gemini-3" in self.model.lower():
-            payload["generationConfig"]["imageConfig"] = {"imageSize": self.image_size}
+            # 将 1K/2K/4K 转换为实际分辨率
+            size_map = {
+                "1K": "1024x1024",
+                "2K": "2048x2048",
+                "4K": "4096x4096",
+            }
+            output_size = size_map.get(self.image_size, "1024x1024")
+            payload["generationConfig"]["outputImageSize"] = output_size
 
         logger.debug(f"[Gemini Native] URL: {url}")
 
