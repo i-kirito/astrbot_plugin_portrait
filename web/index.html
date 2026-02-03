@@ -433,23 +433,12 @@
                         </template>
                         <el-form label-position="top">
                             <el-form-item label="API 密钥（每行一个）">
-                                <div class="relative w-full">
-                                    <el-input
-                                        v-model="giteeKeysText"
-                                        :type="showGiteeKeys ? 'textarea' : 'password'"
-                                        :autosize="{ minRows: 2, maxRows: 4 }"
-                                        placeholder="从 https://ai.gitee.com 获取 API Key"
-                                        style="padding-right: 40px;"
-                                    />
-                                    <el-button
-                                        type="text"
-                                        @click="showGiteeKeys = !showGiteeKeys"
-                                        style="position: absolute; right: 8px; top: 8px; padding: 4px 8px; color: #d8659f;"
-                                        :title="showGiteeKeys ? '隐藏密钥' : '显示密钥'"
-                                    >
-                                        <span style="font-size: 1.1rem;">{{ showGiteeKeys ? '&#128065;' : '&#128586;' }}</span>
-                                    </el-button>
-                                </div>
+                                <el-input
+                                    v-model="giteeKeysText"
+                                    type="textarea"
+                                    :autosize="{ minRows: 2, maxRows: 4 }"
+                                    placeholder="从 https://ai.gitee.com 获取 API Key"
+                                />
                             </el-form-item>
                             <el-row :gutter="24">
                                 <el-col :span="12">
@@ -856,9 +845,6 @@
                     timeout: 300,
                     max_retries: 2,
                 });
-
-                // 密钥显示控制
-                const showGiteeKeys = ref(false);
 
                 // 尺寸选项列表
                 const sizeOptions = [
@@ -1312,7 +1298,6 @@
                     config,
                     giteeConfig,
                     giteeKeysText,
-                    showGiteeKeys,
                     sizeOptions,
                     geminiConfig,
                     providerConfig,
