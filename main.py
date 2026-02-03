@@ -3,6 +3,7 @@ from astrbot.api.star import Context, Star, StarTools
 from astrbot.api import logger
 from astrbot.core.provider.entities import ProviderRequest
 import astrbot.api.message_components as Comp
+import base64
 import re
 import copy
 import random
@@ -13,6 +14,7 @@ from pathlib import Path
 
 from .core.gitee_draw import GiteeDrawService
 from .core.gemini_draw import GeminiDrawService
+from .core.utils import close_session
 from .web_server import WebServer
 
 
@@ -231,6 +233,11 @@ class PortraitPlugin(Star):
         self.draw_provider = self.config.get("draw_provider", "gitee") or "gitee"
         self.enable_fallback = self.config.get("enable_fallback", True)
 
+        # === v2.6.0: 自拍参考照配置 ===
+        selfie_conf = self.config.get("selfie_config", {}) or {}
+        self.selfie_enabled = selfie_conf.get("enabled", False)
+        self.selfie_reference_images = selfie_conf.get("reference_images", []) or []
+
         # === v2.1.0: WebUI 服务器 ===
         self.web_server: WebServer | None = None
         webui_conf = self.config.get("webui_config", {}) or {}
@@ -270,6 +277,30 @@ class PortraitPlugin(Star):
         """启动 WebUI 服务器"""
         if self.web_server:
             await self.web_server.start()
+
+    def _load_selfie_reference_images(self) -> list[bytes]:
+        """加载自拍参考照片"""
+        if not self.selfie_enabled or not self.selfie_reference_images:
+            return []
+
+        images: list[bytes] = []
+        for rel_path in self.selfie_reference_images:
+            if not rel_path:
+                continue
+            # 构建完整路径（相对于 data_dir）
+            full_path = self.data_dir / rel_path
+            if not full_path.exists():
+                logger.warning(f"[Portrait] 参考照不存在: {full_path}")
+                continue
+            try:
+                images.append(full_path.read_bytes())
+                logger.debug(f"[Portrait] 加载参考照: {rel_path}")
+            except Exception as e:
+                logger.warning(f"[Portrait] 读取参考照失败: {rel_path}, {e}")
+
+        if images:
+            logger.info(f"[Portrait] 已加载 {len(images)} 张自拍参考照")
+        return images
 
     def get_dynamic_config(self) -> dict:
         """获取动态配置（环境和摄影模式列表）"""
@@ -376,6 +407,8 @@ class PortraitPlugin(Star):
             await self.gitee_draw.close()
             # 关闭 Gemini 服务
             await self.gemini_draw.close()
+            # 关闭 HTTP 会话
+            await close_session()
             logger.info("[Portrait] 插件已停止，清理资源完成")
         except Exception as e:
             logger.error(f"[Portrait] 停止插件出错: {e}")
@@ -516,17 +549,42 @@ class PortraitPlugin(Star):
                 logger.debug("[Portrait] 已从 prompt 清理注入内容")
 
     # === v2.4.0: 统一图片生成方法（支持主备切换） ===
-    async def _generate_image(self, prompt: str, size: str | None = None, resolution: str | None = None) -> Path:
+    async def _generate_image(
+        self,
+        prompt: str,
+        size: str | None = None,
+        resolution: str | None = None,
+        images: list[bytes] | None = None,
+    ) -> Path:
         """统一图片生成方法，支持主备切换
 
         Args:
             prompt: 图片描述提示词
             size: 图片尺寸（仅 Gitee 支持）
             resolution: 分辨率（仅 Gitee 支持）
+            images: 额外参考图片列表（会与自拍参考照合并）
 
         Returns:
             生成的图片路径
         """
+        # 加载自拍参考照（如果启用且使用 Gemini）
+        selfie_refs = self._load_selfie_reference_images()
+
+        # 合并参考图：自拍参考照在前，用户提供的图片在后
+        all_images: list[bytes] | None = None
+        if selfie_refs or images:
+            all_images = []
+            if selfie_refs:
+                all_images.extend(selfie_refs)
+            if images:
+                all_images.extend(images)
+
+        # 有参考图时，只能使用 Gemini
+        if all_images:
+            if not self.gemini_draw.enabled:
+                raise ValueError("参考图功能需要配置 Gemini API Key")
+            return await self.gemini_draw.generate(prompt, all_images)
+
         # 确定主备提供商
         if self.draw_provider == "gemini":
             primary, fallback = self.gemini_draw, self.gitee_draw
@@ -566,7 +624,7 @@ class PortraitPlugin(Star):
     # === v2.0.0: LLM 工具调用 - 文生图 ===
     @filter.llm_tool(name="portrait_draw_image")
     async def portrait_draw_image(self, event: AstrMessageEvent, prompt: str):
-        """根据提示词生成图片。
+        """根据提示词生成图片。如果配置了自拍参考照，会自动使用参考照保持人物形象一致。
 
         Args:
             prompt(string): 图片提示词，需要包含主体、场景、风格等描述
@@ -590,7 +648,7 @@ class PortraitPlugin(Star):
         size: str = "",
         resolution: str = "",
     ):
-        """根据提示词生成图片，可指定尺寸。
+        """根据提示词生成图片，可指定尺寸。如果配置了自拍参考照，会自动使用参考照保持人物形象一致。
 
         Args:
             prompt(string): 图片提示词，需要包含主体、场景、风格等描述

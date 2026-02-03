@@ -375,6 +375,10 @@
                         <span class="icon">&#128247;</span>
                         <span>摄影模式</span>
                     </div>
+                    <div class="nav-item" :class="{ active: activeTab === 'selfie' }" @click="activeTab = 'selfie'">
+                        <span class="icon">&#128248;</span>
+                        <span>参考照管理</span>
+                    </div>
                     <div class="nav-item" :class="{ active: activeTab === 'gallery' }" @click="activeTab = 'gallery'">
                         <span class="icon">&#128444;</span>
                         <span>图片画廊</span>
@@ -674,6 +678,104 @@
                     </div>
                 </div>
 
+                <!-- 参考照管理页面 -->
+                <div v-if="activeTab === 'selfie'" class="max-w-4xl mx-auto fade-in">
+                    <div class="page-header">
+                        <h2 class="page-title">参考照管理</h2>
+                        <el-button type="primary" :loading="savingSelfie" @click="saveSelfieConfig">
+                            <span style="margin-right: 8px;">&#128190;</span> 保存设置
+                        </el-button>
+                    </div>
+                    <p class="text-sm text-gray-500 mb-6">上传参考人像后，每次使用 Gemini 生图时会自动传入这些照片作为形象参考，确保角色形象一致性。</p>
+
+                    <!-- 启用开关 -->
+                    <el-card class="mb-6">
+                        <template #header>
+                            <div class="card-title">
+                                <span class="icon">&#9881;</span>
+                                <span>参考照设置</span>
+                            </div>
+                        </template>
+                        <el-form label-position="left">
+                            <el-form-item label="启用自拍参考照功能" style="margin-bottom: 0;">
+                                <div class="flex items-center gap-4">
+                                    <el-switch v-model="selfieConfig.enabled" />
+                                    <span class="text-sm text-gray-500">启用后，使用 Gemini 生图时会自动传入参考人像</span>
+                                </div>
+                            </el-form-item>
+                        </el-form>
+                    </el-card>
+
+                    <!-- 上传区域 -->
+                    <el-card class="mb-6">
+                        <template #header>
+                            <div class="card-title">
+                                <span class="icon">&#128248;</span>
+                                <span>上传参考照</span>
+                            </div>
+                        </template>
+                        <el-upload
+                            ref="selfieUploadRef"
+                            action=""
+                            :auto-upload="false"
+                            :on-change="handleSelfieFileChange"
+                            :show-file-list="false"
+                            accept="image/*"
+                            multiple
+                            drag
+                        >
+                            <div class="text-center py-8">
+                                <div style="font-size: 3rem; color: #FFB6C1;">&#128247;</div>
+                                <p class="text-pink-400 mt-4">点击或拖拽图片到此处上传</p>
+                                <p class="text-xs text-gray-400 mt-2">支持 JPG、PNG、WebP 格式，建议上传清晰正脸照</p>
+                            </div>
+                        </el-upload>
+                        <div v-if="selfieUploadFiles.length > 0" class="mt-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-sm text-gray-500">待上传文件 ({{ selfieUploadFiles.length }})</span>
+                                <div class="flex gap-2">
+                                    <el-button size="small" @click="clearSelfieUpload">清空</el-button>
+                                    <el-button type="primary" size="small" :loading="uploadingSelfie" @click="uploadSelfieFiles">上传</el-button>
+                                </div>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <span v-for="(f, idx) in selfieUploadFiles" :key="idx" class="keyword-tag">{{ f.name }}</span>
+                            </div>
+                        </div>
+                    </el-card>
+
+                    <!-- 已有参考照列表 -->
+                    <el-card>
+                        <template #header>
+                            <div class="card-title">
+                                <span class="icon">&#128444;</span>
+                                <span>已上传参考照 ({{ selfieRefs.length }})</span>
+                                <el-button v-if="selfieRefs.length > 0" type="danger" size="small" style="margin-left: auto;" @click="deleteAllSelfieRefs">
+                                    清空全部
+                                </el-button>
+                            </div>
+                        </template>
+                        <div v-if="selfieRefs.length === 0" class="empty-state" style="padding: 40px 20px;">
+                            <div class="icon" style="font-size: 2.5rem;">&#128248;</div>
+                            <p class="text-base mb-2">暂无参考照</p>
+                            <p class="text-sm">上传清晰正脸照作为形象参考</p>
+                        </div>
+                        <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                            <div v-for="ref in selfieRefs" :key="ref.name" class="image-card">
+                                <img :src="ref.url" :alt="ref.name" style="height: 180px;" />
+                                <div class="actions">
+                                    <el-button type="danger" circle @click="deleteSelfieRef(ref)" title="删除">
+                                        <span>&#128465;</span>
+                                    </el-button>
+                                </div>
+                                <div class="image-info">
+                                    <p class="text-xs text-gray-500 truncate" :title="ref.name">{{ ref.name }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </el-card>
+                </div>
+
                 <!-- 图片画廊页面 -->
                 <div v-if="activeTab === 'gallery'" class="fade-in">
                     <div class="page-header">
@@ -919,6 +1021,17 @@
                 const detailVisible = ref(false);
                 const detailImage = ref(null);
 
+                // 自拍参考照相关
+                const selfieConfig = reactive({
+                    enabled: false,
+                    reference_images: [],
+                });
+                const selfieRefs = ref([]);
+                const selfieUploadFiles = ref([]);
+                const selfieUploadRef = ref(null);
+                const uploadingSelfie = ref(false);
+                const savingSelfie = ref(false);
+
                 onMounted(async () => {
                     // 先尝试无 token 访问（检查是否需要认证）
                     try {
@@ -1056,7 +1169,14 @@
                                     keywordsStr: (c.keywords || []).join(', ')
                                 }));
                             }
+                            // 加载自拍参考照配置
+                            if (data.config.selfie_config) {
+                                selfieConfig.enabled = data.config.selfie_config.enabled || false;
+                                selfieConfig.reference_images = data.config.selfie_config.reference_images || [];
+                            }
                         }
+                        // 加载自拍参考照列表
+                        await loadSelfieRefs();
                     } catch (e) {
                         ElementPlus.ElMessage.error('加载配置失败: ' + e.message);
                     }
@@ -1298,6 +1418,130 @@
                     return new Date(timestamp * 1000).toLocaleString('zh-CN');
                 }
 
+                // ========== 自拍参考照管理 ==========
+                async function loadSelfieRefs() {
+                    try {
+                        const res = await apiFetch('/api/selfie-refs');
+                        const data = await res.json();
+                        if (data.success) {
+                            selfieRefs.value = data.refs || [];
+                        }
+                    } catch (e) {
+                        console.error('加载参考照失败:', e);
+                    }
+                }
+
+                function handleSelfieFileChange(file) {
+                    selfieUploadFiles.value.push(file.raw);
+                }
+
+                function clearSelfieUpload() {
+                    selfieUploadFiles.value = [];
+                }
+
+                async function uploadSelfieFiles() {
+                    if (selfieUploadFiles.value.length === 0) return;
+                    uploadingSelfie.value = true;
+                    try {
+                        const formData = new FormData();
+                        for (const file of selfieUploadFiles.value) {
+                            formData.append('files', file);
+                        }
+                        const res = await apiFetch('/api/selfie-refs', {
+                            method: 'POST',
+                            body: formData,
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            ElementPlus.ElMessage.success(`成功上传 ${data.uploaded || selfieUploadFiles.value.length} 张参考照`);
+                            selfieUploadFiles.value = [];
+                            await loadSelfieRefs();
+                        } else {
+                            ElementPlus.ElMessage.error(data.error || '上传失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('上传失败: ' + e.message);
+                    } finally {
+                        uploadingSelfie.value = false;
+                    }
+                }
+
+                async function deleteSelfieRef(ref) {
+                    try {
+                        await ElementPlus.ElMessageBox.confirm(
+                            `确定要删除参考照 "${ref.name}" 吗？`,
+                            '确认删除',
+                            { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+                        );
+                        const res = await apiFetch(`/api/selfie-refs/${encodeURIComponent(ref.name)}`, {
+                            method: 'DELETE'
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            ElementPlus.ElMessage.success('参考照已删除');
+                            await loadSelfieRefs();
+                        } else {
+                            ElementPlus.ElMessage.error(data.error || '删除失败');
+                        }
+                    } catch (e) {
+                        if (e !== 'cancel') {
+                            ElementPlus.ElMessage.error('删除失败: ' + e.message);
+                        }
+                    }
+                }
+
+                async function deleteAllSelfieRefs() {
+                    if (selfieRefs.value.length === 0) return;
+                    try {
+                        await ElementPlus.ElMessageBox.confirm(
+                            `确定要删除全部 ${selfieRefs.value.length} 张参考照吗？`,
+                            '确认清空',
+                            { confirmButtonText: '全部删除', cancelButtonText: '取消', type: 'warning' }
+                        );
+                        // 逐个删除
+                        for (const ref of [...selfieRefs.value]) {
+                            await apiFetch(`/api/selfie-refs/${encodeURIComponent(ref.name)}`, {
+                                method: 'DELETE'
+                            });
+                        }
+                        ElementPlus.ElMessage.success('已清空全部参考照');
+                        await loadSelfieRefs();
+                    } catch (e) {
+                        if (e !== 'cancel') {
+                            ElementPlus.ElMessage.error('操作失败: ' + e.message);
+                        }
+                    }
+                }
+
+                async function saveSelfieConfig() {
+                    savingSelfie.value = true;
+                    try {
+                        const payload = {
+                            config: {
+                                selfie_config: {
+                                    enabled: selfieConfig.enabled,
+                                    reference_images: selfieRefs.value.map(r => r.rel_path || r.name),
+                                }
+                            }
+                        };
+                        const res = await apiFetch('/api/config', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            ElementPlus.ElMessage.success('参考照设置已保存');
+                        } else {
+                            ElementPlus.ElMessage.error(data.error || '保存失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('保存失败: ' + e.message);
+                    } finally {
+                        savingSelfie.value = false;
+                    }
+                }
+
                 return {
                     // 登录相关
                     isAuthenticated,
@@ -1347,6 +1591,20 @@
                     copyPrompt,
                     formatDate,
                     formatSize,
+                    // 自拍参考照
+                    selfieConfig,
+                    selfieRefs,
+                    selfieUploadFiles,
+                    selfieUploadRef,
+                    uploadingSelfie,
+                    savingSelfie,
+                    loadSelfieRefs,
+                    handleSelfieFileChange,
+                    clearSelfieUpload,
+                    uploadSelfieFiles,
+                    deleteSelfieRef,
+                    deleteAllSelfieRefs,
+                    saveSelfieConfig,
                 };
             }
         });

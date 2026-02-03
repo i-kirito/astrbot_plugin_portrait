@@ -200,5 +200,24 @@
                 "slider": { "min": 0, "max": 1000, "step": 10 }
             }
         }
+    },
+    "selfie_config": {
+        "description": "自拍参考照配置",
+        "type": "object",
+        "hint": "上传参考人像后，每次 Gemini 生图时会自动使用这些照片作为形象参考",
+        "items": {
+            "enabled": {
+                "description": "启用自拍参考照功能",
+                "type": "bool",
+                "default": false,
+                "hint": "启用后，使用 Gemini 生图时会自动传入参考人像"
+            },
+            "reference_images": {
+                "description": "自拍参考人像（可多张）",
+                "type": "file",
+                "default": [],
+                "hint": "建议上传清晰正脸照，可多张做不同角度参考。"
+            }
+        }
     }
 }

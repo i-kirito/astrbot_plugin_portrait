@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -10,6 +11,7 @@ import aiohttp
 from astrbot.api import logger
 
 from .image_manager import ImageManager
+from .image_format import guess_image_mime_and_ext
 
 
 class GeminiDrawService:
@@ -86,11 +88,12 @@ class GeminiDrawService:
         """判断是否使用原生 API（默认始终使用原生接口）"""
         return True
 
-    async def generate(self, prompt: str) -> Path:
+    async def generate(self, prompt: str, images: list[bytes] | None = None) -> Path:
         """生成图片
 
         Args:
             prompt: 图片描述提示词
+            images: 可选的参考图片列表（用于图生图/参考图模式）
 
         Returns:
             生成的图片路径
@@ -101,14 +104,24 @@ class GeminiDrawService:
         if not self.enabled:
             raise ValueError("Gemini AI 未配置 API Key")
 
-        logger.info(f"[Gemini] 开始生成图片 (size={self.image_size}): {prompt[:50]}...")
+        has_ref = images and len(images) > 0
+        mode_str = f"参考图x{len(images)}" if has_ref else "文生图"
+        logger.info(f"[Gemini] 开始生成图片 ({mode_str}, size={self.image_size}): {prompt[:50]}...")
+
+        start_time = time.time()
 
         # 默认使用原生接口，失败时回退到 OpenAI 兼容接口
         try:
-            image_bytes = await self._generate_native(prompt)
+            image_bytes = await self._generate_native(prompt, images)
         except Exception as e:
+            if has_ref:
+                # 有参考图时不回退，因为 OpenAI 兼容接口不支持
+                raise
             logger.warning(f"[Gemini] 原生接口失败: {e}，尝试 OpenAI 兼容接口")
             image_bytes = await self._generate_openai_compatible(prompt)
+
+        elapsed = time.time() - start_time
+        logger.info(f"[Gemini] 图片生成耗时: {elapsed:.2f}s")
 
         # 保存图片
         path = await self.imgr.save_image_bytes(image_bytes, prompt=prompt)
@@ -119,8 +132,8 @@ class GeminiDrawService:
 
         return path
 
-    async def _generate_native(self, prompt: str) -> bytes:
-        """使用原生 Gemini API 生成图片 (支持 2K/4K)"""
+    async def _generate_native(self, prompt: str, images: list[bytes] | None = None) -> bytes:
+        """使用原生 Gemini API 生成图片 (支持参考图)"""
         url = f"{self.base_url}/v1beta/models/{self.model}:generateContent"
 
         headers = {
@@ -128,19 +141,29 @@ class GeminiDrawService:
             "x-goog-api-key": self.api_key,
         }
 
+        # 构建 parts：文本 + 可选图片
+        parts: list[dict] = [{"text": prompt}]
+        if images:
+            for img_bytes in images:
+                mime, _ = guess_image_mime_and_ext(img_bytes)
+                parts.append({
+                    "inlineData": {
+                        "mimeType": mime,
+                        "data": base64.b64encode(img_bytes).decode(),
+                    }
+                })
+
         # 构建请求体
         payload = {
-            "contents": [
-                {"parts": [{"text": prompt}]}
-            ],
+            "contents": [{"parts": parts}],
             "generationConfig": {
-                "responseModalities": ["IMAGE"],
+                "responseModalities": ["IMAGE", "TEXT"] if images else ["IMAGE"],
             },
             "safetySettings": [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "OFF"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "OFF"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "OFF"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "OFF"},
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
             ],
         }
 
@@ -148,7 +171,7 @@ class GeminiDrawService:
         if "gemini-3" in self.model.lower():
             payload["generationConfig"]["imageConfig"] = {"imageSize": self.image_size}
 
-        logger.debug(f"[Gemini Native] URL: {url}")
+        logger.debug(f"[Gemini Native] URL: {url}, has_images={bool(images)}")
 
         timeout = aiohttp.ClientTimeout(total=self.timeout)
 
@@ -171,7 +194,11 @@ class GeminiDrawService:
                 logger.error(f"[Gemini Native] 请求失败: {e}")
                 raise Exception(f"Gemini 请求失败: {str(e)}")
 
-        # 解析响应
+        # 解析响应 - 有参考图时可能返回多张，取最后一张
+        if images:
+            all_images = self._extract_images(data)
+            if all_images:
+                return all_images[-1]
         return self._parse_native_response(data)
 
     async def _generate_openai_compatible(self, prompt: str) -> bytes:
@@ -298,3 +325,16 @@ class GeminiDrawService:
     async def close(self):
         """关闭服务（释放资源）"""
         pass
+
+    @staticmethod
+    def _extract_images(data: dict) -> list[bytes]:
+        """从响应中提取所有图片"""
+        all_images: list[bytes] = []
+        for candidate in data.get("candidates", []):
+            content = candidate.get("content", {})
+            for part in content.get("parts", []):
+                if "inlineData" in part:
+                    b64_data = part["inlineData"].get("data")
+                    if b64_data:
+                        all_images.append(base64.b64decode(b64_data))
+        return all_images

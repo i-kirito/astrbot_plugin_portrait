@@ -33,6 +33,8 @@ class WebServer:
         self.images_dir = self.plugin.data_dir / "generated_images"
         # 缩略图目录
         self.thumbnails_dir = self.plugin.data_dir / "thumbnails"
+        # 自拍参考照目录
+        self.selfie_refs_dir = self.plugin.data_dir / "selfie_refs"
         # ImageManager 实例（延迟初始化）
         self._imgr: ImageManager | None = None
 
@@ -74,6 +76,11 @@ class WebServer:
         self.app.router.add_post("/api/images/{name}/favorite", self.handle_toggle_favorite)
         self.app.router.add_get("/api/health", self.handle_health)
 
+        # 自拍参考照 API
+        self.app.router.add_get("/api/selfie-refs", self.handle_list_selfie_refs)
+        self.app.router.add_post("/api/selfie-refs", self.handle_upload_selfie_ref)
+        self.app.router.add_delete("/api/selfie-refs/{name}", self.handle_delete_selfie_ref)
+
         # 前端页面
         self.app.router.add_get("/", self.handle_index)
         self.app.router.add_get("/index.html", self.handle_index)
@@ -89,6 +96,10 @@ class WebServer:
         # 缩略图静态服务
         self.thumbnails_dir.mkdir(parents=True, exist_ok=True)
         self.app.router.add_static("/thumbnails", str(self.thumbnails_dir), show_index=False)
+
+        # 自拍参考照静态服务
+        self.selfie_refs_dir.mkdir(parents=True, exist_ok=True)
+        self.app.router.add_static("/selfie-refs", str(self.selfie_refs_dir), show_index=False)
 
     @property
     def imgr(self) -> ImageManager:
@@ -214,6 +225,13 @@ class WebServer:
             config["environments"] = dynamic.get("environments", [])
             config["cameras"] = dynamic.get("cameras", [])
 
+            # selfie_config 单独处理
+            selfie_conf = self.plugin.config.get("selfie_config", {}) or {}
+            config["selfie_config"] = {
+                "enabled": selfie_conf.get("enabled", False),
+                "reference_images": selfie_conf.get("reference_images", []) or [],
+            }
+
             return web.json_response({"success": True, "config": config})
         except Exception as e:
             logger.error(f"[Portrait WebUI] 获取配置失败: {e}")
@@ -241,6 +259,7 @@ class WebServer:
                 "enable_fallback",
                 "environments",
                 "cameras",
+                "selfie_config",
             }
 
             # 更新配置
@@ -350,6 +369,12 @@ class WebServer:
                 self.plugin.draw_provider = config.get("draw_provider", "gitee") or "gitee"
             if "enable_fallback" in config:
                 self.plugin.enable_fallback = config.get("enable_fallback", True)
+
+            # 更新自拍参考照配置
+            selfie_conf = config.get("selfie_config", {}) or {}
+            if selfie_conf:
+                self.plugin.selfie_enabled = selfie_conf.get("enabled", False)
+                self.plugin.selfie_reference_images = selfie_conf.get("reference_images", []) or []
 
             logger.debug("[Portrait WebUI] 插件资源已热更新")
 
@@ -533,3 +558,168 @@ class WebServer:
         except Exception as e:
             logger.warning(f"[Portrait WebUI] 生成缩略图失败: {e}")
             return False
+
+    # === 自拍参考照管理 API ===
+
+    async def handle_list_selfie_refs(self, request: web.Request) -> web.Response:
+        """列出自拍参考照"""
+        try:
+            if not self.selfie_refs_dir.exists():
+                return web.json_response({
+                    "success": True,
+                    "images": [],
+                    "enabled": self.plugin.selfie_enabled,
+                })
+
+            images = []
+            allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+
+            for file_path in self.selfie_refs_dir.iterdir():
+                if file_path.is_file() and file_path.suffix.lower() in allowed_exts:
+                    stat = file_path.stat()
+                    images.append({
+                        "name": file_path.name,
+                        "url": f"/selfie-refs/{file_path.name}",
+                        "size": stat.st_size,
+                        "mtime": int(stat.st_mtime),
+                    })
+
+            # 按修改时间倒序
+            images.sort(key=lambda x: x["mtime"], reverse=True)
+
+            return web.json_response({
+                "success": True,
+                "images": images,
+                "enabled": self.plugin.selfie_enabled,
+            })
+
+        except Exception as e:
+            logger.error(f"[Portrait WebUI] 获取参考照列表失败: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_upload_selfie_ref(self, request: web.Request) -> web.Response:
+        """上传自拍参考照"""
+        try:
+            self.selfie_refs_dir.mkdir(parents=True, exist_ok=True)
+
+            reader = await request.multipart()
+            uploaded = []
+
+            async for field in reader:
+                if field.name == "files":
+                    filename = field.filename
+                    if not filename:
+                        continue
+
+                    # 安全检查
+                    if "/" in filename or "\\" in filename or ".." in filename:
+                        continue
+
+                    # 检查扩展名
+                    ext = Path(filename).suffix.lower()
+                    if ext not in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
+                        continue
+
+                    # 生成唯一文件名
+                    timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+                    safe_name = f"ref_{timestamp}{ext}"
+                    file_path = self.selfie_refs_dir / safe_name
+
+                    # 保存文件
+                    with open(file_path, "wb") as f:
+                        while True:
+                            chunk = await field.read_chunk()
+                            if not chunk:
+                                break
+                            f.write(chunk)
+
+                    uploaded.append({
+                        "name": safe_name,
+                        "url": f"/selfie-refs/{safe_name}",
+                    })
+
+            if not uploaded:
+                return web.json_response(
+                    {"success": False, "error": "未上传有效文件"}, status=400
+                )
+
+            # 更新配置中的参考照列表
+            self._update_selfie_refs_config()
+
+            logger.info(f"[Portrait WebUI] 已上传 {len(uploaded)} 张参考照")
+            return web.json_response({
+                "success": True,
+                "uploaded": uploaded,
+                "message": f"已上传 {len(uploaded)} 张参考照",
+            })
+
+        except Exception as e:
+            logger.error(f"[Portrait WebUI] 上传参考照失败: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_delete_selfie_ref(self, request: web.Request) -> web.Response:
+        """删除自拍参考照"""
+        try:
+            name = request.match_info.get("name", "")
+            if not name:
+                return web.json_response(
+                    {"success": False, "error": "文件名为空"}, status=400
+                )
+
+            # 安全检查
+            if "/" in name or "\\" in name or ".." in name:
+                return web.json_response(
+                    {"success": False, "error": "非法文件名"}, status=400
+                )
+
+            file_path = self.selfie_refs_dir / name
+            if not file_path.exists():
+                return web.json_response(
+                    {"success": False, "error": "文件不存在"}, status=404
+                )
+
+            # 确保文件在目录内
+            try:
+                file_path.relative_to(self.selfie_refs_dir)
+            except ValueError:
+                return web.json_response(
+                    {"success": False, "error": "非法路径"}, status=400
+                )
+
+            os.remove(file_path)
+
+            # 更新配置中的参考照列表
+            self._update_selfie_refs_config()
+
+            logger.info(f"[Portrait WebUI] 已删除参考照: {name}")
+            return web.json_response({"success": True, "deleted": name})
+
+        except Exception as e:
+            logger.error(f"[Portrait WebUI] 删除参考照失败: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    def _update_selfie_refs_config(self):
+        """更新配置中的参考照列表"""
+        try:
+            if not self.selfie_refs_dir.exists():
+                ref_list = []
+            else:
+                allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+                ref_list = [
+                    f"selfie_refs/{f.name}"
+                    for f in self.selfie_refs_dir.iterdir()
+                    if f.is_file() and f.suffix.lower() in allowed_exts
+                ]
+
+            # 更新插件配置
+            if "selfie_config" not in self.plugin.config:
+                self.plugin.config["selfie_config"] = {}
+            self.plugin.config["selfie_config"]["reference_images"] = ref_list
+
+            # 更新插件实例变量
+            self.plugin.selfie_reference_images = ref_list
+
+            logger.debug(f"[Portrait WebUI] 参考照列表已更新: {len(ref_list)} 张")
+
+        except Exception as e:
+            logger.error(f"[Portrait WebUI] 更新参考照配置失败: {e}")
