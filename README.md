@@ -143,4 +143,4 @@
 - [Optimize] 支持丰富触发词
 
 ---
-*Generated with ❤️ by AstrBot*
+*Generated with ❤️ by ikirito*
