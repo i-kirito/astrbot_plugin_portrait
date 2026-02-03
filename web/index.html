@@ -1,0 +1,1341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>人物形象 - AstrBot</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Element Plus -->
+    <link rel="stylesheet" href="https://unpkg.com/element-plus@2.4.4/dist/index.css" />
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3.4.15/dist/vue.global.prod.js"></script>
+    <script src="https://unpkg.com/element-plus@2.4.4/dist/index.full.min.js"></script>
+    <!-- SortableJS for drag-drop -->
+    <script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: linear-gradient(135deg, #FFF0F5 0%, #FFE4E1 50%, #E6E6FA 100%);
+            background-attachment: fixed;
+            color: #4a4a4a;
+            font-family: 'PingFang SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, sans-serif;
+            min-height: 100vh;
+        }
+        /* Element Plus 粉色主题覆盖 */
+        .el-card {
+            --el-card-bg-color: rgba(255, 255, 255, 0.85);
+            --el-card-border-color: rgba(255, 182, 193, 0.4);
+            backdrop-filter: blur(12px);
+            border-radius: 20px !important;
+            box-shadow: 0 8px 32px rgba(255, 182, 193, 0.25);
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 182, 193, 0.3) !important;
+        }
+        .el-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(255, 105, 180, 0.2);
+        }
+        .el-card__header {
+            border-bottom: 1px solid rgba(255, 182, 193, 0.4) !important;
+            padding: 16px 20px !important;
+            background: linear-gradient(135deg, rgba(255, 182, 193, 0.1) 0%, rgba(230, 230, 250, 0.1) 100%);
+            border-radius: 20px 20px 0 0 !important;
+        }
+        .el-input__wrapper, .el-textarea__inner {
+            background-color: rgba(255, 255, 255, 0.9) !important;
+            box-shadow: 0 0 0 1px rgba(255, 182, 193, 0.5) inset !important;
+            border-radius: 12px !important;
+            transition: all 0.2s ease;
+        }
+        .el-input__wrapper:hover, .el-textarea__inner:hover {
+            box-shadow: 0 0 0 1px rgba(255, 105, 180, 0.6) inset !important;
+        }
+        .el-input__wrapper:focus-within, .el-textarea__inner:focus {
+            box-shadow: 0 0 0 2px rgba(255, 105, 180, 0.5) inset !important;
+        }
+        .el-input__inner, .el-textarea__inner {
+            color: #4a4a4a !important;
+        }
+        .el-form-item__label {
+            color: #d8659f !important;
+            font-weight: 600 !important;
+        }
+        .el-switch__label {
+            color: #888 !important;
+        }
+        .el-button--primary {
+            background: linear-gradient(135deg, #FFB6C1 0%, #DDA0DD 100%) !important;
+            border: none !important;
+            box-shadow: 0 4px 15px rgba(255, 182, 193, 0.5);
+            transition: all 0.3s ease;
+            color: #fff !important;
+        }
+        .el-button--primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 105, 180, 0.5);
+            background: linear-gradient(135deg, #FF69B4 0%, #DA70D6 100%) !important;
+        }
+        .el-button--success {
+            background: linear-gradient(135deg, #98D8C8 0%, #90EE90 100%) !important;
+            border: none !important;
+        }
+        .el-button--danger {
+            background: linear-gradient(135deg, #FFB4B4 0%, #FF6B6B 100%) !important;
+            border: none !important;
+        }
+        .el-select__wrapper {
+            background-color: rgba(255, 255, 255, 0.9) !important;
+            box-shadow: 0 0 0 1px rgba(255, 182, 193, 0.5) inset !important;
+        }
+        .el-input-number {
+            --el-input-bg-color: rgba(255, 255, 255, 0.9);
+        }
+        /* 侧边栏 */
+        .sidebar {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 240, 245, 0.95) 100%);
+            border-right: 1px solid rgba(255, 182, 193, 0.3);
+            backdrop-filter: blur(20px);
+        }
+        .logo-section {
+            padding: 24px 20px;
+            border-bottom: 1px solid rgba(255, 182, 193, 0.3);
+            background: linear-gradient(135deg, rgba(255, 182, 193, 0.2) 0%, rgba(230, 230, 250, 0.2) 100%);
+        }
+        .logo-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #FF69B4 0%, #DA70D6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .nav-item {
+            padding: 14px 24px;
+            margin: 4px 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #888;
+        }
+        .nav-item:hover {
+            background: rgba(255, 182, 193, 0.2);
+            color: #FF69B4;
+        }
+        .nav-item.active {
+            background: linear-gradient(135deg, rgba(255, 182, 193, 0.3) 0%, rgba(230, 230, 250, 0.3) 100%);
+            color: #FF69B4;
+            font-weight: 600;
+        }
+        .nav-item .icon {
+            font-size: 1.2rem;
+        }
+        /* 图片卡片 */
+        .image-card {
+            position: relative;
+            overflow: hidden;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(255, 182, 193, 0.3);
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+        .image-card:hover {
+            border-color: rgba(255, 105, 180, 0.5);
+            transform: translateY(-4px) scale(1.02);
+            box-shadow: 0 12px 40px rgba(255, 105, 180, 0.2);
+        }
+        .image-card img {
+            width: 100%;
+            height: 300px;
+            object-fit: cover;
+            transition: transform 0.3s ease;
+        }
+        .image-card:hover img {
+            transform: scale(1.05);
+        }
+        .image-card .actions {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 182, 193, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .image-card:hover .actions {
+            opacity: 1;
+        }
+        .image-card .image-info {
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.95);
+        }
+        /* 页面标题 */
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 32px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(255, 182, 193, 0.3);
+        }
+        .page-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #FF69B4 0%, #DA70D6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        /* 卡片标题 */
+        .card-title {
+            font-weight: 600;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #d8659f;
+        }
+        .card-title .icon {
+            font-size: 1.2rem;
+        }
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            color: #bbb;
+        }
+        .empty-state .icon {
+            font-size: 4rem;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+        /* 统计卡片 */
+        .stats-bar {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-item {
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 12px;
+            padding: 16px 24px;
+            border: 1px solid rgba(255, 182, 193, 0.3);
+            flex: 1;
+        }
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #FF69B4;
+        }
+        .stat-label {
+            font-size: 0.875rem;
+            color: #aaa;
+            margin-top: 4px;
+        }
+        /* 动态列表项 */
+        .list-item {
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(255, 182, 193, 0.3);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            transition: all 0.2s ease;
+        }
+        .list-item:hover {
+            border-color: rgba(255, 105, 180, 0.5);
+            box-shadow: 0 4px 16px rgba(255, 182, 193, 0.2);
+        }
+        .list-item.sortable-ghost {
+            opacity: 0.5;
+            background: rgba(255, 182, 193, 0.2);
+        }
+        .list-item.sortable-drag {
+            box-shadow: 0 8px 24px rgba(255, 105, 180, 0.3);
+        }
+        .drag-handle {
+            cursor: grab;
+            color: #ccc;
+            transition: color 0.2s;
+        }
+        .drag-handle:hover {
+            color: #FF69B4;
+        }
+        .keyword-tag {
+            background: linear-gradient(135deg, #FFE4E1 0%, #E6E6FA 100%);
+            color: #d8659f;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            margin-right: 4px;
+            margin-bottom: 4px;
+            display: inline-block;
+        }
+        /* 滚动条 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 240, 245, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 182, 193, 0.5);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 105, 180, 0.6);
+        }
+        /* 动画 */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+        /* 登录卡片 */
+        .login-card {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(20px);
+            border-radius: 24px;
+            padding: 48px 40px;
+            box-shadow: 0 20px 60px rgba(255, 182, 193, 0.3);
+            border: 1px solid rgba(255, 182, 193, 0.3);
+            width: 100%;
+            max-width: 400px;
+            animation: fadeIn 0.5s ease-out;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- 登录页面 -->
+        <div v-if="!isAuthenticated" class="min-h-screen flex items-center justify-center">
+            <div class="login-card">
+                <div class="text-center mb-8">
+                    <h1 class="logo-title text-3xl mb-2">人物形象</h1>
+                    <p class="text-pink-400 text-sm">AstrBot 角色视觉管理器</p>
+                </div>
+                <el-form @submit.prevent="doLogin">
+                    <el-form-item>
+                        <el-input
+                            v-model="loginToken"
+                            type="password"
+                            placeholder="请输入访问令牌"
+                            size="large"
+                            show-password
+                            @keyup.enter="doLogin"
+                        >
+                            <template #prefix>
+                                <span style="font-size: 1.1rem;">&#128274;</span>
+                            </template>
+                        </el-input>
+                    </el-form-item>
+                    <el-form-item>
+                        <el-button type="primary" size="large" style="width: 100%;" :loading="loggingIn" @click="doLogin">
+                            进入管理面板
+                        </el-button>
+                    </el-form-item>
+                </el-form>
+                <p v-if="loginError" class="text-red-400 text-sm text-center mt-4">{{ loginError }}</p>
+                <p class="text-gray-400 text-xs text-center mt-6">v2.5.0</p>
+            </div>
+        </div>
+
+        <!-- 主界面 -->
+        <div v-else class="flex h-screen">
+            <!-- 侧边栏 -->
+            <div class="sidebar w-64 flex-shrink-0 flex flex-col">
+                <div class="logo-section">
+                    <h1 class="logo-title">人物形象</h1>
+                    <p class="text-xs text-pink-400 mt-2">AstrBot 角色视觉管理器</p>
+                </div>
+                <nav class="py-6 flex-1">
+                    <div class="nav-item" :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'">
+                        <span class="icon">&#9881;</span>
+                        <span>配置设置</span>
+                    </div>
+                    <div class="nav-item" :class="{ active: activeTab === 'environments' }" @click="activeTab = 'environments'">
+                        <span class="icon">&#127968;</span>
+                        <span>环境场景</span>
+                    </div>
+                    <div class="nav-item" :class="{ active: activeTab === 'cameras' }" @click="activeTab = 'cameras'">
+                        <span class="icon">&#128247;</span>
+                        <span>摄影模式</span>
+                    </div>
+                    <div class="nav-item" :class="{ active: activeTab === 'gallery' }" @click="activeTab = 'gallery'">
+                        <span class="icon">&#128444;</span>
+                        <span>图片画廊</span>
+                    </div>
+                </nav>
+                <div class="p-4 border-t border-pink-200/30">
+                    <p class="text-xs text-pink-300 text-center">v2.5.0</p>
+                </div>
+            </div>
+
+            <!-- 主内容区 -->
+            <div class="flex-1 overflow-auto p-8">
+                <!-- 配置页面 -->
+                <div v-if="activeTab === 'settings'" class="max-w-4xl mx-auto fade-in">
+                    <div class="page-header">
+                        <h2 class="page-title">配置设置</h2>
+                        <el-button type="primary" size="large" :loading="saving" @click="saveConfig">
+                            <span style="margin-right: 8px;">&#128190;</span> 保存更改
+                        </el-button>
+                    </div>
+
+                    <!-- 人物特征卡片 -->
+                    <el-card class="mb-6">
+                        <template #header>
+                            <div class="card-title">
+                                <span class="icon">&#128100;</span>
+                                <span>人物特征</span>
+                            </div>
+                        </template>
+                        <el-form label-position="top">
+                            <el-form-item label="角色外貌描述">
+                                <el-input
+                                    v-model="config.char_identity"
+                                    type="textarea"
+                                    :autosize="{ minRows: 4, maxRows: 12 }"
+                                    placeholder="描述角色的固定外貌特征，建议使用英文 Prompt 格式。例如: The subject is a young Asian girl with fair skin, dusty rose pink hair, large round eyes..."
+                                />
+                                <p class="text-xs text-pink-400 mt-2">此描述会在检测到绘图意图时注入到 LLM 上下文中</p>
+                            </el-form-item>
+                            <el-form-item label="连续注入轮次">
+                                <div class="flex items-center gap-4">
+                                    <el-input-number v-model="config.injection_rounds" :min="1" :max="10" />
+                                    <span class="text-sm text-gray-500">检测到绘图意图后，连续多少轮对话注入视觉上下文</span>
+                                </div>
+                            </el-form-item>
+                        </el-form>
+                    </el-card>
+
+                    <!-- Gitee AI 配置卡片 -->
+                    <el-card class="mb-6">
+                        <template #header>
+                            <div class="card-title">
+                                <span class="icon">&#127912;</span>
+                                <span>Gitee AI 文生图</span>
+                            </div>
+                        </template>
+                        <el-form label-position="top">
+                            <el-form-item label="API 密钥（每行一个）">
+                                <el-input
+                                    v-model="giteeKeysText"
+                                    type="textarea"
+                                    :autosize="{ minRows: 2, maxRows: 4 }"
+                                    placeholder="从 https://ai.gitee.com 获取 API Key"
+                                />
+                            </el-form-item>
+                            <el-row :gutter="24">
+                                <el-col :span="12">
+                                    <el-form-item label="模型名称">
+                                        <el-input v-model="giteeConfig.model" placeholder="z-image-turbo" />
+                                        <p class="text-xs text-pink-400 mt-1">常用: z-image-turbo, z-image-base, flux.1-dev</p>
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="12">
+                                    <el-form-item label="默认尺寸">
+                                        <el-select v-model="giteeConfig.size" style="width: 100%" placeholder="选择尺寸">
+                                            <el-option
+                                                v-for="item in sizeOptions"
+                                                :key="item.value"
+                                                :value="item.value"
+                                                :label="item.label"
+                                            />
+                                        </el-select>
+                                    </el-form-item>
+                                </el-col>
+                            </el-row>
+                            <el-row :gutter="24">
+                                <el-col :span="12">
+                                    <el-form-item label="推理步数">
+                                        <el-input-number v-model="giteeConfig.num_inference_steps" :min="1" :max="20" style="width: 100%" />
+                                        <p class="text-xs text-pink-400 mt-1">值越大质量越高，速度越慢</p>
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="12">
+                                    <el-form-item label="超时时间（秒）">
+                                        <el-input-number v-model="giteeConfig.timeout" :min="30" :max="600" style="width: 100%" />
+                                    </el-form-item>
+                                </el-col>
+                            </el-row>
+                            <el-form-item label="负面提示词">
+                                <el-input
+                                    v-model="giteeConfig.negative_prompt"
+                                    type="textarea"
+                                    :autosize="{ minRows: 2, maxRows: 4 }"
+                                    placeholder="不希望出现在图片中的内容（注意：部分模型不支持）"
+                                />
+                            </el-form-item>
+                        </el-form>
+                    </el-card>
+
+                    <!-- Gemini AI 配置卡片 -->
+                    <el-card class="mb-6">
+                        <template #header>
+                            <div class="card-title">
+                                <span class="icon">&#129302;</span>
+                                <span>Gemini AI 文生图（备用）</span>
+                            </div>
+                        </template>
+                        <el-form label-position="top">
+                            <el-form-item label="API 密钥">
+                                <el-input
+                                    v-model="geminiConfig.api_key"
+                                    type="password"
+                                    show-password
+                                    placeholder="从 https://aistudio.google.com/apikey 获取"
+                                />
+                            </el-form-item>
+                            <el-form-item label="Base URL">
+                                <el-input
+                                    v-model="geminiConfig.base_url"
+                                    placeholder="https://generativelanguage.googleapis.com"
+                                />
+                                <p class="text-xs text-pink-400 mt-1">仅填写域名，默认使用原生接口，失败时回退到 OpenAI 兼容接口</p>
+                            </el-form-item>
+                            <el-row :gutter="24">
+                                <el-col :span="8">
+                                    <el-form-item label="模型名称">
+                                        <el-input v-model="geminiConfig.model" placeholder="gemini-2.0-flash-exp-image-generation" />
+                                        <p class="text-xs text-pink-400 mt-1">常用: gemini-2.0-flash-exp, gemini-3-pro</p>
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="8">
+                                    <el-form-item label="图片分辨率">
+                                        <el-select v-model="geminiConfig.image_size" style="width: 100%">
+                                            <el-option value="1K" label="1K" />
+                                            <el-option value="2K" label="2K" />
+                                            <el-option value="4K" label="4K" />
+                                        </el-select>
+                                        <p class="text-xs text-pink-400 mt-1">2K/4K 仅 gemini-3 系列支持</p>
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="8">
+                                    <el-form-item label="超时时间（秒）">
+                                        <el-input-number v-model="geminiConfig.timeout" :min="30" :max="300" style="width: 100%" />
+                                    </el-form-item>
+                                </el-col>
+                            </el-row>
+                        </el-form>
+                    </el-card>
+
+                    <!-- 提供商切换卡片 -->
+                    <el-card class="mb-6">
+                        <template #header>
+                            <div class="card-title">
+                                <span class="icon">&#128260;</span>
+                                <span>提供商切换</span>
+                            </div>
+                        </template>
+                        <el-form label-position="top">
+                            <el-row :gutter="24">
+                                <el-col :span="12">
+                                    <el-form-item label="主图片生成提供商">
+                                        <el-select v-model="providerConfig.draw_provider" style="width: 100%">
+                                            <el-option value="gitee" label="Gitee AI（推荐）" />
+                                            <el-option value="gemini" label="Gemini AI" />
+                                        </el-select>
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="12">
+                                    <el-form-item label="启用备用提供商">
+                                        <el-switch v-model="providerConfig.enable_fallback" />
+                                        <p class="text-xs text-pink-400 mt-1">主提供商失败时自动切换</p>
+                                    </el-form-item>
+                                </el-col>
+                            </el-row>
+                        </el-form>
+                    </el-card>
+                </div>
+
+                <!-- 环境场景页面 -->
+                <div v-if="activeTab === 'environments'" class="max-w-4xl mx-auto fade-in">
+                    <div class="page-header">
+                        <h2 class="page-title">环境场景</h2>
+                        <div class="flex gap-3">
+                            <el-button type="success" @click="addEnvironment">
+                                <span style="margin-right: 8px;">&#43;</span> 添加场景
+                            </el-button>
+                            <el-button type="primary" :loading="savingDynamic" @click="saveDynamicConfig">
+                                <span style="margin-right: 8px;">&#128190;</span> 保存
+                            </el-button>
+                        </div>
+                    </div>
+                    <p class="text-sm text-gray-500 mb-6">配置不同的环境场景，模型将根据用户输入的关键词自动选择合适的场景。拖拽可调整顺序。</p>
+
+                    <div ref="envListRef">
+                        <div v-for="(env, index) in environments" :key="index" class="list-item">
+                            <div class="flex items-start gap-4">
+                                <div class="drag-handle pt-2" style="cursor: grab;">
+                                    <span style="font-size: 1.2rem;">&#9776;</span>
+                                </div>
+                                <div class="flex-1">
+                                    <div class="flex gap-4 mb-3">
+                                        <el-input v-model="env.name" placeholder="场景名称" style="width: 200px;" />
+                                        <el-input v-model="env.keywordsStr" placeholder="触发关键词（逗号分隔）" @blur="parseKeywords(env)" />
+                                        <el-button type="danger" circle @click="removeEnvironment(index)">
+                                            <span>&#128465;</span>
+                                        </el-button>
+                                    </div>
+                                    <div class="mb-2">
+                                        <span v-for="kw in env.keywords" :key="kw" class="keyword-tag">{{ kw }}</span>
+                                    </div>
+                                    <el-input
+                                        v-model="env.prompt"
+                                        type="textarea"
+                                        :autosize="{ minRows: 2, maxRows: 6 }"
+                                        placeholder="场景 Prompt，例如: (indoors, bedroom aesthetic:1.3), (natural lighting:1.2)..."
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="environments.length === 0" class="empty-state">
+                        <div class="icon">&#127968;</div>
+                        <p class="text-lg mb-2">暂无环境场景</p>
+                        <p class="text-sm">点击「添加场景」创建您的第一个环境</p>
+                    </div>
+                </div>
+
+                <!-- 摄影模式页面 -->
+                <div v-if="activeTab === 'cameras'" class="max-w-4xl mx-auto fade-in">
+                    <div class="page-header">
+                        <h2 class="page-title">摄影模式</h2>
+                        <div class="flex gap-3">
+                            <el-button type="success" @click="addCamera">
+                                <span style="margin-right: 8px;">&#43;</span> 添加模式
+                            </el-button>
+                            <el-button type="primary" :loading="savingDynamic" @click="saveDynamicConfig">
+                                <span style="margin-right: 8px;">&#128190;</span> 保存
+                            </el-button>
+                        </div>
+                    </div>
+                    <p class="text-sm text-gray-500 mb-6">配置不同的镜头语言，模型将根据用户输入的关键词自动选择拍摄模式。拖拽可调整顺序。</p>
+
+                    <div ref="camListRef">
+                        <div v-for="(cam, index) in cameras" :key="index" class="list-item">
+                            <div class="flex items-start gap-4">
+                                <div class="drag-handle pt-2" style="cursor: grab;">
+                                    <span style="font-size: 1.2rem;">&#9776;</span>
+                                </div>
+                                <div class="flex-1">
+                                    <div class="flex gap-4 mb-3">
+                                        <el-input v-model="cam.name" placeholder="模式名称" style="width: 200px;" />
+                                        <el-input v-model="cam.keywordsStr" placeholder="触发关键词（逗号分隔）" @blur="parseKeywords(cam)" />
+                                        <el-button type="danger" circle @click="removeCamera(index)">
+                                            <span>&#128465;</span>
+                                        </el-button>
+                                    </div>
+                                    <div class="mb-2">
+                                        <span v-for="kw in cam.keywords" :key="kw" class="keyword-tag">{{ kw }}</span>
+                                    </div>
+                                    <el-input
+                                        v-model="cam.prompt"
+                                        type="textarea"
+                                        :autosize="{ minRows: 2, maxRows: 6 }"
+                                        placeholder="镜头参数，例如: full body shot, wide angle, (fashion pose:1.3)..."
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="cameras.length === 0" class="empty-state">
+                        <div class="icon">&#128247;</div>
+                        <p class="text-lg mb-2">暂无摄影模式</p>
+                        <p class="text-sm">点击「添加模式」创建您的第一个镜头设置</p>
+                    </div>
+                </div>
+
+                <!-- 图片画廊页面 -->
+                <div v-if="activeTab === 'gallery'" class="fade-in">
+                    <div class="page-header">
+                        <h2 class="page-title">图片画廊</h2>
+                        <div class="flex gap-3">
+                            <el-button-group>
+                                <el-button :type="showFavoritesOnly ? 'primary' : ''" @click="toggleFavoritesFilter">
+                                    <span style="margin-right: 6px;">&#9829;</span>
+                                    {{ showFavoritesOnly ? '显示全部' : '只看收藏' }}
+                                </el-button>
+                            </el-button-group>
+                            <el-button @click="loadImages" :loading="loadingImages">
+                                <span style="margin-right: 8px;">&#128260;</span> 刷新
+                            </el-button>
+                        </div>
+                    </div>
+
+                    <!-- 统计栏 -->
+                    <div class="stats-bar" v-if="totalImages > 0">
+                        <div class="stat-item">
+                            <div class="stat-value">{{ totalImages }}</div>
+                            <div class="stat-label">总图片数</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" style="color: #FF69B4;">{{ favoriteCount }}</div>
+                            <div class="stat-label">已收藏</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">{{ currentPage }}</div>
+                            <div class="stat-label">当前页</div>
+                        </div>
+                    </div>
+
+                    <!-- 空状态 -->
+                    <div v-if="images.length === 0" class="empty-state">
+                        <div class="icon">&#128444;</div>
+                        <p class="text-lg mb-2">暂无生成的图片</p>
+                        <p class="text-sm">使用 Gitee AI 生成图片后，将在此处显示</p>
+                    </div>
+
+                    <!-- 图片网格 -->
+                    <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                        <div v-for="img in images" :key="img.name" class="image-card">
+                            <!-- 收藏标记 -->
+                            <div v-if="img.favorite" class="absolute top-2 right-2 z-10 text-pink-500" style="font-size: 1.2rem; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">&#9829;</div>
+                            <img :src="img.thumbnail || img.url" :alt="img.name" @click="openImageDetail(img)" class="cursor-pointer" loading="lazy" />
+                            <div class="actions">
+                                <div class="flex gap-2">
+                                    <el-button type="primary" circle @click.stop="openImageDetail(img)" title="查看详情">
+                                        <span>&#128065;</span>
+                                    </el-button>
+                                    <el-button :type="img.favorite ? 'warning' : 'default'" circle @click.stop="toggleFavorite(img)" :title="img.favorite ? '取消收藏' : '添加收藏'">
+                                        <span>{{ img.favorite ? '&#9829;' : '&#9825;' }}</span>
+                                    </el-button>
+                                    <el-button type="success" circle @click.stop="downloadImage(img)" title="下载">
+                                        <span>&#8595;</span>
+                                    </el-button>
+                                    <el-button type="danger" circle @click.stop="deleteImage(img)" title="删除">
+                                        <span>&#128465;</span>
+                                    </el-button>
+                                </div>
+                            </div>
+                            <div class="image-info">
+                                <p class="text-xs text-gray-500 truncate">{{ formatDate(img.mtime) }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 分页 -->
+                    <div v-if="totalImages > pageSize" class="mt-8 flex justify-center">
+                        <el-pagination
+                            v-model:current-page="currentPage"
+                            :page-size="pageSize"
+                            :total="totalImages"
+                            layout="prev, pager, next"
+                            @current-change="loadImages"
+                            background
+                        />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+            <!-- 图片详情对话框 -->
+            <el-dialog v-model="detailVisible" width="90%" :show-close="true" center destroy-on-close title="图片详情">
+            <div class="flex flex-col lg:flex-row gap-6">
+                <!-- 图片预览 -->
+                <div class="lg:w-2/3">
+                    <img :src="detailImage?.url" style="width: 100%; max-height: 70vh; object-fit: contain; border-radius: 12px; border: 1px solid rgba(255, 182, 193, 0.3);" />
+                </div>
+                <!-- 详情信息 -->
+                <div class="lg:w-1/3 flex flex-col gap-4">
+                    <!-- 操作按钮 -->
+                    <div class="flex gap-2 flex-wrap">
+                        <el-button :type="detailImage?.favorite ? 'warning' : 'primary'" @click="toggleFavorite(detailImage)">
+                            <span style="margin-right: 6px;">{{ detailImage?.favorite ? '&#9829;' : '&#9825;' }}</span>
+                            {{ detailImage?.favorite ? '取消收藏' : '添加收藏' }}
+                        </el-button>
+                        <el-button type="success" @click="downloadImage(detailImage)">
+                            <span style="margin-right: 6px;">&#8595;</span> 下载
+                        </el-button>
+                        <el-button type="danger" @click="deleteImageFromDetail">
+                            <span style="margin-right: 6px;">&#128465;</span> 删除
+                        </el-button>
+                    </div>
+                    <!-- 文件信息 -->
+                    <el-card class="mb-2">
+                        <template #header>
+                            <div class="card-title" style="font-size: 0.9rem;">
+                                <span class="icon">&#128196;</span>
+                                <span>文件信息</span>
+                            </div>
+                        </template>
+                        <div class="text-sm space-y-2">
+                            <p><span class="text-gray-500">文件名:</span> {{ detailImage?.name }}</p>
+                            <p><span class="text-gray-500">大小:</span> {{ formatSize(detailImage?.size) }}</p>
+                            <p><span class="text-gray-500">创建时间:</span> {{ formatDate(detailImage?.ctime) }}</p>
+                        </div>
+                    </el-card>
+                    <!-- Prompt 信息 -->
+                    <el-card v-if="detailImage?.prompt">
+                        <template #header>
+                            <div class="card-title" style="font-size: 0.9rem;">
+                                <span class="icon">&#128221;</span>
+                                <span>生成提示词</span>
+                                <el-button type="primary" size="small" @click="copyPrompt" style="margin-left: auto;">复制</el-button>
+                            </div>
+                        </template>
+                        <div class="text-sm" style="max-height: 200px; overflow-y: auto; word-break: break-all; line-height: 1.6;">
+                            {{ detailImage?.prompt }}
+                        </div>
+                    </el-card>
+                    <div v-else class="text-sm text-gray-400 text-center py-4">
+                        暂无提示词信息
+                    </div>
+                </div>
+            </div>
+        </el-dialog>
+        </div><!-- 主界面结束 -->
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, computed, onMounted, nextTick, watch } = Vue;
+
+        // 从 URL 或 sessionStorage 获取 token
+        const urlParams = new URLSearchParams(window.location.search);
+        let authToken = urlParams.get('token') || sessionStorage.getItem('portrait_token') || '';
+
+        // 封装 fetch，自动附带 token
+        async function apiFetch(url, options = {}) {
+            const separator = url.includes('?') ? '&' : '?';
+            const urlWithToken = authToken ? `${url}${separator}token=${encodeURIComponent(authToken)}` : url;
+            return fetch(urlWithToken, options);
+        }
+
+        const app = createApp({
+            setup() {
+                // 登录状态
+                const isAuthenticated = ref(false);
+                const loginToken = ref('');
+                const loginError = ref('');
+                const loggingIn = ref(false);
+
+                const activeTab = ref('settings');
+                const saving = ref(false);
+                const savingDynamic = ref(false);
+                const loadingImages = ref(false);
+                const config = reactive({
+                    char_identity: '',
+                    injection_rounds: 1,
+                    proxy: '',
+                });
+
+                const giteeConfig = reactive({
+                    api_keys: [],
+                    model: 'z-image-turbo',
+                    size: '1024x1024',
+                    num_inference_steps: 9,
+                    negative_prompt: '',
+                    timeout: 300,
+                    max_retries: 2,
+                });
+
+                // 尺寸选项列表
+                const sizeOptions = [
+                    { value: '256x256', label: '256x256 (正方形)' },
+                    { value: '512x512', label: '512x512 (正方形)' },
+                    { value: '1024x1024', label: '1024x1024 (正方形/推荐)' },
+                    { value: '2048x2048', label: '2048x2048 (正方形)' },
+                    { value: '1152x896', label: '1152x896 (横版)' },
+                    { value: '2048x1536', label: '2048x1536 (横版)' },
+                    { value: '2048x1360', label: '2048x1360 (横版)' },
+                    { value: '1024x576', label: '1024x576 (横版 16:9)' },
+                    { value: '2048x1152', label: '2048x1152 (横版 16:9)' },
+                    { value: '768x1024', label: '768x1024 (竖版)' },
+                    { value: '1536x2048', label: '1536x2048 (竖版)' },
+                    { value: '1360x2048', label: '1360x2048 (竖版)' },
+                    { value: '576x1024', label: '576x1024 (竖版 9:16)' },
+                    { value: '1152x2048', label: '1152x2048 (竖版 9:16)' },
+                ];
+
+                // Gemini 配置
+                const geminiConfig = reactive({
+                    api_key: '',
+                    base_url: 'https://generativelanguage.googleapis.com',
+                    model: 'gemini-2.0-flash-exp-image-generation',
+                    image_size: '1K',
+                    timeout: 120,
+                });
+
+                // 提供商配置
+                const providerConfig = reactive({
+                    draw_provider: 'gitee',
+                    enable_fallback: true,
+                });
+
+                const giteeKeysText = computed({
+                    get: () => giteeConfig.api_keys.join('\n'),
+                    set: (val) => {
+                        giteeConfig.api_keys = val.split('\n').map(k => k.trim()).filter(k => k);
+                    }
+                });
+
+                // 动态配置
+                const environments = ref([]);
+                const cameras = ref([]);
+
+                // 引用
+                const envListRef = ref(null);
+                const camListRef = ref(null);
+
+                const images = ref([]);
+                const totalImages = ref(0);
+                const currentPage = ref(1);
+                const pageSize = ref(50);
+                const showFavoritesOnly = ref(false);
+                const favoriteCount = ref(0);
+
+                const detailVisible = ref(false);
+                const detailImage = ref(null);
+
+                onMounted(async () => {
+                    // 先尝试无 token 访问（检查是否需要认证）
+                    try {
+                        const res = await fetch('/api/health');
+                        if (res.ok) {
+                            // 不需要认证，直接进入
+                            isAuthenticated.value = true;
+                            await loadConfig();
+                            await loadImages();
+                            nextTick(() => initSortable());
+                            return;
+                        }
+                    } catch {}
+
+                    // 需要认证，检查是否已有有效 token
+                    if (authToken) {
+                        const valid = await checkAuth();
+                        if (valid) {
+                            isAuthenticated.value = true;
+                            await loadConfig();
+                            await loadImages();
+                            nextTick(() => initSortable());
+                        }
+                    }
+                });
+
+                // 验证 token 是否有效
+                async function checkAuth() {
+                    try {
+                        const res = await apiFetch('/api/health');
+                        return res.ok;
+                    } catch {
+                        return false;
+                    }
+                }
+
+                // 登录
+                async function doLogin() {
+                    if (!loginToken.value.trim()) {
+                        loginError.value = '请输入访问令牌';
+                        return;
+                    }
+                    loggingIn.value = true;
+                    loginError.value = '';
+
+                    // 临时设置 token 进行验证
+                    authToken = loginToken.value.trim();
+
+                    try {
+                        const valid = await checkAuth();
+                        if (valid) {
+                            // 保存到 sessionStorage
+                            sessionStorage.setItem('portrait_token', authToken);
+                            isAuthenticated.value = true;
+                            // 加载数据
+                            await loadConfig();
+                            await loadImages();
+                            nextTick(() => initSortable());
+                        } else {
+                            authToken = '';
+                            loginError.value = '访问令牌无效';
+                        }
+                    } catch (e) {
+                        authToken = '';
+                        loginError.value = '连接失败: ' + e.message;
+                    } finally {
+                        loggingIn.value = false;
+                    }
+                }
+
+                // 监听 tab 切换，重新初始化拖拽
+                watch(activeTab, () => {
+                    nextTick(() => {
+                        initSortable();
+                    });
+                });
+
+                function initSortable() {
+                    if (envListRef.value) {
+                        new Sortable(envListRef.value, {
+                            animation: 150,
+                            handle: '.drag-handle',
+                            ghostClass: 'sortable-ghost',
+                            dragClass: 'sortable-drag',
+                            onEnd: (evt) => {
+                                const item = environments.value.splice(evt.oldIndex, 1)[0];
+                                environments.value.splice(evt.newIndex, 0, item);
+                            }
+                        });
+                    }
+                    if (camListRef.value) {
+                        new Sortable(camListRef.value, {
+                            animation: 150,
+                            handle: '.drag-handle',
+                            ghostClass: 'sortable-ghost',
+                            dragClass: 'sortable-drag',
+                            onEnd: (evt) => {
+                                const item = cameras.value.splice(evt.oldIndex, 1)[0];
+                                cameras.value.splice(evt.newIndex, 0, item);
+                            }
+                        });
+                    }
+                }
+
+                async function loadConfig() {
+                    try {
+                        const res = await apiFetch('/api/config');
+                        const data = await res.json();
+                        if (data.success && data.config) {
+                            Object.assign(config, data.config);
+                            if (data.config.gitee_config) {
+                                Object.assign(giteeConfig, data.config.gitee_config);
+                            }
+                            // 加载 Gemini 配置
+                            if (data.config.gemini_config) {
+                                Object.assign(geminiConfig, data.config.gemini_config);
+                            }
+                            // 加载提供商配置
+                            if (data.config.draw_provider) {
+                                providerConfig.draw_provider = data.config.draw_provider;
+                            }
+                            if (data.config.enable_fallback !== undefined) {
+                                providerConfig.enable_fallback = data.config.enable_fallback;
+                            }
+                            // 加载动态配置
+                            if (data.config.environments) {
+                                environments.value = data.config.environments.map(e => ({
+                                    ...e,
+                                    keywordsStr: (e.keywords || []).join(', ')
+                                }));
+                            }
+                            if (data.config.cameras) {
+                                cameras.value = data.config.cameras.map(c => ({
+                                    ...c,
+                                    keywordsStr: (c.keywords || []).join(', ')
+                                }));
+                            }
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('加载配置失败: ' + e.message);
+                    }
+                }
+
+                async function saveConfig() {
+                    saving.value = true;
+                    try {
+                        // 准备动态配置
+                        const envData = environments.value.map(e => ({
+                            name: e.name,
+                            keywords: e.keywords || [],
+                            prompt: e.prompt
+                        }));
+                        const camData = cameras.value.map(c => ({
+                            name: c.name,
+                            keywords: c.keywords || [],
+                            prompt: c.prompt
+                        }));
+
+                        const payload = {
+                            config: {
+                                ...config,
+                                environments: envData,
+                                cameras: camData,
+                                gitee_config: { ...giteeConfig },
+                                gemini_config: { ...geminiConfig },
+                                draw_provider: providerConfig.draw_provider,
+                                enable_fallback: providerConfig.enable_fallback,
+                            }
+                        };
+                        const res = await apiFetch('/api/config', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            ElementPlus.ElMessage.success('配置保存成功！');
+                        } else {
+                            ElementPlus.ElMessage.error(data.error || '保存失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('保存失败: ' + e.message);
+                    } finally {
+                        saving.value = false;
+                    }
+                }
+
+                async function saveDynamicConfig() {
+                    savingDynamic.value = true;
+                    try {
+                        const envData = environments.value.map(e => ({
+                            name: e.name,
+                            keywords: e.keywords || [],
+                            prompt: e.prompt
+                        }));
+                        const camData = cameras.value.map(c => ({
+                            name: c.name,
+                            keywords: c.keywords || [],
+                            prompt: c.prompt
+                        }));
+
+                        const res = await apiFetch('/api/dynamic-config', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                config: {
+                                    environments: envData,
+                                    cameras: camData
+                                }
+                            })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            ElementPlus.ElMessage.success('保存成功！');
+                        } else {
+                            ElementPlus.ElMessage.error(data.error || '保存失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('保存失败: ' + e.message);
+                    } finally {
+                        savingDynamic.value = false;
+                    }
+                }
+
+                function parseKeywords(item) {
+                    if (item.keywordsStr) {
+                        item.keywords = item.keywordsStr.split(/[,，]/).map(k => k.trim()).filter(k => k);
+                    } else {
+                        item.keywords = [];
+                    }
+                }
+
+                function addEnvironment() {
+                    environments.value.push({
+                        name: '',
+                        keywords: [],
+                        keywordsStr: '',
+                        prompt: ''
+                    });
+                    nextTick(() => initSortable());
+                }
+
+                function removeEnvironment(index) {
+                    environments.value.splice(index, 1);
+                }
+
+                function addCamera() {
+                    cameras.value.push({
+                        name: '',
+                        keywords: [],
+                        keywordsStr: '',
+                        prompt: ''
+                    });
+                    nextTick(() => initSortable());
+                }
+
+                function removeCamera(index) {
+                    cameras.value.splice(index, 1);
+                }
+
+                async function loadImages() {
+                    loadingImages.value = true;
+                    try {
+                        const params = new URLSearchParams({
+                            page: currentPage.value,
+                            size: pageSize.value,
+                        });
+                        if (showFavoritesOnly.value) {
+                            params.append('favorites', 'true');
+                        }
+                        const res = await apiFetch(`/api/images?${params}`);
+                        const data = await res.json();
+                        if (data.success) {
+                            images.value = data.images;
+                            totalImages.value = data.total;
+                            // 计算收藏数量
+                            favoriteCount.value = data.images.filter(img => img.favorite).length;
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('加载图片失败: ' + e.message);
+                    } finally {
+                        loadingImages.value = false;
+                    }
+                }
+
+                function toggleFavoritesFilter() {
+                    showFavoritesOnly.value = !showFavoritesOnly.value;
+                    currentPage.value = 1;
+                    loadImages();
+                }
+
+                async function toggleFavorite(img) {
+                    if (!img) return;
+                    try {
+                        const res = await apiFetch(`/api/images/${encodeURIComponent(img.name)}/favorite`, {
+                            method: 'POST'
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            img.favorite = data.favorite;
+                            // 更新收藏计数
+                            favoriteCount.value = images.value.filter(i => i.favorite).length;
+                            ElementPlus.ElMessage.success(data.favorite ? '已添加收藏' : '已取消收藏');
+                        } else {
+                            ElementPlus.ElMessage.error(data.error || '操作失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('操作失败: ' + e.message);
+                    }
+                }
+
+                function downloadImage(img) {
+                    if (!img) return;
+                    const link = document.createElement('a');
+                    link.href = img.url;
+                    link.download = img.name;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }
+
+                function openImageDetail(img) {
+                    detailImage.value = img;
+                    detailVisible.value = true;
+                }
+
+                async function deleteImageFromDetail() {
+                    if (!detailImage.value) return;
+                    await deleteImage(detailImage.value);
+                    detailVisible.value = false;
+                }
+
+                function copyPrompt() {
+                    if (!detailImage.value?.prompt) return;
+                    navigator.clipboard.writeText(detailImage.value.prompt).then(() => {
+                        ElementPlus.ElMessage.success('提示词已复制');
+                    }).catch(() => {
+                        ElementPlus.ElMessage.error('复制失败');
+                    });
+                }
+
+                function formatSize(bytes) {
+                    if (!bytes) return '0 B';
+                    const units = ['B', 'KB', 'MB', 'GB'];
+                    let i = 0;
+                    while (bytes >= 1024 && i < units.length - 1) {
+                        bytes /= 1024;
+                        i++;
+                    }
+                    return bytes.toFixed(1) + ' ' + units[i];
+                }
+
+                async function deleteImage(img) {
+                    try {
+                        await ElementPlus.ElMessageBox.confirm(
+                            `确定要删除图片 "${img.name}" 吗？`,
+                            '确认删除',
+                            { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+                        );
+                        const res = await apiFetch(`/api/images/${encodeURIComponent(img.name)}`, { method: 'DELETE' });
+                        const data = await res.json();
+                        if (data.success) {
+                            ElementPlus.ElMessage.success('图片已删除');
+                            await loadImages();
+                        } else {
+                            ElementPlus.ElMessage.error(data.error || '删除失败');
+                        }
+                    } catch (e) {
+                        if (e !== 'cancel') {
+                            ElementPlus.ElMessage.error('删除失败: ' + e.message);
+                        }
+                    }
+                }
+
+                function formatDate(timestamp) {
+                    if (!timestamp) return '';
+                    return new Date(timestamp * 1000).toLocaleString('zh-CN');
+                }
+
+                return {
+                    // 登录相关
+                    isAuthenticated,
+                    loginToken,
+                    loginError,
+                    loggingIn,
+                    doLogin,
+                    // 其他
+                    activeTab,
+                    saving,
+                    savingDynamic,
+                    loadingImages,
+                    config,
+                    giteeConfig,
+                    giteeKeysText,
+                    sizeOptions,
+                    geminiConfig,
+                    providerConfig,
+                    environments,
+                    cameras,
+                    envListRef,
+                    camListRef,
+                    images,
+                    totalImages,
+                    currentPage,
+                    pageSize,
+                    showFavoritesOnly,
+                    favoriteCount,
+                    detailVisible,
+                    detailImage,
+                    saveConfig,
+                    saveDynamicConfig,
+                    parseKeywords,
+                    addEnvironment,
+                    removeEnvironment,
+                    addCamera,
+                    removeCamera,
+                    loadImages,
+                    deleteImage,
+                    toggleFavoritesFilter,
+                    toggleFavorite,
+                    downloadImage,
+                    openImageDetail,
+                    deleteImageFromDetail,
+                    copyPrompt,
+                    formatDate,
+                    formatSize,
+                };
+            }
+        });
+
+        app.use(ElementPlus);
+        app.mount('#app');
+    </script>
+</body>
+</html>

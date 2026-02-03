@@ -1,15 +1,4 @@
-from .base import BaseProvider
-from .downloader import Downloader
-from .gemini import GeminiProvider
-from .http_manager import HttpManager
-from .openai_chat import OpenAIChatProvider
-from .vertex_ai_anonymous import VertexAIAnonymousProvider
+from .gitee_draw import GiteeDrawService
+from .image_manager import ImageManager
 
-__all__ = [
-    "HttpManager",
-    "Downloader",
-    "BaseProvider",
-    "GeminiProvider",
-    "OpenAIChatProvider",
-    "VertexAIAnonymousProvider",
-]
+__all__ = ["GiteeDrawService", "ImageManager"]

@@ -1,6 +1,6 @@
 name: astrbot_plugin_portrait
-display_name: 人格临时注入
-desc: AstrBot 视觉上下文注入器 - 画图增强 (Visual Context Injector)
-version: 1.9.1
+display_name: 人物形象
+desc: AstrBot 视觉上下文注入器 + Gitee/Gemini AI 文生图 + Web 管理界面
+version: 2.5.0
 author: ikirito
 repo: https://github.com/i-kirito/astrbot_plugin_portrait

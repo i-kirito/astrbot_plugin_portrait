@@ -1,103 +1,235 @@
+"""图片管理器 - 处理图片下载和保存"""
+
+from __future__ import annotations
 
 import asyncio
 import base64
-import os
+import hashlib
+import json
 import time
 from pathlib import Path
 
-import aiofiles
 import aiohttp
-
 from astrbot.api import logger
 
 
+def guess_image_ext(data: bytes) -> str:
+    """根据图片数据头判断扩展名"""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if data[:2] == b"\xff\xd8":
+        return "jpg"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    return "png"
+
+
 class ImageManager:
-    """
-    图片管理器
-    """
+    """图片管理器"""
 
-    def __init__(self, config: dict, data_dir: Path):
-        self.config = config
-        self.image_dir = data_dir / "images"
-        self.image_dir.mkdir(parents=True, exist_ok=True)
-        self.cleanup_batch_ratio = 0.5
-
+    def __init__(
+        self,
+        data_dir: Path,
+        proxy: str | None = None,
+        max_storage_mb: int = 500,
+        max_count: int = 100,
+    ):
+        self.data_dir = Path(data_dir)
+        self.images_dir = self.data_dir / "generated_images"
+        self.images_dir.mkdir(parents=True, exist_ok=True)
+        self.metadata_file = self.data_dir / "image_metadata.json"
+        self.favorites_file = self.data_dir / "favorites.json"
+        self.proxy = proxy
+        self.max_storage_mb = max_storage_mb
+        self.max_count = max_count
         self._session: aiohttp.ClientSession | None = None
-    async def _session_get(self) -> aiohttp.ClientSession:
+        self._metadata: dict = self._load_metadata()
+        self._favorites: set = self._load_favorites()
+
+    async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
         return self._session
 
-    async def close(self):
-        if self._session and not self._session.closed:
+    def _load_metadata(self) -> dict:
+        """加载图片元数据"""
+        if self.metadata_file.exists():
+            try:
+                with open(self.metadata_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning(f"[ImageManager] 加载元数据失败: {e}")
+        return {}
+
+    def _save_metadata(self) -> None:
+        """保存图片元数据"""
+        try:
+            with open(self.metadata_file, "w", encoding="utf-8") as f:
+                json.dump(self._metadata, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"[ImageManager] 保存元数据失败: {e}")
+
+    def _load_favorites(self) -> set:
+        """加载收藏列表"""
+        if self.favorites_file.exists():
+            try:
+                with open(self.favorites_file, "r", encoding="utf-8") as f:
+                    return set(json.load(f))
+            except Exception as e:
+                logger.warning(f"[ImageManager] 加载收藏列表失败: {e}")
+        return set()
+
+    def _save_favorites(self) -> None:
+        """保存收藏列表"""
+        try:
+            with open(self.favorites_file, "w", encoding="utf-8") as f:
+                json.dump(list(self._favorites), f, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"[ImageManager] 保存收藏列表失败: {e}")
+
+    def get_metadata(self, filename: str) -> dict | None:
+        """获取图片元数据"""
+        return self._metadata.get(filename)
+
+    def set_metadata(self, filename: str, prompt: str) -> None:
+        """设置图片元数据"""
+        self._metadata[filename] = {
+            "prompt": prompt,
+            "created_at": int(time.time()),
+        }
+        self._save_metadata()
+
+    def is_favorite(self, filename: str) -> bool:
+        """检查是否为收藏"""
+        return filename in self._favorites
+
+    def toggle_favorite(self, filename: str) -> bool:
+        """切换收藏状态，返回新状态"""
+        if filename in self._favorites:
+            self._favorites.discard(filename)
+            self._save_favorites()
+            return False
+        else:
+            self._favorites.add(filename)
+            self._save_favorites()
+            return True
+
+    def remove_metadata(self, filename: str) -> None:
+        """删除图片元数据"""
+        self._metadata.pop(filename, None)
+        self._favorites.discard(filename)
+        self._save_metadata()
+        self._save_favorites()
+
+    async def close(self) -> None:
+        if self._session is not None:
             await self._session.close()
+            self._session = None
 
-    async def download_image(self, url: str) -> Path:
-        """下载远程图片并保存到本地，返回文件路径"""
-        t0 = time.time()
-        session = await self._session_get()
-        async with session.get(url) as resp:
-            if resp.status != 200:
-                raise RuntimeError(f"图片下载失败 HTTP {resp.status}")
-            data = await resp.read()
-        logger.info(f"[ImageManager] 网络下载耗时: {time.time() - t0:.2f}s, 大小: {len(data)} bytes")
+    async def download_image(self, url: str, prompt: str = "") -> Path:
+        """下载图片并保存到本地"""
+        session = await self._get_session()
+        try:
+            async with session.get(url, proxy=self.proxy, timeout=60) as resp:
+                resp.raise_for_status()
+                data = await resp.read()
+        except Exception as e:
+            logger.error(f"[ImageManager] 下载图片失败: {e}")
+            raise
 
-        return await self.save_image(data)
+        ext = guess_image_ext(data)
+        filename = f"{int(time.time() * 1000)}_{hashlib.md5(data).hexdigest()[:8]}.{ext}"
+        path = self.images_dir / filename
 
-    async def save_image(self, data: bytes) -> Path:
-        """保存 bytes 图片到本地"""
-        t0 = time.time()
-        filename = f"{int(time.time())}_{id(data)}.jpg"
-        path = self.image_dir / filename
-
-        async with aiofiles.open(path, "wb") as f:
-            await f.write(data)
-        
-        t1 = time.time()
-        await self.cleanup_old_images()
-        logger.info(f"[ImageManager] 保存耗时: {t1 - t0:.2f}s, 清理耗时: {time.time() - t1:.2f}s")
-        
+        await asyncio.to_thread(path.write_bytes, data)
+        if prompt:
+            self.set_metadata(filename, prompt)
+        logger.debug(f"[ImageManager] 图片已保存: {path}")
         return path
 
-    async def save_base64_image(self, b64: str) -> Path:
-        """保存 base64 图片到本地"""
-        data = base64.b64decode(b64)
-        return await self.save_image(data)
+    async def save_base64_image(self, b64_data: str, prompt: str = "") -> Path:
+        """保存 base64 编码的图片"""
+        # 处理 data URL 格式
+        if "," in b64_data:
+            b64_data = b64_data.split(",", 1)[1]
 
-    async def cleanup_old_images(self) -> None:
-        """清理旧图片（按比例清理，默认清一半）"""
+        data = base64.b64decode(b64_data)
+        return await self.save_image_bytes(data, prompt)
+
+    async def save_image_bytes(self, data: bytes, prompt: str = "") -> Path:
+        """保存字节数据的图片"""
+        ext = guess_image_ext(data)
+        filename = f"{int(time.time() * 1000)}_{hashlib.md5(data).hexdigest()[:8]}.{ext}"
+        path = self.images_dir / filename
+
+        await asyncio.to_thread(path.write_bytes, data)
+        if prompt:
+            self.set_metadata(filename, prompt)
+        logger.debug(f"[ImageManager] 图片已保存: {path}")
+        return path
+
+    async def cleanup_old_images(self) -> int:
+        """清理旧图片（跳过收藏），返回删除数量"""
+        if self.max_storage_mb <= 0 and self.max_count <= 0:
+            return 0  # 不限制
+
         try:
-            max_keep: int = self.config.get("max_cached_images", 50)
+            allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+            images: list[tuple[Path, int, float]] = []  # (path, size, mtime)
 
-            images: list[Path] = list(self.image_dir.iterdir())
-            total = len(images)
+            for file_path in self.images_dir.iterdir():
+                if file_path.is_file() and file_path.suffix.lower() in allowed_exts:
+                    # 跳过收藏的图片
+                    if file_path.name in self._favorites:
+                        continue
+                    stat = file_path.stat()
+                    images.append((file_path, stat.st_size, stat.st_mtime))
 
-            if total <= max_keep:
-                return
+            if not images:
+                return 0
 
-            overflow = total - max_keep
-            delete_count = max(1, int(overflow * self.cleanup_batch_ratio))
+            # 按修改时间排序（旧的在前）
+            images.sort(key=lambda x: x[2])
 
-            # 获取 mtime（阻塞 IO → 线程池）
-            stats = await asyncio.gather(
-                *[asyncio.to_thread(p.stat) for p in images],
-                return_exceptions=True,
-            )
+            total_size = sum(img[1] for img in images)
+            total_count = len(images)
+            max_size_bytes = self.max_storage_mb * 1024 * 1024
 
-            valid: list[tuple[Path, float]] = []
+            to_delete: list[Path] = []
 
-            for p, st in zip(images, stats):
-                if isinstance(st, os.stat_result):
-                    valid.append((p, st.st_mtime))
+            # 按数量清理
+            if self.max_count > 0 and total_count > self.max_count:
+                excess_count = total_count - self.max_count
+                for i in range(excess_count):
+                    to_delete.append(images[i][0])
+                    total_size -= images[i][1]
 
-            valid.sort(key=lambda x: x[1])  # 旧 → 新
+            # 按大小清理
+            if self.max_storage_mb > 0 and total_size > max_size_bytes:
+                idx = len(to_delete)
+                while total_size > max_size_bytes and idx < len(images):
+                    if images[idx][0] not in to_delete:
+                        to_delete.append(images[idx][0])
+                        total_size -= images[idx][1]
+                    idx += 1
 
-            to_delete = valid[:delete_count]
+            # 执行删除
+            deleted = 0
+            for path in to_delete:
+                try:
+                    path.unlink()
+                    self.remove_metadata(path.name)
+                    deleted += 1
+                except Exception as e:
+                    logger.warning(f"[ImageManager] 删除图片失败 {path.name}: {e}")
 
-            await asyncio.gather(
-                *[asyncio.to_thread(p.unlink) for p, _ in to_delete],
-                return_exceptions=True,
-            )
+            if deleted > 0:
+                logger.info(f"[ImageManager] 已清理 {deleted} 张旧图片")
+
+            return deleted
 
         except Exception as e:
-            logger.warning(f"清理旧图片时出错: {e}")
+            logger.error(f"[ImageManager] 清理旧图片出错: {e}")
+            return 0

@@ -8,49 +8,197 @@
     "injection_rounds": {
         "type": "int",
         "description": "连续注入轮次",
-        "hint": "检测到绘图意图后，连续多少轮对话注入 Visual Context。设为 1 表示仅当前轮注入，设为 3 表示触发后连续 3 轮都会注入",
+        "hint": "检测到绘图意图后，连续多少轮对话注入 Visual Context。设为 1 表示仅当前轮注入",
         "default": 1
     },
-    "enable_custom_env": {
+    "enable_env_injection": {
         "type": "bool",
-        "description": "启用环境场景切换",
-        "hint": "开启: 注入卧室/更衣室/户外三种场景切换逻辑，使用下方自定义参数\n关闭: 不注入环境指令，由模型自由发挥场景",
+        "description": "启用环境场景注入",
+        "hint": "启用后会根据关键词自动选择环境场景提示词",
         "default": true
     },
-    "env_default": {
-        "type": "text",
-        "description": "场景 A: 卧室环境",
-        "hint": "自拍/半身照的默认场景。留空使用内置默认值 (kawaii bedroom aesthetic, natural lighting...)",
-        "default": ""
-    },
-    "env_fullbody": {
-        "type": "text",
-        "description": "场景 B: 更衣室环境",
-        "hint": "全身照/穿搭展示的场景。留空使用内置默认值 (pink dressing room, vanity mirror...)",
-        "default": ""
-    },
-    "env_outdoor": {
-        "type": "text",
-        "description": "场景 C: 户外环境",
-        "hint": "用户指定地点时的场景生成指令。留空使用内置默认值 (根据用户描述生成场景，添加 bokeh 效果)",
-        "default": ""
-    },
-    "enable_custom_camera": {
+    "enable_camera_injection": {
         "type": "bool",
-        "description": "启用摄影模式切换",
-        "hint": "开启: 注入自拍/全身/半身三种镜头切换逻辑，使用下方自定义参数\n关闭: 不注入镜头指令，由模型自由发挥构图",
+        "description": "启用摄影模式注入",
+        "hint": "启用后会根据关键词自动选择镜头语言提示词",
         "default": true
     },
-    "cam_selfie": {
-        "type": "text",
-        "description": "镜头 A: 自拍模式",
-        "hint": "触发词「自拍」「对镜」时的镜头参数。留空使用内置默认值 (mirror selfie, holding phone...)",
+    "proxy": {
+        "type": "string",
+        "description": "HTTP 代理",
+        "hint": "用于访问 API 的代理地址，格式: http://127.0.0.1:7890",
         "default": ""
     },
-    "cam_fullbody": {
-        "type": "text",
-        "description": "镜头 B: 全身模式",
-        "hint": "触发词「全身照」「穿搭」时的镜头参数。留空使用内置默认值 (full body shot, wide angle...)",
-        "default": ""
+    "draw_provider": {
+        "type": "string",
+        "description": "主图片生成提供商",
+        "hint": "选择主要使用的图片生成服务，备用提供商将在主提供商失败时自动切换",
+        "options": ["gitee", "gemini"],
+        "default": "gitee"
+    },
+    "enable_fallback": {
+        "type": "bool",
+        "description": "启用备用提供商",
+        "hint": "启用后，当主提供商失败时自动切换到备用提供商",
+        "default": true
+    },
+    "gitee_config": {
+        "description": "Gitee AI 文生图配置",
+        "type": "object",
+        "hint": "配置 Gitee AI 文生图服务",
+        "items": {
+            "api_keys": {
+                "description": "API 密钥池",
+                "type": "list",
+                "default": [],
+                "hint": "Gitee AI 的 API Key 列表，支持多个轮询",
+                "obvious_hint": true
+            },
+            "base_url": {
+                "description": "Base URL",
+                "type": "string",
+                "default": "https://ai.gitee.com/v1",
+                "hint": "可填 https://ai.gitee.com 或 https://ai.gitee.com/v1"
+            },
+            "model": {
+                "description": "模型名称",
+                "type": "string",
+                "default": "z-image-turbo",
+                "hint": "填写模型名称，常用: z-image-turbo, z-image-base, flux.1-dev, flux.1-schnell"
+            },
+            "size": {
+                "description": "默认输出尺寸",
+                "type": "string",
+                "options": [
+                    "256x256",
+                    "512x512",
+                    "1024x1024",
+                    "2048x2048",
+                    "1152x896",
+                    "2048x1536",
+                    "768x1024",
+                    "1536x2048",
+                    "2048x1360",
+                    "1360x2048",
+                    "1024x576",
+                    "2048x1152",
+                    "576x1024",
+                    "1152x2048"
+                ],
+                "default": "1024x1024"
+            },
+            "negative_prompt": {
+                "description": "负面提示词",
+                "type": "text",
+                "default": ""
+            },
+            "num_inference_steps": {
+                "description": "推理步数",
+                "type": "int",
+                "default": 9,
+                "slider": { "min": 1, "max": 20, "step": 1 }
+            },
+            "timeout": {
+                "description": "超时(秒)",
+                "type": "int",
+                "default": 300,
+                "slider": { "min": 60, "max": 600, "step": 10 }
+            },
+            "max_retries": {
+                "description": "最大重试次数",
+                "type": "int",
+                "default": 2,
+                "slider": { "min": 0, "max": 5, "step": 1 }
+            }
+        }
+    },
+    "gemini_config": {
+        "description": "Gemini AI 文生图配置",
+        "type": "object",
+        "hint": "配置 Google Gemini AI 文生图服务（备用）",
+        "items": {
+            "api_key": {
+                "description": "API 密钥",
+                "type": "string",
+                "default": "",
+                "hint": "从 https://aistudio.google.com/apikey 获取"
+            },
+            "base_url": {
+                "description": "Base URL",
+                "type": "string",
+                "default": "https://generativelanguage.googleapis.com",
+                "hint": "仅填写域名，系统自动补全接口路径。默认使用原生接口，失败时回退到 OpenAI 兼容接口"
+            },
+            "model": {
+                "description": "模型名称",
+                "type": "string",
+                "default": "gemini-2.0-flash-exp-image-generation",
+                "hint": "填写模型名称，常用: gemini-2.0-flash-exp-image-generation, gemini-3-pro-image-preview"
+            },
+            "image_size": {
+                "description": "图片分辨率",
+                "type": "string",
+                "options": ["1K", "2K", "4K"],
+                "default": "1K",
+                "hint": "2K/4K 分辨率仅 gemini-3 系列模型支持"
+            },
+            "timeout": {
+                "description": "超时(秒)",
+                "type": "int",
+                "default": 120,
+                "slider": { "min": 30, "max": 300, "step": 10 }
+            }
+        }
+    },
+    "webui_config": {
+        "description": "Web 管理界面配置",
+        "type": "object",
+        "hint": "环境场景和摄影模式请在 WebUI 中配置",
+        "items": {
+            "enabled": {
+                "description": "启用 WebUI",
+                "type": "bool",
+                "default": false,
+                "hint": "启用后可通过浏览器访问管理界面，配置环境场景和摄影模式"
+            },
+            "host": {
+                "description": "监听地址",
+                "type": "string",
+                "default": "127.0.0.1",
+                "hint": "建议保持 127.0.0.1 仅本地访问，0.0.0.0 允许外部访问需配合 token 使用"
+            },
+            "port": {
+                "description": "端口",
+                "type": "int",
+                "default": 8088
+            },
+            "token": {
+                "description": "访问令牌",
+                "type": "string",
+                "default": "",
+                "hint": "设置后需在 URL 中添加 ?token=xxx 才能访问 WebUI，留空则无需认证"
+            }
+        }
+    },
+    "cache_config": {
+        "description": "图片缓存清理配置",
+        "type": "object",
+        "hint": "自动清理生成的图片，收藏的图片不会被清理",
+        "items": {
+            "max_storage_mb": {
+                "description": "最大存储空间 (MB)",
+                "type": "int",
+                "default": 500,
+                "hint": "超过此大小时自动清理旧图片，0 表示不限制",
+                "slider": { "min": 0, "max": 5000, "step": 100 }
+            },
+            "max_count": {
+                "description": "最大图片数量",
+                "type": "int",
+                "default": 100,
+                "hint": "超过此数量时自动清理旧图片，0 表示不限制",
+                "slider": { "min": 0, "max": 1000, "step": 10 }
+            }
+        }
     }
 }

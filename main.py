@@ -1,18 +1,71 @@
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star, StarTools
 from astrbot.api import logger
 from astrbot.core.provider.entities import ProviderRequest
 import astrbot.api.message_components as Comp
 import re
 import copy
 import random
+import asyncio
+import json
 from datetime import datetime
+from pathlib import Path
 
-@register("astrbot_plugin_portrait", "ikirito", "人物特征Prompt注入器,增强美化画图", "1.9.0")
+from .core.gitee_draw import GiteeDrawService
+from .core.gemini_draw import GeminiDrawService
+from .web_server import WebServer
+
+
 class PortraitPlugin(Star):
+    """人物特征Prompt注入器,增强美化画图,内置Gitee AI文生图"""
+
+    # 默认环境和摄影配置
+    DEFAULT_ENVIRONMENTS = [
+        {
+            "name": "默认/卧室",
+            "keywords": ["default"],
+            "prompt": "(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones:1.1), cozy atmosphere"
+        },
+        {
+            "name": "更衣室",
+            "keywords": ["穿搭", "全身", "OOTD", "look"],
+            "prompt": "(indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4), (white vanity table), (pink fluffy stool), (pink clothing rack), (pastel pink and white tones:1.2), cozy, kawaii aesthetic"
+        },
+        {
+            "name": "户外/自定义",
+            "keywords": ["户外", "外面", "公园", "街"],
+            "prompt": "根据用户指定地点生成场景。必须添加: (blurred background), (bokeh), (natural lighting)"
+        }
+    ]
+
+    DEFAULT_CAMERAS = [
+        {
+            "name": "自拍模式",
+            "keywords": ["自拍", "selfie", "对镜"],
+            "prompt": "(mirror selfie style:1.2), holding phone, looking at phone screen or mirror, (realistic screen light reflection on face), cute pose, close-up POV shot"
+        },
+        {
+            "name": "全身/远景",
+            "keywords": ["全身", "full body", "穿搭", "OOTD"],
+            "prompt": "full body shot, head to toe visible, wide angle, far shot, (relaxed fashion pose:1.3), casual stance, legs and shoes visible"
+        },
+        {
+            "name": "半身/默认",
+            "keywords": ["default"],
+            "prompt": "upper body shot, medium close-up portrait, looking at camera, (dynamic random pose:1.2), (playful gestures:1.1), candid portrait"
+        }
+    ]
+
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
+        self.data_dir = StarTools.get_data_dir()
+
+        # 动态配置文件路径（由 WebUI 管理）
+        self.dynamic_config_path = self.data_dir / "dynamic_config.json"
+
+        # 加载动态配置（环境和摄影模式）
+        self._dynamic_config = self._load_dynamic_config()
 
         # === v1.9.0: 生命周期管理 ===
         # 防止重载时旧实例复活
@@ -34,24 +87,12 @@ class PortraitPlugin(Star):
         # === 默认内容 (Content Only) ===
         self.DEF_CHAR_IDENTITY = """> **The subject is a young 18-year-old Asian girl with fair skin and delicate features. She has dusty rose pink hair featuring essential wispy air bangs. Her large, round, doll-like eyes are deep-set and natural dark brown. She possesses a slender hourglass figure with a tiny waist and a full bust, emphasizing a natural soft tissue silhouette.**"""
 
-        self.DEF_ENV_A = """(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones:1.1), (fairy lights on wall:1.1), bed filled with plushies, (shelves with anime figures:1.2), gaming setup background, cozy atmosphere, clear background details, (raw photo:1.2), (authentic skin texture:1.2), photorealistic"""
-
-        self.DEF_ENV_B = """(indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4), (volumetric lighting), (shadows casting on floor:1.2), (white vanity table with large mirror), (pink fluffy stool), (white shelves filled with plush toys and pink accessories), (pink clothing rack with dresses), (pink utility cart), (pink curtains), (pink fluffy rugs), (pastel pink and white tones:1.2), cozy, kawaii aesthetic, (reflection in vanity mirror is blurred and indistinct:1.5), (focus away from reflection), (raw photo:1.2), (realistic texture:1.3), photorealistic"""
-
-        self.DEF_ENV_C = """根据用户指定地点生成场景。必须添加: (blurred background), (bokeh), (natural lighting)"""
-
-        self.DEF_CAM_A = """, (mirror selfie style:1.2), holding phone, looking at phone screen or mirror, (realistic screen light reflection on face), cute pose, close-up POV shot, (phone camera noise:1.1)"""
-
-        self.DEF_CAM_B = """, full body shot, head to toe visible, wide angle, far shot, (relaxed fashion pose:1.3), casual stance, (natural candid moment:1.4), (looking away from camera:1.2), (subtle closed-mouth smile:1.3), (dreamy soft gaze:1.2), (lost in thought expression:1.1), no phone, legs and shoes visible, (sharp focus:1.3), (fashion editorial style:1.2)"""
-
-        self.DEF_CAM_C = """, upper body shot, medium close-up portrait, looking at camera, (dynamic random pose:1.2), (playful gestures:1.1), (expressive face), candid portrait, no phone, (detailed skin pores), (film grain:1.1)"""
-
         self.TPL_HEADER = """# Visual Context Injection (System Override)
 ## 0. Chain of Thought & Trigger Logic
 1.  **Analyze User Intent**: specific keywords like "draw", "photo", "selfie", "show me", "look at you", or implicitly asking for a visual representation.
-2.  **If Drawing Intent Detected**: You MUST call the `gitee_draw_image` tool (NOT banana_image_generation) with the Visual Data below.
+2.  **If Drawing Intent Detected**: You MUST call the `portrait_draw_image` tool with the Visual Data below.
 3.  **Prompt Structure**: `[Character Visuals] + [User Action/Outfit] + [Environment] + [Camera]`
-4.  **IMPORTANT**: Always use `gitee_draw_image` tool for image generation.
+4.  **IMPORTANT**: Always use `portrait_draw_image` tool for image generation.
 5.  **CRITICAL**: When calling any tool, do NOT output any text content in the same response. Call the tool ONLY, then wait for the result before responding to the user.
 6.  **MANDATORY**: You MUST copy the EXACT prompt blocks from the Environment and Camera sections below verbatim. Do NOT simplify, summarize, or omit any parameters. Include ALL lighting, style, and quality tags exactly as written."""
 
@@ -63,67 +104,86 @@ class PortraitPlugin(Star):
 * **穿搭 (Outfit):** 用户未指定时，默认保持简洁风格或根据场景补全。
 * **动作 (Action):** 自然融入用户描述的动作。如果动作/表情与核心设定的冲突，**以用户要求为准**"""
 
-        self.TPL_ENV = """## 3. 动态环境与风格 (Dynamic Environment & Style) - [真实光效版]
-**逻辑判断 (Logic Branching):**
-* **Scenario A: 默认情况 (自拍 Mode A / 半身照 Mode C)**
-    * *场景:* **温馨卧室 (Cozy Bedroom)**。
-    * *Prompt Block:*
-    > **{env_a}**
-
-* **Scenario B: 全身照模式 (Full Body Mode B)**
-    * *触发意图:* 当用户提及"看看穿搭"、"OOTD"、"全身照"时，强制使用此场景。
-    * *场景:* **粉色梦幻更衣室 (Pink Dressing Room)**。
-    * *Prompt Block:*
-    > **{env_b}**
-
-* **Scenario C: 户外/特定场景 (User Specified)**
-    * *操作:* {env_c}"""
-
-        self.TPL_CAM = """## 4. 摄影模式切换 (Photo Format Switching) - [强制重置逻辑]
-**指令:** 检查**当前用户输入 (Current Input)** 中的关键词。**不要**参考历史记录中的摄影模式。
-* **模式 A：自拍 (Selfie Mode)**
-    * *触发 (必须在当前句中出现):* "自拍"、"selfie"、"拿着手机"、"对镜自拍"。
-    * *Camera Params:* `{cam_a}`
-
-* **模式 B：全身照 (Full Body Shot)**
-    * *触发 (必须在当前句中出现):* "全身照"、"看看穿搭"、"full body"、"穿搭"。
-    * *Camera Params:* `{cam_b}`
-
-* **模式 C：默认/半身照 (Default)**
-    * *触发:* **当当前输入中没有上述 Mode A 或 Mode B 的关键词时，强制使用此模式。**
-    * *Camera Params:* `{cam_c}`"""
-
         self.TPL_FOOTER = """---"""
 
         # 读取用户配置
         p_char_id = self.config.get("char_identity") or self.DEF_CHAR_IDENTITY
-        p_env_a = self.config.get("env_default") or self.DEF_ENV_A
-        p_env_b = self.config.get("env_fullbody") or self.DEF_ENV_B
-        p_env_c = self.config.get("env_outdoor") or self.DEF_ENV_C
 
-        # 镜头参数逻辑：根据开关决定是否注入
-        enable_custom_cam = self.config.get("enable_custom_camera", False)
+        # 读取开关配置
+        self.enable_env_injection = self.config.get("enable_env_injection", True)
+        self.enable_camera_injection = self.config.get("enable_camera_injection", True)
 
-        if enable_custom_cam:
-            p_cam_a = self.config.get("cam_selfie") or self.DEF_CAM_A
-            p_cam_b = self.config.get("cam_fullbody") or self.DEF_CAM_B
-            p_cam_c = self.DEF_CAM_C
-            # 格式化 Camera 部分
-            section_camera = self.TPL_CAM.format(cam_a=p_cam_a, cam_b=p_cam_b, cam_c=p_cam_c)
+        # === 动态环境与镜头处理（从独立配置文件加载）===
+        # 1. 环境列表（根据开关决定是否生成）
+        if self.enable_env_injection:
+            environments = self._dynamic_config.get("environments", self.DEFAULT_ENVIRONMENTS)
+
+            # 生成环境 Prompt Section
+            env_section_lines = ["## 3. 动态环境与风格 (Dynamic Environment & Style)"]
+            env_section_lines.append("**逻辑判断 (Logic Branching):** Check user input for keywords.")
+
+            for idx, env in enumerate(environments):
+                name = env.get("name", f"Scene {idx}")
+                keywords = env.get("keywords", [])
+                prompt_content = env.get("prompt", "")
+
+                # 格式化关键词显示
+                if "default" in keywords:
+                    trigger_desc = "**默认场景 (Default)**: 当未匹配到其他特定场景关键词时使用。"
+                else:
+                    kws_str = ", ".join([f'"{k}"' for k in keywords])
+                    trigger_desc = f"**触发关键词**: {kws_str}"
+
+                env_section_lines.append(f"\n* **Scenario: {name}**")
+                env_section_lines.append(f"    * {trigger_desc}")
+                env_section_lines.append(f"    * *Prompt Block:*")
+                env_section_lines.append(f"    > **{prompt_content}**")
+
+            section_env = "\n".join(env_section_lines)
         else:
-            # 关闭开关：完全不注入 Camera Logic
+            section_env = ""
+
+        # 2. 镜头列表（根据开关决定是否生成）
+        if self.enable_camera_injection:
+            cameras = self._dynamic_config.get("cameras", self.DEFAULT_CAMERAS)
+
+            # 生成镜头 Prompt Section
+            cam_section_lines = ["## 4. 摄影模式切换 (Photo Format Switching)"]
+            cam_section_lines.append("**指令:** 检查**当前用户输入**中的关键词。**不要**参考历史记录。")
+
+            for idx, cam in enumerate(cameras):
+                name = cam.get("name", f"Mode {idx}")
+                keywords = cam.get("keywords", [])
+                prompt_content = cam.get("prompt", "")
+
+                if "default" in keywords:
+                    trigger_desc = "触发: **默认模式** (当无其他匹配时)。"
+                else:
+                    kws_str = ", ".join([f'"{k}"' for k in keywords])
+                    trigger_desc = f"触发 (必须出现在当前句中): {kws_str}"
+
+                cam_section_lines.append(f"\n* **模式: {name}**")
+                cam_section_lines.append(f"    * {trigger_desc}")
+                cam_section_lines.append(f"    * *Camera Params:* `{prompt_content}`")
+
+            section_camera = "\n".join(cam_section_lines)
+        else:
             section_camera = ""
 
         # === 核心 Prompt 组装 ===
-        self.full_prompt = (
-            f"{self.TPL_HEADER}\n\n"
-            f"{self.TPL_CHAR.format(content=p_char_id)}\n\n"
-            f"{self.TPL_MIDDLE}\n\n"
-            f"{self.TPL_ENV.format(env_a=p_env_a, env_b=p_env_b, env_c=p_env_c)}\n\n"
-            f"{section_camera}\n\n"
-            f"{self.TPL_FOOTER}\n\n"
-            f"--- END CONTEXT DATA ---"
-        )
+        prompt_parts = [
+            self.TPL_HEADER,
+            self.TPL_CHAR.format(content=p_char_id),
+            self.TPL_MIDDLE,
+        ]
+        if section_env:
+            prompt_parts.append(section_env)
+        if section_camera:
+            prompt_parts.append(section_camera)
+        prompt_parts.append(self.TPL_FOOTER)
+        prompt_parts.append("--- END CONTEXT DATA ---")
+
+        self.full_prompt = "\n\n".join(prompt_parts)
 
         # === v1.8.1: 注入轮次控制 ===
         # 每个会话的剩余注入次数 {session_id: remaining_count}
@@ -135,10 +195,176 @@ class PortraitPlugin(Star):
         # 会话过期时间（秒），默认 1 小时
         self.session_ttl = 3600
 
+        # === v2.0.0: Gitee AI 文生图服务 ===
+        gitee_conf = self.config.get("gitee_config", {}) or {}
+        cache_conf = self.config.get("cache_config", {}) or {}
+        self.gitee_draw = GiteeDrawService(
+            data_dir=self.data_dir,
+            api_keys=gitee_conf.get("api_keys", []) or [],
+            base_url=gitee_conf.get("base_url", "https://ai.gitee.com/v1") or "https://ai.gitee.com/v1",
+            model=gitee_conf.get("model", "z-image-turbo") or "z-image-turbo",
+            default_size=gitee_conf.get("size", "1024x1024") or "1024x1024",
+            num_inference_steps=gitee_conf.get("num_inference_steps", 9) or 9,
+            negative_prompt=gitee_conf.get("negative_prompt", "") or "",
+            timeout=gitee_conf.get("timeout", 300) or 300,
+            max_retries=gitee_conf.get("max_retries", 2) or 2,
+            proxy=self.config.get("proxy", "") or None,
+            max_storage_mb=cache_conf.get("max_storage_mb", 500) or 500,
+            max_count=cache_conf.get("max_count", 100) or 100,
+        )
+
+        # === v2.4.0: Gemini AI 文生图服务 ===
+        gemini_conf = self.config.get("gemini_config", {}) or {}
+        self.gemini_draw = GeminiDrawService(
+            data_dir=self.data_dir,
+            api_key=gemini_conf.get("api_key", "") or "",
+            base_url=gemini_conf.get("base_url", "https://generativelanguage.googleapis.com") or "https://generativelanguage.googleapis.com",
+            model=gemini_conf.get("model", "gemini-2.0-flash-exp-image-generation") or "gemini-2.0-flash-exp-image-generation",
+            image_size=gemini_conf.get("image_size", "1K") or "1K",
+            timeout=gemini_conf.get("timeout", 120) or 120,
+            proxy=self.config.get("proxy", "") or None,
+            max_storage_mb=cache_conf.get("max_storage_mb", 500) or 500,
+            max_count=cache_conf.get("max_count", 100) or 100,
+        )
+
+        # 主备切换配置
+        self.draw_provider = self.config.get("draw_provider", "gitee") or "gitee"
+        self.enable_fallback = self.config.get("enable_fallback", True)
+
+        # === v2.1.0: WebUI 服务器 ===
+        self.web_server: WebServer | None = None
+        webui_conf = self.config.get("webui_config", {}) or {}
+        if webui_conf.get("enabled", False):
+            self.web_server = WebServer(
+                plugin=self,
+                host=webui_conf.get("host", "127.0.0.1") or "127.0.0.1",
+                port=webui_conf.get("port", 8088) or 8088,
+                token=webui_conf.get("token", "") or "",
+            )
+            # 启动 WebUI 服务器（后台任务）
+            task = asyncio.create_task(self._start_webui())
+            self._bg_tasks.add(task)
+
+    def _load_dynamic_config(self) -> dict:
+        """从独立文件加载动态配置（环境和摄影模式）"""
+        if self.dynamic_config_path.exists():
+            try:
+                with open(self.dynamic_config_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning(f"[Portrait] 加载动态配置失败: {e}，使用默认值")
+        return {
+            "environments": self.DEFAULT_ENVIRONMENTS,
+            "cameras": self.DEFAULT_CAMERAS,
+        }
+
+    def _save_dynamic_config(self):
+        """保存动态配置到独立文件"""
+        try:
+            with open(self.dynamic_config_path, "w", encoding="utf-8") as f:
+                json.dump(self._dynamic_config, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"[Portrait] 保存动态配置失败: {e}")
+
+    async def _start_webui(self):
+        """启动 WebUI 服务器"""
+        if self.web_server:
+            await self.web_server.start()
+
+    def get_dynamic_config(self) -> dict:
+        """获取动态配置（环境和摄影模式列表）"""
+        return {
+            "environments": self._dynamic_config.get("environments", self.DEFAULT_ENVIRONMENTS),
+            "cameras": self._dynamic_config.get("cameras", self.DEFAULT_CAMERAS),
+        }
+
+    def update_dynamic_config(self, new_config: dict):
+        """更新动态配置并重建 Prompt"""
+        if "environments" in new_config:
+            self._dynamic_config["environments"] = new_config["environments"]
+        if "cameras" in new_config:
+            self._dynamic_config["cameras"] = new_config["cameras"]
+        self._save_dynamic_config()
+        self.rebuild_full_prompt()
+
+    def rebuild_full_prompt(self):
+        """重建完整 Prompt（热更新时调用）"""
+        p_char_id = self.config.get("char_identity") or self.DEF_CHAR_IDENTITY
+
+        # 环境列表（根据开关决定是否生成）
+        if self.enable_env_injection:
+            environments = self._dynamic_config.get("environments", self.DEFAULT_ENVIRONMENTS)
+            env_section_lines = ["## 3. 动态环境与风格 (Dynamic Environment & Style)"]
+            env_section_lines.append("**逻辑判断 (Logic Branching):** Check user input for keywords.")
+
+            for idx, env in enumerate(environments):
+                name = env.get("name", f"Scene {idx}")
+                keywords = env.get("keywords", [])
+                prompt_content = env.get("prompt", "")
+
+                if "default" in keywords:
+                    trigger_desc = "**默认场景 (Default)**: 当未匹配到其他特定场景关键词时使用。"
+                else:
+                    kws_str = ", ".join([f'"{k}"' for k in keywords])
+                    trigger_desc = f"**触发关键词**: {kws_str}"
+
+                env_section_lines.append(f"\n* **Scenario: {name}**")
+                env_section_lines.append(f"    * {trigger_desc}")
+                env_section_lines.append(f"    * *Prompt Block:*")
+                env_section_lines.append(f"    > **{prompt_content}**")
+
+            section_env = "\n".join(env_section_lines)
+        else:
+            section_env = ""
+
+        # 镜头列表（根据开关决定是否生成）
+        if self.enable_camera_injection:
+            cameras = self._dynamic_config.get("cameras", self.DEFAULT_CAMERAS)
+            cam_section_lines = ["## 4. 摄影模式切换 (Photo Format Switching)"]
+            cam_section_lines.append("**指令:** 检查**当前用户输入**中的关键词。**不要**参考历史记录。")
+
+            for idx, cam in enumerate(cameras):
+                name = cam.get("name", f"Mode {idx}")
+                keywords = cam.get("keywords", [])
+                prompt_content = cam.get("prompt", "")
+
+                if "default" in keywords:
+                    trigger_desc = "触发: **默认模式** (当无其他匹配时)。"
+                else:
+                    kws_str = ", ".join([f'"{k}"' for k in keywords])
+                    trigger_desc = f"触发 (必须出现在当前句中): {kws_str}"
+
+                cam_section_lines.append(f"\n* **模式: {name}**")
+                cam_section_lines.append(f"    * {trigger_desc}")
+                cam_section_lines.append(f"    * *Camera Params:* `{prompt_content}`")
+
+            section_camera = "\n".join(cam_section_lines)
+        else:
+            section_camera = ""
+
+        # 组装完整 Prompt
+        prompt_parts = [
+            self.TPL_HEADER,
+            self.TPL_CHAR.format(content=p_char_id),
+            self.TPL_MIDDLE,
+        ]
+        if section_env:
+            prompt_parts.append(section_env)
+        if section_camera:
+            prompt_parts.append(section_camera)
+        prompt_parts.append(self.TPL_FOOTER)
+        prompt_parts.append("--- END CONTEXT DATA ---")
+
+        self.full_prompt = "\n\n".join(prompt_parts)
+        logger.debug("[Portrait] Prompt 已重建")
+
     async def terminate(self):
         """插件卸载/重载时的清理逻辑"""
         self._is_terminated = True
         try:
+            # 停止 WebUI 服务器
+            if self.web_server:
+                await self.web_server.stop()
             # 取消所有后台任务
             for task in self._bg_tasks:
                 if not task.done():
@@ -146,6 +372,10 @@ class PortraitPlugin(Star):
             # 清理会话缓存
             self.injection_counter.clear()
             self.injection_last_active.clear()
+            # 关闭 Gitee 服务
+            await self.gitee_draw.close()
+            # 关闭 Gemini 服务
+            await self.gemini_draw.close()
             logger.info("[Portrait] 插件已停止，清理资源完成")
         except Exception as e:
             logger.error(f"[Portrait] 停止插件出错: {e}")
@@ -237,7 +467,9 @@ class PortraitPlugin(Star):
         # 检查是否还有剩余注入次数
         remaining = self.injection_counter.get(session_id, 0)
         if remaining <= 0:
-            logger.debug(f"[Portrait] 会话 {session_id} 注入次数已用尽，跳过")
+            # === v2.2.0: 注入轮次用尽后清理历史记忆中的 portrait 注入内容 ===
+            self._clean_portrait_injection(req)
+            logger.debug(f"[Portrait] 会话 {session_id} 注入次数已用尽，已清理历史注入内容")
             return
 
         # 执行注入并减少计数
@@ -249,4 +481,162 @@ class PortraitPlugin(Star):
         self.injection_counter[session_id] -= 1
         remaining_after = self.injection_counter[session_id]
 
-        logger.info(f"[Portrait] Visual Context 已注入 (轮次 {self.injection_rounds - remaining_after}/{self.injection_rounds}) - 触发词: {user_message[:30]}...")
+        # 如果这是最后一轮注入，标记需要在下次请求时清理
+        if remaining_after <= 0:
+            logger.info(f"[Portrait] Visual Context 已注入 (最后一轮 {self.injection_rounds}/{self.injection_rounds}) - 下次请求将清理历史注入")
+        else:
+            logger.info(f"[Portrait] Visual Context 已注入 (轮次 {self.injection_rounds - remaining_after}/{self.injection_rounds}) - 触发词: {user_message[:30]}...")
+
+    def _clean_portrait_injection(self, req: ProviderRequest):
+        """清理请求中的 portrait 注入内容，防止污染上下文"""
+        import re
+        portrait_pattern = re.compile(r'\s*<portrait_status>.*?</portrait_status>\s*', re.DOTALL)
+
+        # 清理 system_prompt
+        if req.system_prompt:
+            cleaned = portrait_pattern.sub('', req.system_prompt)
+            if cleaned != req.system_prompt:
+                req.system_prompt = cleaned
+                logger.debug("[Portrait] 已从 system_prompt 清理注入内容")
+
+        # 清理 messages 中的历史消息
+        if hasattr(req, 'messages') and req.messages:
+            for msg in req.messages:
+                if hasattr(msg, 'content') and isinstance(msg.content, str):
+                    cleaned = portrait_pattern.sub('', msg.content)
+                    if cleaned != msg.content:
+                        msg.content = cleaned
+                        logger.debug(f"[Portrait] 已从 {msg.role} 消息清理注入内容")
+
+        # 清理 prompt (如果是字符串)
+        if hasattr(req, 'prompt') and isinstance(req.prompt, str):
+            cleaned = portrait_pattern.sub('', req.prompt)
+            if cleaned != req.prompt:
+                req.prompt = cleaned
+                logger.debug("[Portrait] 已从 prompt 清理注入内容")
+
+    # === v2.4.0: 统一图片生成方法（支持主备切换） ===
+    async def _generate_image(self, prompt: str, size: str | None = None, resolution: str | None = None) -> Path:
+        """统一图片生成方法，支持主备切换
+
+        Args:
+            prompt: 图片描述提示词
+            size: 图片尺寸（仅 Gitee 支持）
+            resolution: 分辨率（仅 Gitee 支持）
+
+        Returns:
+            生成的图片路径
+        """
+        # 确定主备提供商
+        if self.draw_provider == "gemini":
+            primary, fallback = self.gemini_draw, self.gitee_draw
+            primary_name, fallback_name = "Gemini", "Gitee"
+        else:
+            primary, fallback = self.gitee_draw, self.gemini_draw
+            primary_name, fallback_name = "Gitee", "Gemini"
+
+        # 尝试主提供商
+        if primary.enabled:
+            try:
+                if primary_name == "Gitee":
+                    return await primary.generate(prompt, size=size, resolution=resolution)
+                else:
+                    return await primary.generate(prompt)
+            except Exception as e:
+                logger.warning(f"[Portrait] {primary_name} 生成失败: {e}")
+                if not self.enable_fallback:
+                    raise
+
+        # 尝试备用提供商
+        if self.enable_fallback and fallback.enabled:
+            logger.info(f"[Portrait] 切换到备用提供商 {fallback_name}")
+            if fallback_name == "Gitee":
+                return await fallback.generate(prompt, size=size, resolution=resolution)
+            else:
+                return await fallback.generate(prompt)
+
+        # 都不可用
+        if not primary.enabled and not fallback.enabled:
+            raise ValueError("未配置任何图片生成服务，请在插件配置中填写 Gitee AI 或 Gemini API Key")
+        elif not primary.enabled:
+            raise ValueError(f"{primary_name} 未配置 API Key")
+        else:
+            raise ValueError("图片生成失败，备用提供商也未配置")
+
+    # === v2.0.0: LLM 工具调用 - 文生图 ===
+    @filter.llm_tool(name="portrait_draw_image")
+    async def portrait_draw_image(self, event: AstrMessageEvent, prompt: str):
+        """根据提示词生成图片。
+
+        Args:
+            prompt(string): 图片提示词，需要包含主体、场景、风格等描述
+        """
+        try:
+            image_path = await self._generate_image(prompt)
+            # 发送图片
+            await event.send(
+                event.chain_result([Comp.Image.fromFileSystem(str(image_path))])
+            )
+            return "图片已生成并发送。"
+        except Exception as e:
+            logger.error(f"[Portrait] 文生图失败: {e}")
+            return f"生成图片失败: {str(e)}"
+
+    @filter.llm_tool(name="portrait_generate_image")
+    async def portrait_generate_image(
+        self,
+        event: AstrMessageEvent,
+        prompt: str,
+        size: str = "",
+        resolution: str = "",
+    ):
+        """根据提示词生成图片，可指定尺寸。
+
+        Args:
+            prompt(string): 图片提示词，需要包含主体、场景、风格等描述
+            size(string): 图片尺寸，如 "1024x1024"、"2048x2048"、"4096x4096"
+            resolution(string): 分辨率，可选 "1K"、"2K"、"4K"
+        """
+        try:
+            image_path = await self._generate_image(
+                prompt,
+                size=size or None,
+                resolution=resolution or None,
+            )
+            # 发送图片
+            await event.send(
+                event.chain_result([Comp.Image.fromFileSystem(str(image_path))])
+            )
+            return "图片已生成并发送。"
+        except Exception as e:
+            logger.error(f"[Portrait] 文生图失败: {e}")
+            return f"生成图片失败: {str(e)}"
+
+    # === v2.5.0: 画图帮助指令 ===
+    @filter.command("画图帮助")
+    async def draw_help(self, event: AstrMessageEvent):
+        """显示画图帮助信息"""
+        help_text = """🎨 人物形象 - 画图帮助
+━━━━━━━━━━━━━━━
+
+【工作原理】
+本插件通过 AI 注入人物形象 Prompt，让 LLM 调用工具自动生成图片。
+当检测到画图意图时，会自动注入人物特征、环境、镜头等上下文。
+
+【触发方式】
+发送包含以下关键词的消息即可触发：
+  画、拍、照、自拍、全身、穿搭、看看、康康
+  draw、photo、selfie、picture、image
+  给我看、让我看、发张、来张、再来一
+
+【预设提示词】
+如需使用预设提示词，请安装 banana_sign 插件。
+  /lm列表 - 查看所有预设提示词
+  /lm添加 - 添加新提示词（管理员）
+  /lm详情 <触发词> - 查看提示词详情
+
+━━━━━━━━━━━━━━━
+"""
+
+        yield event.plain_result(help_text)
+
