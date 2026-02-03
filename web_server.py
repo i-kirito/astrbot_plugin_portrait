@@ -378,11 +378,11 @@ class WebServer:
             if "enable_fallback" in config:
                 self.plugin.enable_fallback = config.get("enable_fallback", True)
 
-            # 更新自拍参考照配置
+            # 更新人像参考配置
             selfie_conf = config.get("selfie_config", {}) or {}
             if selfie_conf:
                 self.plugin.selfie_enabled = selfie_conf.get("enabled", False)
-                self.plugin.selfie_reference_images = selfie_conf.get("reference_images", []) or []
+                logger.info(f"[Portrait WebUI] selfie_enabled 已更新为: {self.plugin.selfie_enabled}")
 
             logger.debug("[Portrait WebUI] 插件资源已热更新")
 
