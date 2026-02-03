@@ -388,7 +388,7 @@
                         <span>图片画廊</span>
                     </div>
                     <!-- 画廊每行图片数量滑块 -->
-                    <div v-if="activeTab === 'gallery'" class="py-3" style="padding-left: 10px;">
+                    <div v-if="activeTab === 'gallery'" class="py-3" style="padding-left: 30px;">
                         <div class="text-xs text-gray-400 mb-2">每行 {{ galleryColumns }} 张</div>
                         <el-slider v-model="galleryColumns" :min="6" :max="10" :step="1" :show-tooltip="false" size="small" @change="saveGalleryColumns" style="width: 180px;" />
                     </div>
