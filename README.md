@@ -111,6 +111,12 @@
 
 ## 🛠️ 版本历史
 
+### v2.7.3 (2026-02-04)
+- [Fix] 修复 WebUI 图片/缩略图无法显示的问题（认证 token 未附加）
+- [Fix] 使用 URL API 重构 `withToken` 函数，正确处理带 hash 片段的 URL
+- [Security] 添加 `Referrer-Policy: no-referrer` 防止 token 通过 Referer 头泄露
+- [UI] 移除下载按钮功能（HTTP 协议下浏览器安全策略限制）
+
 ### v2.7.2 (2026-02-04)
 - [Security] 修复 `/selfie-refs/` 未授权访问漏洞，所有图片资源现在需要 token 认证
 - [Security] 改进文件名生成算法，使用 `secrets.token_hex(16)` 防止时间侧信道攻击
