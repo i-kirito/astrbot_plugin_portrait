@@ -282,6 +282,9 @@ class WebServer:
             # 热更新：重新组装 full_prompt
             self._reload_plugin_resources()
 
+            # 持久化配置到磁盘
+            self.plugin.save_config_to_disk()
+
             logger.info(f"[Portrait WebUI] 配置已更新: {updated_fields}")
 
             return web.json_response({

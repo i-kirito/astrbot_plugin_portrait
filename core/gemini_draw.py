@@ -51,6 +51,9 @@ class GeminiDrawService:
             max_count=max_count,
         )
 
+        # HTTP 会话（延迟初始化，复用连接）
+        self._session: aiohttp.ClientSession | None = None
+
     @staticmethod
     def _validate_base_url(url: str) -> str:
         """校验并清理 base_url"""
@@ -87,6 +90,13 @@ class GeminiDrawService:
     def use_native_api(self) -> bool:
         """判断是否使用原生 API（默认始终使用原生接口）"""
         return True
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """获取或创建 HTTP 会话（复用连接）"""
+        if self._session is None or self._session.closed:
+            timeout = aiohttp.ClientTimeout(total=self.timeout)
+            self._session = aiohttp.ClientSession(timeout=timeout)
+        return self._session
 
     async def generate(self, prompt: str, images: list[bytes] | None = None) -> Path:
         """生成图片
@@ -173,26 +183,24 @@ class GeminiDrawService:
 
         logger.debug(f"[Gemini Native] URL: {url}, has_images={bool(images)}")
 
-        timeout = aiohttp.ClientTimeout(total=self.timeout)
+        session = await self._get_session()
+        try:
+            async with session.post(
+                url,
+                json=payload,
+                proxy=self.proxy if self.proxy else None,
+                headers=headers,
+            ) as resp:
+                if resp.status != 200:
+                    error_text = await resp.text()
+                    logger.error(f"[Gemini Native] API 错误: {resp.status} - {error_text}")
+                    raise Exception(f"Gemini API 错误: {resp.status}")
 
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            try:
-                async with session.post(
-                    url,
-                    json=payload,
-                    proxy=self.proxy if self.proxy else None,
-                    headers=headers,
-                ) as resp:
-                    if resp.status != 200:
-                        error_text = await resp.text()
-                        logger.error(f"[Gemini Native] API 错误: {resp.status} - {error_text}")
-                        raise Exception(f"Gemini API 错误: {resp.status}")
+                data = await resp.json()
 
-                    data = await resp.json()
-
-            except aiohttp.ClientError as e:
-                logger.error(f"[Gemini Native] 请求失败: {e}")
-                raise Exception(f"Gemini 请求失败: {str(e)}")
+        except aiohttp.ClientError as e:
+            logger.error(f"[Gemini Native] 请求失败: {e}")
+            raise Exception(f"Gemini 请求失败: {str(e)}")
 
         # 解析响应 - 有参考图时可能返回多张，取最后一张
         if images:
@@ -226,26 +234,24 @@ class GeminiDrawService:
 
         logger.debug(f"[Gemini OpenAI] URL: {url}")
 
-        timeout = aiohttp.ClientTimeout(total=self.timeout)
+        session = await self._get_session()
+        try:
+            async with session.post(
+                url,
+                json=payload,
+                proxy=self.proxy if self.proxy else None,
+                headers=headers,
+            ) as resp:
+                if resp.status != 200:
+                    error_text = await resp.text()
+                    logger.error(f"[Gemini OpenAI] API 错误: {resp.status} - {error_text}")
+                    raise Exception(f"Gemini OpenAI 兼容接口错误: {resp.status}")
 
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            try:
-                async with session.post(
-                    url,
-                    json=payload,
-                    proxy=self.proxy if self.proxy else None,
-                    headers=headers,
-                ) as resp:
-                    if resp.status != 200:
-                        error_text = await resp.text()
-                        logger.error(f"[Gemini OpenAI] API 错误: {resp.status} - {error_text}")
-                        raise Exception(f"Gemini OpenAI 兼容接口错误: {resp.status}")
+                data = await resp.json()
 
-                    data = await resp.json()
-
-            except aiohttp.ClientError as e:
-                logger.error(f"[Gemini OpenAI] 请求失败: {e}")
-                raise Exception(f"Gemini OpenAI 兼容接口请求失败: {str(e)}")
+        except aiohttp.ClientError as e:
+            logger.error(f"[Gemini OpenAI] 请求失败: {e}")
+            raise Exception(f"Gemini OpenAI 兼容接口请求失败: {str(e)}")
 
         # 解析 OpenAI 格式响应
         return self._parse_openai_response(data)
@@ -324,7 +330,9 @@ class GeminiDrawService:
 
     async def close(self):
         """关闭服务（释放资源）"""
-        pass
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
 
     @staticmethod
     def _extract_images(data: dict) -> list[bytes]:

@@ -65,6 +65,11 @@ class PortraitPlugin(Star):
 
         # 动态配置文件路径（由 WebUI 管理）
         self.dynamic_config_path = self.data_dir / "dynamic_config.json"
+        # 主配置持久化路径
+        self.config_persist_path = self.data_dir / "webui_config.json"
+
+        # 加载持久化的 WebUI 配置（覆盖默认值）
+        self._load_persisted_config()
 
         # 加载动态配置（环境和摄影模式）
         self._dynamic_config = self._load_dynamic_config()
@@ -279,6 +284,40 @@ class PortraitPlugin(Star):
                 json.dump(self._dynamic_config, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"[Portrait] 保存动态配置失败: {e}")
+
+    def _load_persisted_config(self):
+        """加载 WebUI 持久化的配置"""
+        if self.config_persist_path.exists():
+            try:
+                with open(self.config_persist_path, "r", encoding="utf-8") as f:
+                    persisted = json.load(f)
+                # 合并到当前配置（持久化配置优先）
+                for key, value in persisted.items():
+                    self.config[key] = value
+                logger.debug(f"[Portrait] 已加载持久化配置: {list(persisted.keys())}")
+            except Exception as e:
+                logger.warning(f"[Portrait] 加载持久化配置失败: {e}")
+
+    def save_config_to_disk(self):
+        """将当前配置持久化到磁盘"""
+        # 需要持久化的字段
+        persist_fields = {
+            "char_identity",
+            "injection_rounds",
+            "proxy",
+            "gitee_config",
+            "gemini_config",
+            "draw_provider",
+            "enable_fallback",
+            "selfie_config",
+        }
+        try:
+            persist_data = {k: v for k, v in self.config.items() if k in persist_fields}
+            with open(self.config_persist_path, "w", encoding="utf-8") as f:
+                json.dump(persist_data, f, ensure_ascii=False, indent=2)
+            logger.info(f"[Portrait] 配置已持久化到磁盘")
+        except Exception as e:
+            logger.error(f"[Portrait] 持久化配置失败: {e}")
 
     async def _start_webui(self):
         """启动 WebUI 服务器"""
