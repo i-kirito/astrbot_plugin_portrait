@@ -89,8 +89,10 @@ class ImageManager:
         except Exception as e:
             logger.error(f"[ImageManager] 保存收藏列表失败: {e}")
 
-    def get_metadata(self, filename: str) -> dict | None:
+    def get_metadata(self, filename: str) -\u003e dict | None:
         """获取图片元数据"""
+        # 每次获取时重新加载，确保多实例同步
+        self._metadata = self._load_metadata()
         return self._metadata.get(filename)
 
     def set_metadata(self, filename: str, prompt: str) -> None:
