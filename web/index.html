@@ -821,11 +821,11 @@
                     </div>
 
                     <!-- 图片网格 -->
-                    <div v-else class="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+                    <div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                         <div v-for="img in images" :key="img.name" class="image-card">
                             <!-- 收藏标记 -->
                             <div v-if="img.favorite" class="absolute top-2 right-2 z-10 text-pink-500" style="font-size: 1.2rem; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">&#9829;</div>
-                            <img :src="img.thumbnail || img.url" :alt="img.name" @click="openImageDetail(img)" class="cursor-pointer" loading="lazy" />
+                            <img :src="img.thumbnail || img.url" :alt="img.name" @click="openImageDetail(img)" @keyup.enter="openImageDetail(img)" class="cursor-pointer" loading="lazy" tabindex="0" role="button" />
                             <div class="actions">
                                 <div class="flex gap-2">
                                     <el-button :type="img.favorite ? 'warning' : 'default'" circle @click.stop="toggleFavorite(img)" :title="img.favorite ? '取消收藏' : '添加收藏'">

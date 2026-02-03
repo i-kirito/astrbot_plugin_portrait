@@ -46,6 +46,7 @@ class ImageManager:
         self.max_count = max_count
         self._session: aiohttp.ClientSession | None = None
         self._metadata: dict = self._load_metadata()
+        self._metadata_mtime: float = self._get_metadata_mtime()
         self._favorites: set = self._load_favorites()
 
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -61,6 +62,23 @@ class ImageManager:
                     return json.load(f)
             except Exception as e:
                 logger.warning(f"[ImageManager] 加载元数据失败: {e}")
+        return {}
+
+    def _get_metadata_mtime(self) -> float:
+        """获取元数据文件修改时间"""
+        try:
+            if self.metadata_file.exists():
+                return self.metadata_file.stat().st_mtime
+        except Exception:
+            pass
+        return 0.0
+
+    def _reload_metadata_if_changed(self) -> None:
+        """如果文件已修改则重新加载元数据"""
+        current_mtime = self._get_metadata_mtime()
+        if current_mtime > self._metadata_mtime:
+            self._metadata = self._load_metadata()
+            self._metadata_mtime = current_mtime
         return {}
 
     def _save_metadata(self) -> None:
@@ -89,10 +107,10 @@ class ImageManager:
         except Exception as e:
             logger.error(f"[ImageManager] 保存收藏列表失败: {e}")
 
-    def get_metadata(self, filename: str) -\u003e dict | None:
+    def get_metadata(self, filename: str) -> dict | None:
         """获取图片元数据"""
-        # 每次获取时重新加载，确保多实例同步
-        self._metadata = self._load_metadata()
+        # 检查文件是否被修改，按需重新加载
+        self._reload_metadata_if_changed()
         return self._metadata.get(filename)
 
     def set_metadata(self, filename: str, prompt: str) -> None:
@@ -102,6 +120,7 @@ class ImageManager:
             "created_at": int(time.time()),
         }
         self._save_metadata()
+        self._metadata_mtime = self._get_metadata_mtime()
 
     def is_favorite(self, filename: str) -> bool:
         """检查是否为收藏"""
