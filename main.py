@@ -233,10 +233,9 @@ class PortraitPlugin(Star):
         self.draw_provider = self.config.get("draw_provider", "gitee") or "gitee"
         self.enable_fallback = self.config.get("enable_fallback", True)
 
-        # === v2.6.0: 自拍参考照配置 ===
+        # === v2.6.0: 人像参考配置 ===
         selfie_conf = self.config.get("selfie_config", {}) or {}
         self.selfie_enabled = selfie_conf.get("enabled", False)
-        self.selfie_reference_images = selfie_conf.get("reference_images", []) or []
 
         # === v2.1.0: WebUI 服务器 ===
         self.web_server: WebServer | None = None
@@ -279,27 +278,27 @@ class PortraitPlugin(Star):
             await self.web_server.start()
 
     def _load_selfie_reference_images(self) -> list[bytes]:
-        """加载自拍参考照片"""
-        if not self.selfie_enabled or not self.selfie_reference_images:
+        """加载自拍参考照片 - 自动扫描 selfie_refs 目录"""
+        if not self.selfie_enabled:
             return []
 
+        selfie_refs_dir = self.data_dir / "selfie_refs"
+        if not selfie_refs_dir.exists():
+            return []
+
+        allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
         images: list[bytes] = []
-        for rel_path in self.selfie_reference_images:
-            if not rel_path:
-                continue
-            # 构建完整路径（相对于 data_dir）
-            full_path = self.data_dir / rel_path
-            if not full_path.exists():
-                logger.warning(f"[Portrait] 参考照不存在: {full_path}")
-                continue
-            try:
-                images.append(full_path.read_bytes())
-                logger.debug(f"[Portrait] 加载参考照: {rel_path}")
-            except Exception as e:
-                logger.warning(f"[Portrait] 读取参考照失败: {rel_path}, {e}")
+
+        for file_path in sorted(selfie_refs_dir.iterdir()):
+            if file_path.is_file() and file_path.suffix.lower() in allowed_exts:
+                try:
+                    images.append(file_path.read_bytes())
+                    logger.debug(f"[Portrait] 加载参考照: {file_path.name}")
+                except Exception as e:
+                    logger.warning(f"[Portrait] 读取参考照失败: {file_path.name}, {e}")
 
         if images:
-            logger.info(f"[Portrait] 已加载 {len(images)} 张自拍参考照")
+            logger.info(f"[Portrait] 已加载 {len(images)} 张人像参考")
         return images
 
     def get_dynamic_config(self) -> dict:
