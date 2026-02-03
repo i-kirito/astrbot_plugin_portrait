@@ -387,6 +387,11 @@
                         <span class="icon">&#128444;</span>
                         <span>图片画廊</span>
                     </div>
+                    <!-- 画廊每行图片数量滑块 -->
+                    <div v-if="activeTab === 'gallery'" class="px-4 py-3">
+                        <div class="text-xs text-gray-400 mb-2">每行 {{ galleryColumns }} 张</div>
+                        <el-slider v-model="galleryColumns" :min="6" :max="10" :step="1" :show-tooltip="false" size="small" />
+                    </div>
                 </nav>
                 <div class="p-4 border-t border-pink-200/30">
                     <p class="text-xs text-pink-300 text-center">v2.5.0</p>
@@ -825,7 +830,7 @@
                     </div>
 
                     <!-- 图片网格 -->
-                    <div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                    <div v-else class="grid gap-4" :style="{ gridTemplateColumns: `repeat(${galleryColumns}, minmax(0, 1fr))` }">
                         <div v-for="img in images" :key="img.name" class="image-card">
                             <!-- 收藏标记 -->
                             <div v-if="img.favorite" class="absolute top-2 right-2 z-10 text-pink-500" style="font-size: 1.2rem; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">&#9829;</div>
@@ -1023,6 +1028,7 @@
                 const pageSize = ref(50);
                 const showFavoritesOnly = ref(false);
                 const favoriteCount = ref(0);
+                const galleryColumns = ref(6);
 
                 const detailVisible = ref(false);
                 const detailImage = ref(null);
@@ -1603,6 +1609,7 @@
                     pageSize,
                     showFavoritesOnly,
                     favoriteCount,
+                    galleryColumns,
                     detailVisible,
                     detailImage,
                     detailImageDimensions,
