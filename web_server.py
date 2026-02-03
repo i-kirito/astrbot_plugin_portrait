@@ -50,7 +50,7 @@ class WebServer:
         # 静态资源不需要认证（index.html、CSS、JS、图片等）
         if request.path in ["/", "/index.html"]:
             return await handler(request)
-        if request.path.startswith(("/static/", "/web/", "/images/", "/thumbnails/")):
+        if request.path.startswith(("/static/", "/web/", "/images/", "/thumbnails/", "/selfie-refs/")):
             return await handler(request)
 
         # 从 query 参数或 header 获取 token
