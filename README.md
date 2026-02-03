@@ -111,32 +111,29 @@
 
 ## 🛠️ 版本历史
 
-### v2.7.3 (2026-02-04)
-- [Fix] 修复 WebUI 图片/缩略图无法显示的问题（认证 token 未附加）
-- [Fix] 使用 URL API 重构 `withToken` 函数，正确处理带 hash 片段的 URL
-- [Security] 添加 `Referrer-Policy: no-referrer` 防止 token 通过 Referer 头泄露
-- [UI] 移除下载按钮功能（HTTP 协议下浏览器安全策略限制）
+### v2.8.0 (2026-02-04)
 
-### v2.7.2 (2026-02-04)
-- [Security] 修复 `/selfie-refs/` 未授权访问漏洞，所有图片资源现在需要 token 认证
-- [Security] 改进文件名生成算法，使用 `secrets.token_hex(16)` 防止时间侧信道攻击
-- [Perf] 修复 `handle_delete_image` 中的阻塞 I/O，改用 `asyncio.to_thread`
-- [Perf] 修复文件上传使用同步 `open()` 的问题
+**安全性增强**
+- 修复 `/selfie-refs/` 未授权访问漏洞，所有图片资源现在需要 token 认证
+- 改进文件名生成算法，使用 `secrets.token_hex(16)` 防止时间侧信道攻击
+- 添加 `Referrer-Policy: no-referrer` 防止 token 通过 Referer 头泄露
 
-### v2.7.1 (2026-02-04)
-- [Refactor] 修复 Codex Review 发现的三个代码质量问题
-  - Issue 1: 重构 `trigger_regex` 为列表格式，提升可维护性
-  - Issue 2: 将模板常量移至模块级别，减少 `__init__` 复杂度
-  - Issue 3: 新增 config 类型验证，防止依赖注入异常
+**性能优化**
+- 全面修复 WebUI 阻塞 I/O 问题，所有文件操作改用 `asyncio.to_thread`
+- `handle_list_images` 目录遍历移至线程池
+- `handle_toggle_favorite` 改用异步版本
 
-### v2.7.0 (2026-02-04)
-- [Feat] 新增 `/后台管理` 命令，支持手动启动/关闭 WebUI
-- [Fix] 修复 `__init__` 中 `create_task` 生命周期问题，WebUI 延迟到首次请求启动
-- [Fix] 修复 WebUI 启动失败后无法重试的问题
-- [Perf] `ImageManager` 异步方法使用 `asyncio.to_thread` 避免阻塞事件循环
-- [Perf] `cleanup_old_images` 文件扫描和删除操作移至线程池
-- [Fix] 添加并发锁保护元数据和收藏文件读写
-- [Refactor] 提炼 prompt 构建重复代码为 `_build_final_prompt` 方法
+**功能改进**
+- 新增 `/后台管理` 命令，支持手动启动/关闭 WebUI
+- 修复 WebUI 图片/缩略图无法显示的问题（认证 token 未附加）
+- 使用 URL API 重构 `withToken` 函数，正确处理带 hash 片段的 URL
+
+**代码质量**
+- 重构 `trigger_regex` 为列表格式，提升可维护性
+- 将模板常量移至模块级别，减少 `__init__` 复杂度
+- 新增 config 类型验证，防止依赖注入异常
+- 提炼 prompt 构建重复代码为 `_build_final_prompt` 方法
+- 添加并发锁保护元数据和收藏文件读写
 
 ### v2.6.0 (2026-02-03)
 - [Feat] 人像参考功能：上传参考照片，Gemini 生图时自动传入保持形象一致

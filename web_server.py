@@ -56,7 +56,6 @@ class WebServer:
             return await handler(request)
         if request.path.startswith(("/static/", "/web/")):
             return await handler(request)
-            return await handler(request)
 
         # 从 query 参数或 header 获取 token
         req_token = request.query.get("token") or request.headers.get("X-Token", "")
@@ -283,8 +282,8 @@ class WebServer:
             # 热更新：重新组装 full_prompt
             self._reload_plugin_resources()
 
-            # 持久化配置到磁盘
-            self.plugin.save_config_to_disk()
+            # 持久化配置到磁盘（异步）
+            await asyncio.to_thread(self.plugin.save_config_to_disk)
 
             logger.info(f"[Portrait WebUI] 配置已更新: {updated_fields}")
 
@@ -324,7 +323,7 @@ class WebServer:
                     {"success": False, "error": "配置为空"}, status=400
                 )
 
-            self.plugin.update_dynamic_config(new_config)
+            await asyncio.to_thread(self.plugin.update_dynamic_config, new_config)
             logger.info("[Portrait WebUI] 动态配置已更新")
 
             return web.json_response({
@@ -405,42 +404,51 @@ class WebServer:
             page_size = int(request.query.get("size", 50))
             filter_favorites = request.query.get("favorites", "").lower() == "true"
 
-            images = []
             allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
-            for file_path in self.images_dir.iterdir():
-                if file_path.is_file() and file_path.suffix.lower() in allowed_exts:
-                    stat = file_path.stat()
-                    filename = file_path.name
+            # 将目录扫描移至线程池避免阻塞
+            def scan_images():
+                results = []
+                for file_path in self.images_dir.iterdir():
+                    if file_path.is_file() and file_path.suffix.lower() in allowed_exts:
+                        stat = file_path.stat()
+                        results.append((file_path, stat))
+                return results
 
-                    # 获取元数据
-                    metadata = self.imgr.get_metadata(filename)
-                    is_favorite = self.imgr.is_favorite(filename)
+            file_stats = await asyncio.to_thread(scan_images)
 
-                    # 如果筛选收藏，跳过非收藏
-                    if filter_favorites and not is_favorite:
-                        continue
+            images = []
+            for file_path, stat in file_stats:
+                filename = file_path.name
 
-                    # 生成缩略图路径
-                    thumb_path = self.thumbnails_dir / filename
-                    thumb_url = f"/thumbnails/{filename}" if thumb_path.exists() else f"/images/{filename}"
+                # 获取元数据
+                metadata = self.imgr.get_metadata(filename)
+                is_favorite = self.imgr.is_favorite(filename)
 
-                    # 如果缩略图不存在，尝试生成
-                    if not thumb_path.exists():
-                        await self._generate_thumbnail(file_path, thumb_path)
-                        if thumb_path.exists():
-                            thumb_url = f"/thumbnails/{filename}"
+                # 如果筛选收藏，跳过非收藏
+                if filter_favorites and not is_favorite:
+                    continue
 
-                    images.append({
-                        "name": filename,
-                        "url": f"/images/{filename}",
-                        "thumbnail": thumb_url,
-                        "size": stat.st_size,
-                        "ctime": int(stat.st_ctime),
-                        "mtime": int(stat.st_mtime),
-                        "prompt": metadata.get("prompt", "") if metadata else "",
-                        "favorite": is_favorite,
-                    })
+                # 生成缩略图路径
+                thumb_path = self.thumbnails_dir / filename
+                thumb_url = f"/thumbnails/{filename}" if thumb_path.exists() else f"/images/{filename}"
+
+                # 如果缩略图不存在，尝试生成
+                if not thumb_path.exists():
+                    await self._generate_thumbnail(file_path, thumb_path)
+                    if thumb_path.exists():
+                        thumb_url = f"/thumbnails/{filename}"
+
+                images.append({
+                    "name": filename,
+                    "url": f"/images/{filename}",
+                    "thumbnail": thumb_url,
+                    "size": stat.st_size,
+                    "ctime": int(stat.st_ctime),
+                    "mtime": int(stat.st_mtime),
+                    "prompt": metadata.get("prompt", "") if metadata else "",
+                    "favorite": is_favorite,
+                })
 
             # 按修改时间倒序
             images.sort(key=lambda x: x["mtime"], reverse=True)
@@ -529,8 +537,8 @@ class WebServer:
                     {"success": False, "error": "文件不存在"}, status=404
                 )
 
-            # 切换收藏状态
-            new_state = self.imgr.toggle_favorite(name)
+            # 切换收藏状态（使用异步版本避免阻塞）
+            new_state = await self.imgr.toggle_favorite_async(name)
             logger.info(f"[Portrait WebUI] 图片收藏状态已{'添加' if new_state else '取消'}: {name}")
 
             return web.json_response({
