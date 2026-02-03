@@ -266,8 +266,16 @@ class WebServer:
             updated_fields = []
             for field, value in new_config.items():
                 if field in editable_fields:
+                    # selfie_config 特殊处理：移除 reference_images 字段（已废弃）
+                    if field == "selfie_config" and isinstance(value, dict):
+                        value.pop("reference_images", None)
                     self.plugin.config[field] = value
                     updated_fields.append(field)
+
+            # 同时清理旧配置中的 reference_images 字段
+            if "selfie_config" in self.plugin.config:
+                if isinstance(self.plugin.config["selfie_config"], dict):
+                    self.plugin.config["selfie_config"].pop("reference_images", None)
 
             # 热更新：重新组装 full_prompt
             self._reload_plugin_resources()

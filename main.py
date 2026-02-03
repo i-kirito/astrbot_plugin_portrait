@@ -236,6 +236,10 @@ class PortraitPlugin(Star):
         # === v2.6.0: 人像参考配置 ===
         selfie_conf = self.config.get("selfie_config", {}) or {}
         self.selfie_enabled = selfie_conf.get("enabled", False)
+        # 清理废弃的 reference_images 字段
+        if "reference_images" in selfie_conf:
+            del selfie_conf["reference_images"]
+            self.config["selfie_config"] = selfie_conf
 
         # === v2.1.0: WebUI 服务器 ===
         self.web_server: WebServer | None = None
