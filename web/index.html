@@ -604,12 +604,9 @@
                                     <span style="font-size: 1.2rem;">&#9776;</span>
                                 </div>
                                 <div class="flex-1">
-                                    <div class="flex gap-4 mb-3">
+                                    <div class="flex gap-4 mb-3 items-center">
                                         <el-input v-model="env.name" placeholder="场景名称" style="width: 200px;" />
-                                        <el-input v-model="env.keywordsStr" placeholder="触发关键词（逗号分隔）" @blur="parseKeywords(env)" />
-                                        <el-button type="danger" circle @click="removeEnvironment(index)">
-                                            <span>&#128465;</span>
-                                        </el-button>
+                                        <el-input v-model="env.keywordsStr" placeholder="触发关键词（逗号分隔）" @blur="parseKeywords(env)" class="flex-1" />
                                     </div>
                                     <div class="mb-2">
                                         <span v-for="kw in env.keywords" :key="kw" class="keyword-tag">{{ kw }}</span>
@@ -621,6 +618,9 @@
                                         placeholder="场景 Prompt，例如: (indoors, bedroom aesthetic:1.3), (natural lighting:1.2)..."
                                     />
                                 </div>
+                                <el-button type="danger" circle @click="removeEnvironment(index)" title="删除场景" style="flex-shrink: 0;">
+                                    <span>&#128465;</span>
+                                </el-button>
                             </div>
                         </div>
                     </div>
@@ -654,12 +654,9 @@
                                     <span style="font-size: 1.2rem;">&#9776;</span>
                                 </div>
                                 <div class="flex-1">
-                                    <div class="flex gap-4 mb-3">
+                                    <div class="flex gap-4 mb-3 items-center">
                                         <el-input v-model="cam.name" placeholder="模式名称" style="width: 200px;" />
-                                        <el-input v-model="cam.keywordsStr" placeholder="触发关键词（逗号分隔）" @blur="parseKeywords(cam)" />
-                                        <el-button type="danger" circle @click="removeCamera(index)">
-                                            <span>&#128465;</span>
-                                        </el-button>
+                                        <el-input v-model="cam.keywordsStr" placeholder="触发关键词（逗号分隔）" @blur="parseKeywords(cam)" class="flex-1" />
                                     </div>
                                     <div class="mb-2">
                                         <span v-for="kw in cam.keywords" :key="kw" class="keyword-tag">{{ kw }}</span>
@@ -671,6 +668,9 @@
                                         placeholder="镜头参数，例如: full body shot, wide angle, (fashion pose:1.3)..."
                                     />
                                 </div>
+                                <el-button type="danger" circle @click="removeCamera(index)" title="删除模式" style="flex-shrink: 0;">
+                                    <span>&#128465;</span>
+                                </el-button>
                             </div>
                         </div>
                     </div>
