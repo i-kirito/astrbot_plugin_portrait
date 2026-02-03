@@ -168,7 +168,7 @@ class WebServer:
                 status=404,
             )
         try:
-            content = index_file.read_text(encoding="utf-8")
+            content = await asyncio.to_thread(index_file.read_text, encoding="utf-8")
             return web.Response(text=content, content_type="text/html")
         except Exception as e:
             logger.error(f"[Portrait WebUI] 读取 index.html 失败: {e}")
@@ -634,13 +634,14 @@ class WebServer:
                     safe_name = f"ref_{timestamp}{ext}"
                     file_path = self.selfie_refs_dir / safe_name
 
-                    # 保存文件
-                    with open(file_path, "wb") as f:
-                        while True:
-                            chunk = await field.read_chunk()
-                            if not chunk:
-                                break
-                            f.write(chunk)
+                    # 保存文件（异步读取分块，同步写入在线程池中执行）
+                    chunks = []
+                    while True:
+                        chunk = await field.read_chunk()
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                    await asyncio.to_thread(file_path.write_bytes, b"".join(chunks))
 
                     uploaded.append({
                         "name": safe_name,

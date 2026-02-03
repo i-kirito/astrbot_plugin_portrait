@@ -1,6 +1,6 @@
+import asyncio
 import base64
 import ipaddress
-import socket
 from io import BytesIO
 from urllib.parse import urlparse
 
@@ -17,7 +17,7 @@ from astrbot.api import logger
 from .data import SUPPORTED_FILE_FORMATS, CommonConfig
 
 
-def is_safe_url(url: str) -> bool:
+async def is_safe_url(url: str) -> bool:
     """检查 URL 是否安全（防止 SSRF 攻击）"""
     try:
         parsed = urlparse(url)
@@ -30,16 +30,19 @@ def is_safe_url(url: str) -> bool:
         if not hostname:
             return False
 
-        # 解析域名获取 IP
+        # 异步解析域名获取 IP
         try:
-            ip = socket.gethostbyname(hostname)
-            ip_obj = ipaddress.ip_address(ip)
+            loop = asyncio.get_event_loop()
+            infos = await loop.getaddrinfo(hostname, None)
+            if infos:
+                ip = infos[0][4][0]
+                ip_obj = ipaddress.ip_address(ip)
 
-            # 拒绝私有/保留 IP
-            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved:
-                logger.warning(f"[BIG BANANA] URL 解析到私有/保留 IP: {ip}")
-                return False
-        except socket.gaierror:
+                # 拒绝私有/保留 IP
+                if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved:
+                    logger.warning(f"[BIG BANANA] URL 解析到私有/保留 IP: {ip}")
+                    return False
+        except OSError:
             # 域名解析失败，允许继续（可能是临时 DNS 问题）
             pass
 
@@ -107,7 +110,7 @@ class Downloader:
 
     async def _download_image(self, url: str) -> tuple[str, str] | None:
         # SSRF 防护：验证 URL 安全性
-        if not is_safe_url(url):
+        if not await is_safe_url(url):
             logger.warning(f"[BIG BANANA] 拒绝不安全的 URL: {url}")
             return None
 

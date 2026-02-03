@@ -6,12 +6,11 @@
 import os
 import io
 import base64
-import logging
 from datetime import datetime
 from typing import Optional
 from PIL import Image, ImageDraw, ImageFont
 
-logger = logging.getLogger("astrbot")
+from astrbot.api import logger
 
 
 class SignCardRenderer:
