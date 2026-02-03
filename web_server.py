@@ -186,12 +186,10 @@ class WebServer:
                 else:
                     config[field] = None
 
-            # gitee_config 单独处理，API Keys 用占位符表示
+            # gitee_config 单独处理，返回真实密钥
             gitee_conf = self.plugin.config.get("gitee_config", {}) or {}
-            api_keys = gitee_conf.get("api_keys", []) or []
             config["gitee_config"] = {
-                # 用占位符表示已配置的 key，前端保存时检测占位符跳过更新
-                "api_keys": ["******"] * len(api_keys) if api_keys else [],
+                "api_keys": gitee_conf.get("api_keys", []) or [],
                 "base_url": gitee_conf.get("base_url", "https://ai.gitee.com/v1"),
                 "model": gitee_conf.get("model", "z-image-turbo"),
                 "size": gitee_conf.get("size", "1024x1024"),
@@ -201,11 +199,10 @@ class WebServer:
                 "max_retries": gitee_conf.get("max_retries", 2),
             }
 
-            # gemini_config 单独处理，API Key 用占位符表示
+            # gemini_config 单独处理，返回真实密钥
             gemini_conf = self.plugin.config.get("gemini_config", {}) or {}
             config["gemini_config"] = {
-                # 用占位符表示已配置的 key
-                "api_key": "******" if gemini_conf.get("api_key", "") else "",
+                "api_key": gemini_conf.get("api_key", "") or "",
                 "base_url": gemini_conf.get("base_url", "https://generativelanguage.googleapis.com"),
                 "model": gemini_conf.get("model", "gemini-2.0-flash-exp-image-generation"),
                 "image_size": gemini_conf.get("image_size", "1K"),
@@ -246,34 +243,12 @@ class WebServer:
                 "cameras",
             }
 
-            # 更新配置（过滤占位符 API Key）
+            # 更新配置
             updated_fields = []
             for field, value in new_config.items():
-                if field not in editable_fields:
-                    continue
-
-                # 特殊处理 gitee_config：过滤占位符 API Key
-                if field == "gitee_config" and isinstance(value, dict):
-                    new_keys = value.get("api_keys", [])
-                    # 过滤掉占位符，只保留真实的新 key
-                    real_new_keys = [k for k in new_keys if k and k != "******"]
-                    if not real_new_keys:
-                        # 如果没有新 key，保留原有 key
-                        orig_conf = self.plugin.config.get("gitee_config", {}) or {}
-                        value["api_keys"] = orig_conf.get("api_keys", [])
-                    else:
-                        value["api_keys"] = real_new_keys
-
-                # 特殊处理 gemini_config：过滤占位符 API Key
-                if field == "gemini_config" and isinstance(value, dict):
-                    new_key = value.get("api_key", "")
-                    if new_key == "******" or not new_key:
-                        # 保留原有 key
-                        orig_conf = self.plugin.config.get("gemini_config", {}) or {}
-                        value["api_key"] = orig_conf.get("api_key", "")
-
-                self.plugin.config[field] = value
-                updated_fields.append(field)
+                if field in editable_fields:
+                    self.plugin.config[field] = value
+                    updated_fields.append(field)
 
             # 热更新：重新组装 full_prompt
             self._reload_plugin_resources()
