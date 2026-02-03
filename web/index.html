@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>人物形象 - AstrBot</title>
+    <meta name="referrer" content="no-referrer">
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Element Plus -->
@@ -840,9 +841,6 @@
                                     <el-button :type="img.favorite ? 'warning' : 'default'" circle @click.stop="toggleFavorite(img)" :title="img.favorite ? '取消收藏' : '添加收藏'" :aria-label="img.favorite ? '取消收藏' : '添加收藏'">
                                         <span>{{ img.favorite ? '&#9829;' : '&#9825;' }}</span>
                                     </el-button>
-                                    <el-button type="success" circle @click.stop="downloadImage(img)" title="下载" aria-label="下载图片">
-                                        <span>&#8595;</span>
-                                    </el-button>
                                     <el-button type="danger" circle @click.stop="deleteImage(img)" title="删除" aria-label="删除图片">
                                         <span>&#128465;</span>
                                     </el-button>
@@ -883,9 +881,6 @@
                         <el-button :type="detailImage?.favorite ? 'warning' : 'primary'" @click="toggleFavorite(detailImage)">
                             <span style="margin-right: 6px;">{{ detailImage?.favorite ? '&#9829;' : '&#9825;' }}</span>
                             {{ detailImage?.favorite ? '取消收藏' : '添加收藏' }}
-                        </el-button>
-                        <el-button type="success" @click="downloadImage(detailImage)">
-                            <span style="margin-right: 6px;">&#8595;</span> 下载
                         </el-button>
                         <el-button type="danger" @click="deleteImageFromDetail">
                             <span style="margin-right: 6px;">&#128465;</span> 删除
@@ -1313,6 +1308,18 @@
                     cameras.value.splice(index, 1);
                 }
 
+                // 为 URL 添加 token 参数（使用 URL API 正确处理）
+                function withToken(urlStr) {
+                    if (!authToken || !urlStr) return urlStr;
+                    try {
+                        const url = new URL(urlStr, window.location.href);
+                        url.searchParams.set('token', authToken);
+                        return urlStr.startsWith('http') ? url.href : url.pathname + url.search;
+                    } catch (e) {
+                        return urlStr;
+                    }
+                }
+
                 async function loadImages() {
                     loadingImages.value = true;
                     try {
@@ -1326,7 +1333,12 @@
                         const res = await apiFetch(`/api/images?${params}`);
                         const data = await res.json();
                         if (data.success) {
-                            images.value = data.images;
+                            // 为图片 URL 添加 token
+                            images.value = data.images.map(img => ({
+                                ...img,
+                                url: withToken(img.url),
+                                thumbnail: img.thumbnail ? withToken(img.thumbnail) : null,
+                            }));
                             totalImages.value = data.total;
                             // 计算收藏数量
                             favoriteCount.value = data.images.filter(img => img.favorite).length;
@@ -1366,16 +1378,6 @@
                     } catch (e) {
                         ElementPlus.ElMessage.error('操作失败: ' + e.message);
                     }
-                }
-
-                function downloadImage(img) {
-                    if (!img) return;
-                    const link = document.createElement('a');
-                    link.href = img.url;
-                    link.download = img.name;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
                 }
 
                 function openImageDetail(img) {
@@ -1465,7 +1467,11 @@
                         const res = await apiFetch('/api/selfie-refs');
                         const data = await res.json();
                         if (data.success) {
-                            selfieRefs.value = data.refs || [];
+                            // 为参考照 URL 添加 token
+                            selfieRefs.value = (data.refs || []).map(ref => ({
+                                ...ref,
+                                url: withToken(ref.url),
+                            }));
                         }
                     } catch (e) {
                         console.error('加载人像参考失败:', e);
@@ -1631,7 +1637,6 @@
                     deleteImage,
                     toggleFavoritesFilter,
                     toggleFavorite,
-                    downloadImage,
                     openImageDetail,
                     deleteImageFromDetail,
                     copyPrompt,
