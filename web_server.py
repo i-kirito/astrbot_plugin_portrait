@@ -114,10 +114,11 @@ class WebServer:
         try:
             # 安全检查：非本地监听时必须设置 token
             if self.host != "127.0.0.1" and not self.token:
-                logger.warning(
-                    f"[Portrait WebUI] 安全警告: 监听地址为 {self.host}，但未设置访问令牌！"
-                    "API 将完全暴露，建议设置 token 或改为 127.0.0.1"
+                logger.error(
+                    f"[Portrait WebUI] 安全错误: 监听地址为 {self.host}，但未设置访问令牌！"
+                    "拒绝启动。请设置 token 或改为 127.0.0.1"
                 )
+                return False
 
             # 确保图片目录存在
             self.images_dir.mkdir(parents=True, exist_ok=True)
@@ -609,6 +610,9 @@ class WebServer:
 
     async def handle_upload_selfie_ref(self, request: web.Request) -> web.Response:
         """上传自拍参考照"""
+        # 文件大小限制 (10MB)
+        MAX_FILE_SIZE = 10 * 1024 * 1024
+
         try:
             self.selfie_refs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -635,14 +639,22 @@ class WebServer:
                     safe_name = f"ref_{timestamp}{ext}"
                     file_path = self.selfie_refs_dir / safe_name
 
-                    # 保存文件（异步读取分块，同步写入在线程池中执行）
-                    chunks = []
-                    while True:
-                        chunk = await field.read_chunk()
-                        if not chunk:
-                            break
-                        chunks.append(chunk)
-                    await asyncio.to_thread(file_path.write_bytes, b"".join(chunks))
+                    # 流式写入文件，带大小限制
+                    total_size = 0
+                    with open(file_path, 'wb') as f:
+                        while True:
+                            chunk = await field.read_chunk()
+                            if not chunk:
+                                break
+                            total_size += len(chunk)
+                            if total_size > MAX_FILE_SIZE:
+                                f.close()
+                                file_path.unlink(missing_ok=True)
+                                return web.json_response(
+                                    {"success": False, "error": f"文件过大，限制 {MAX_FILE_SIZE // 1024 // 1024}MB"},
+                                    status=413
+                                )
+                            f.write(chunk)
 
                     uploaded.append({
                         "name": safe_name,

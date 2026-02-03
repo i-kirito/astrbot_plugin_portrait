@@ -366,24 +366,24 @@
                     <h1 class="logo-title">人物形象</h1>
                     <p class="text-xs text-pink-400 mt-2">AstrBot 角色视觉管理器</p>
                 </div>
-                <nav class="py-6 flex-1">
-                    <div class="nav-item" :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'">
+                <nav class="py-6 flex-1" role="navigation" aria-label="主导航">
+                    <div class="nav-item" :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'" @keyup.enter="activeTab = 'settings'" tabindex="0" role="button" aria-pressed="activeTab === 'settings'">
                         <span class="icon">&#9881;</span>
                         <span>配置设置</span>
                     </div>
-                    <div class="nav-item" :class="{ active: activeTab === 'environments' }" @click="activeTab = 'environments'">
+                    <div class="nav-item" :class="{ active: activeTab === 'environments' }" @click="activeTab = 'environments'" @keyup.enter="activeTab = 'environments'" tabindex="0" role="button" aria-pressed="activeTab === 'environments'">
                         <span class="icon">&#127968;</span>
                         <span>环境场景</span>
                     </div>
-                    <div class="nav-item" :class="{ active: activeTab === 'cameras' }" @click="activeTab = 'cameras'">
+                    <div class="nav-item" :class="{ active: activeTab === 'cameras' }" @click="activeTab = 'cameras'" @keyup.enter="activeTab = 'cameras'" tabindex="0" role="button" aria-pressed="activeTab === 'cameras'">
                         <span class="icon">&#128247;</span>
                         <span>摄影模式</span>
                     </div>
-                    <div class="nav-item" :class="{ active: activeTab === 'selfie' }" @click="activeTab = 'selfie'">
+                    <div class="nav-item" :class="{ active: activeTab === 'selfie' }" @click="activeTab = 'selfie'" @keyup.enter="activeTab = 'selfie'" tabindex="0" role="button" aria-pressed="activeTab === 'selfie'">
                         <span class="icon">&#128248;</span>
                         <span>人像参考</span>
                     </div>
-                    <div class="nav-item" :class="{ active: activeTab === 'gallery' }" @click="activeTab = 'gallery'">
+                    <div class="nav-item" :class="{ active: activeTab === 'gallery' }" @click="activeTab = 'gallery'" @keyup.enter="activeTab = 'gallery'" tabindex="0" role="button" aria-pressed="activeTab === 'gallery'">
                         <span class="icon">&#128444;</span>
                         <span>图片画廊</span>
                     </div>
@@ -620,7 +620,7 @@
                                         placeholder="场景 Prompt，例如: (indoors, bedroom aesthetic:1.3), (natural lighting:1.2)..."
                                     />
                                 </div>
-                                <el-button type="danger" circle @click="removeEnvironment(index)" title="删除场景" style="flex-shrink: 0;">
+                                <el-button type="danger" circle @click="removeEnvironment(index)" title="删除场景" aria-label="删除场景" style="flex-shrink: 0;">
                                     <span>&#128465;</span>
                                 </el-button>
                             </div>
@@ -672,7 +672,7 @@
                                         placeholder="镜头参数，例如: full body shot, wide angle, (fashion pose:1.3)..."
                                     />
                                 </div>
-                                <el-button type="danger" circle @click="removeCamera(index)" title="删除模式" style="flex-shrink: 0;">
+                                <el-button type="danger" circle @click="removeCamera(index)" title="删除模式" aria-label="删除模式" style="flex-shrink: 0;">
                                     <span>&#128465;</span>
                                 </el-button>
                             </div>
@@ -772,7 +772,7 @@
                             <div v-for="ref in selfieRefs" :key="ref.name" class="image-card">
                                 <img :src="ref.url" :alt="ref.name" style="height: 180px;" />
                                 <div class="actions">
-                                    <el-button type="danger" circle @click="deleteSelfieRef(ref)" title="删除">
+                                    <el-button type="danger" circle @click="deleteSelfieRef(ref)" title="删除" aria-label="删除参考照">
                                         <span>&#128465;</span>
                                     </el-button>
                                 </div>
@@ -832,13 +832,13 @@
                             <img :src="img.thumbnail || img.url" :alt="img.name" @click="openImageDetail(img)" @keyup.enter="openImageDetail(img)" class="cursor-pointer" loading="lazy" tabindex="0" role="button" />
                             <div class="actions">
                                 <div class="flex gap-2">
-                                    <el-button :type="img.favorite ? 'warning' : 'default'" circle @click.stop="toggleFavorite(img)" :title="img.favorite ? '取消收藏' : '添加收藏'">
+                                    <el-button :type="img.favorite ? 'warning' : 'default'" circle @click.stop="toggleFavorite(img)" :title="img.favorite ? '取消收藏' : '添加收藏'" :aria-label="img.favorite ? '取消收藏' : '添加收藏'">
                                         <span>{{ img.favorite ? '&#9829;' : '&#9825;' }}</span>
                                     </el-button>
-                                    <el-button type="success" circle @click.stop="downloadImage(img)" title="下载">
+                                    <el-button type="success" circle @click.stop="downloadImage(img)" title="下载" aria-label="下载图片">
                                         <span>&#8595;</span>
                                     </el-button>
-                                    <el-button type="danger" circle @click.stop="deleteImage(img)" title="删除">
+                                    <el-button type="danger" circle @click.stop="deleteImage(img)" title="删除" aria-label="删除图片">
                                         <span>&#128465;</span>
                                     </el-button>
                                 </div>
@@ -869,7 +869,7 @@
             <div class="flex flex-col lg:flex-row gap-6">
                 <!-- 图片预览 -->
                 <div class="lg:w-2/3">
-                    <img :src="detailImage?.url" style="width: 100%; max-height: 70vh; object-fit: contain; border-radius: 12px; border: 1px solid rgba(255, 182, 193, 0.3);" />
+                    <img ref="detailImageRef" :src="detailImage?.url" @load="onDetailImageLoad" style="width: 100%; max-height: 70vh; object-fit: contain; border-radius: 12px; border: 1px solid rgba(255, 182, 193, 0.3);" />
                 </div>
                 <!-- 详情信息 -->
                 <div class="lg:w-1/3 flex flex-col gap-4">
@@ -897,6 +897,7 @@
                         <div class="text-sm space-y-2">
                             <p><span class="text-gray-500">文件名:</span> {{ detailImage?.name }}</p>
                             <p><span class="text-gray-500">大小:</span> {{ formatSize(detailImage?.size) }}</p>
+                            <p><span class="text-gray-500">尺寸:</span> {{ detailImageDimensions }}</p>
                             <p><span class="text-gray-500">创建时间:</span> {{ formatDate(detailImage?.ctime) }}</p>
                         </div>
                     </el-card>
@@ -1025,6 +1026,8 @@
 
                 const detailVisible = ref(false);
                 const detailImage = ref(null);
+                const detailImageDimensions = ref('加载中...');
+                const detailImageRef = ref(null);
 
                 // 人像参考相关
                 const selfieConfig = reactive({
@@ -1367,7 +1370,30 @@
 
                 function openImageDetail(img) {
                     detailImage.value = img;
+                    detailImageDimensions.value = '加载中...';
                     detailVisible.value = true;
+                    // 使用独立的 Image 对象获取尺寸，不依赖 DOM
+                    if (img?.url) {
+                        const tempImg = new Image();
+                        tempImg.onload = function() {
+                            detailImageDimensions.value = `${this.naturalWidth} x ${this.naturalHeight}`;
+                        };
+                        tempImg.onerror = function() {
+                            detailImageDimensions.value = '无法获取';
+                        };
+                        tempImg.src = img.url;
+                        // 如果图片已缓存，直接获取
+                        if (tempImg.complete && tempImg.naturalWidth > 0) {
+                            detailImageDimensions.value = `${tempImg.naturalWidth} x ${tempImg.naturalHeight}`;
+                        }
+                    }
+                }
+
+                function onDetailImageLoad(e) {
+                    const img = e.target;
+                    if (img.naturalWidth > 0) {
+                        detailImageDimensions.value = `${img.naturalWidth} x ${img.naturalHeight}`;
+                    }
                 }
 
                 async function deleteImageFromDetail() {
@@ -1579,6 +1605,9 @@
                     favoriteCount,
                     detailVisible,
                     detailImage,
+                    detailImageDimensions,
+                    detailImageRef,
+                    onDetailImageLoad,
                     saveConfig,
                     saveDynamicConfig,
                     parseKeywords,
