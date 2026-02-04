@@ -470,7 +470,15 @@ class PortraitPlugin(Star):
         injection = f"\n\n<portrait_status>\n{self.full_prompt}\n</portrait_status>"
         if not req.system_prompt:
             req.system_prompt = ""
+
+        original_len = len(req.system_prompt)
         req.system_prompt += injection
+
+        # 调试：记录注入的 prompt 长度和完整内容
+        logger.info(f"[Portrait] 注入内容长度: {len(injection)} 字符")
+        logger.info(f"[Portrait] system_prompt 长度: 注入前 {original_len} → 注入后 {len(req.system_prompt)}")
+        logger.debug(f"[Portrait] 完整注入内容:\n{injection}")
+        logger.debug(f"[Portrait] 注入后完整 system_prompt:\n{req.system_prompt}")
 
         self.injection_counter[session_id] -= 1
         remaining_after = self.injection_counter[session_id]
@@ -542,11 +550,12 @@ class PortraitPlugin(Star):
 
         # 有参考图时，优先使用 Gemini，失败则降级到 Gitee（不带参考图）
         if all_images:
+            logger.info(f"[Portrait] 准备使用 {len(all_images)} 张参考图生成图片")
             if self.gemini_draw.enabled:
                 try:
-                    return await self.gemini_draw.generate(prompt, all_images)
+                    return await self.gemini_draw.generate(prompt, all_images, resolution=resolution)
                 except Exception as e:
-                    logger.warning(f"[Portrait] Gemini 生成失败: {e}")
+                    logger.error(f"[Portrait] Gemini 生成失败: {e}", exc_info=True)
                     if self.enable_fallback and self.gitee_draw.enabled:
                         logger.info("[Portrait] 切换到备用提供商 Gitee（不带参考图）")
                         return await self.gitee_draw.generate(prompt, size=size, resolution=resolution)
@@ -571,7 +580,7 @@ class PortraitPlugin(Star):
                 if primary_name == "Gitee":
                     return await primary.generate(prompt, size=size, resolution=resolution)
                 else:
-                    return await primary.generate(prompt)
+                    return await primary.generate(prompt, resolution=resolution)
             except Exception as e:
                 logger.warning(f"[Portrait] {primary_name} 生成失败: {e}")
                 if not self.enable_fallback:
@@ -583,7 +592,7 @@ class PortraitPlugin(Star):
             if fallback_name == "Gitee":
                 return await fallback.generate(prompt, size=size, resolution=resolution)
             else:
-                return await fallback.generate(prompt)
+                return await fallback.generate(prompt, resolution=resolution)
 
         # 都不可用
         if not primary.enabled and not fallback.enabled:

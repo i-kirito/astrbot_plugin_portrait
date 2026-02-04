@@ -97,12 +97,13 @@ class GeminiDrawService:
             self._session = aiohttp.ClientSession(timeout=timeout)
         return self._session
 
-    async def generate(self, prompt: str, images: list[bytes] | None = None) -> Path:
+    async def generate(self, prompt: str, images: list[bytes] | None = None, resolution: str | None = None) -> Path:
         """生成图片
 
         Args:
             prompt: 图片描述提示词
             images: 可选的参考图片列表（用于图生图/参考图模式）
+            resolution: 可选的分辨率覆盖（1K/2K/4K），不传则使用实例默认值
 
         Returns:
             生成的图片路径
@@ -113,15 +114,18 @@ class GeminiDrawService:
         if not self.enabled:
             raise ValueError("Gemini AI 未配置 API Key")
 
+        # 使用传入的 resolution 或实例默认值
+        effective_size = (resolution.upper() if resolution else self.image_size) or "1K"
+
         has_ref = images and len(images) > 0
         mode_str = f"参考图x{len(images)}" if has_ref else "文生图"
-        logger.info(f"[Gemini] 开始生成图片 ({mode_str}, size={self.image_size}): {prompt[:50]}...")
+        logger.info(f"[Gemini] 开始生成图片 ({mode_str}, size={effective_size}): {prompt[:50]}...")
 
         start_time = time.time()
 
         # 默认使用原生接口，失败时回退到 OpenAI 兼容接口
         try:
-            image_bytes = await self._generate_native(prompt, images)
+            image_bytes = await self._generate_native(prompt, images, effective_size)
         except Exception as e:
             if has_ref:
                 # 有参考图时不回退，因为 OpenAI 兼容接口不支持
@@ -136,12 +140,19 @@ class GeminiDrawService:
         path = await self.imgr.save_image_bytes(image_bytes, prompt=prompt)
         logger.info(f"[Gemini] 图片已保存: {path}")
 
-        # 保存后触发清理
-        await self.imgr.cleanup_old_images()
+        # 后台清理，不阻塞返回
+        asyncio.create_task(self._cleanup_background())
 
         return path
 
-    async def _generate_native(self, prompt: str, images: list[bytes] | None = None) -> bytes:
+    async def _cleanup_background(self) -> None:
+        """后台清理旧图片"""
+        try:
+            await self.imgr.cleanup_old_images()
+        except Exception as e:
+            logger.warning(f"[Gemini] 后台清理失败: {e}")
+
+    async def _generate_native(self, prompt: str, images: list[bytes] | None = None, image_size: str = "1K") -> bytes:
         """使用原生 Gemini API 生成图片 (支持参考图)"""
         url = f"{self.base_url}/v1beta/models/{self.model}:generateContent"
 
@@ -178,7 +189,7 @@ class GeminiDrawService:
 
         # 仅 gemini-3 系列支持 imageSize 参数（1K/2K/4K）
         if GEMINI_HIGH_RES_MODEL_PREFIX in self.model.lower():
-            payload["generationConfig"]["imageConfig"] = {"imageSize": self.image_size}
+            payload["generationConfig"]["imageConfig"] = {"imageSize": image_size}
 
         logger.debug(f"[Gemini Native] URL: {url}, has_images={bool(images)}")
 

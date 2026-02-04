@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import socket
 import time
@@ -245,7 +246,14 @@ class GiteeDrawService:
         else:
             raise RuntimeError("Gitee AI 返回数据不包含图片")
 
-        # 保存后触发清理
-        await self.imgr.cleanup_old_images()
+        # 后台清理，不阻塞返回
+        asyncio.create_task(self._cleanup_background())
 
         return path
+
+    async def _cleanup_background(self) -> None:
+        """后台清理旧图片"""
+        try:
+            await self.imgr.cleanup_old_images()
+        except Exception as e:
+            logger.warning(f"[GiteeDrawService] 后台清理失败: {e}")
