@@ -111,70 +111,38 @@
 
 ## 🛠️ 版本历史
 
-### v2.8.0 (2026-02-04)
+### v2.8.3 (2026-02-04)
+- [Security] 使用 `ipaddress` 模块增强 SSRF 防护，阻断私网/回环/IPv6 地址
+- [Security] WebUI 非本地监听时自动生成随机 token
+- [Perf] MD5 计算移至线程池避免阻塞事件循环
+- [Refactor] 清理死代码，删除废弃的 `core/utils.py` 模块
 
-**Bug 修复**
-- 修复 `_next_key()` 索引越界问题：运行时删除 API Key 后不再导致 IndexError
-- 修复 `/后台管理 开` 命令在配置禁用时无法动态启用的问题：现在可以通过命令动态创建并启动 WebUI
-- 修复 `_load_selfie_reference_images` 阻塞 I/O 问题，改用 `asyncio.to_thread` 异步加载
+### v2.8.0 (2026-02-04)
+- [Fix] 修复 `_next_key()` 索引越界：运行时删除 API Key 后不再导致 IndexError
+- [Fix] 修复 `/后台管理 开` 命令在配置禁用时无法动态启用的问题
 
 ### v2.7.0 (2026-02-04)
-
-**安全性增强**
-- 修复 `/selfie-refs/` 未授权访问漏洞，所有图片资源现在需要 token 认证
-- 改进文件名生成算法，使用 `secrets.token_hex(16)` 防止时间侧信道攻击
-- 添加 `Referrer-Policy: no-referrer` 防止 token 通过 Referer 头泄露
-
-**性能优化**
-- 全面修复 WebUI 阻塞 I/O 问题，所有文件操作改用 `asyncio.to_thread`
-- `handle_list_images` 目录遍历移至线程池
-- `handle_toggle_favorite` 改用异步版本
-
-**功能改进**
-- 新增 `/后台管理` 命令，支持手动启动/关闭 WebUI
-- 修复 WebUI 图片/缩略图无法显示的问题（认证 token 未附加）
-- 使用 URL API 重构 `withToken` 函数，正确处理带 hash 片段的 URL
-
-**代码质量**
-- 重构 `trigger_regex` 为列表格式，提升可维护性
-- 将模板常量移至模块级别，减少 `__init__` 复杂度
-- 新增 config 类型验证，防止依赖注入异常
-- 提炼 prompt 构建重复代码为 `_build_final_prompt` 方法
-- 添加并发锁保护元数据和收藏文件读写
+- [Security] 修复 `/selfie-refs/` 未授权访问漏洞
+- [Perf] 全面修复 WebUI 阻塞 I/O 问题
+- [Feat] 新增 `/后台管理` 命令
 
 ### v2.6.0 (2026-02-03)
-- [Feat] 人像参考功能：上传参考照片，Gemini 生图时自动传入保持形象一致
-- [Feat] WebUI 新增「人像参考」页面，支持上传、查看、删除参考图
-- [Fix] 优化工具返回消息，减少 LLM 重复调用
-- [Fix] 生图耗时日志
+- [Feat] 人像参考功能：Gemini 生图时保持角色形象一致
+- [Feat] WebUI 新增「人像参考」页面
 
-### v2.5.1 (2026-2-3)
-- [Feat] 新增 Gitee AI 文生图服务（API Key 轮询、多模型支持）
-- [Feat] 新增 Gemini AI 文生图服务（原生接口优先，OpenAI 兼容回退）
+### v2.5.1 (2026-02-03)
+- [Feat] Gitee AI / Gemini AI 双提供商文生图服务
 - [Feat] 主备提供商自动切换机制
 - [Feat] WebUI 管理界面（Vue 3 + Element Plus）
-  - 环境场景/摄影模式动态配置
-  - 图片画廊（收藏、删除、缩略图）
-  - Token 认证保护
-- [Feat] `/画图帮助` 命令
-- [Security] Gemini base_url SSRF 防护
-- [Security] API Key 占位符保护
 
 ### v1.9.1 (2026-02-01)
-- [Feat] 生命周期管理：添加 `_is_terminated` 标志防止重载时旧实例复活
-- [Feat] 后台任务追踪：添加 `_bg_tasks` 集合用于清理
-- [Feat] `terminate()` 方法：插件卸载时自动清理资源
-
-### v1.8.9 (2026-01-30)
-- [Refactor] 移除主动拍照定时推送功能
-- [Security] 新增会话过期清理机制，防止内存泄漏
+- [Feat] 生命周期管理：`terminate()` 方法自动清理资源
 
 ### v1.8.0 (2026-01-27)
-- [Feat] 多轮注入支持：新增 `injection_rounds` 配置项
+- [Feat] 多轮注入支持：`injection_rounds` 配置项
 
 ### v1.6.0 (2026-01-25)
-- [Refactor] One-Shot 单次注入架构
-- [Optimize] 支持丰富触发词
+- [Feat] One-Shot 单次注入架构
 
 ---
 *Generated with ❤️ by ikirito*
