@@ -115,7 +115,6 @@
 - [Security] 使用 `ipaddress` 模块增强 SSRF 防护，阻断私网/回环/IPv6 地址
 - [Security] WebUI 非本地监听时自动生成随机 token
 - [Perf] MD5 计算移至线程池避免阻塞事件循环
-- [Refactor] 清理死代码，删除废弃的 `core/utils.py` 模块
 
 ### v2.8.0 (2026-02-04)
 - [Fix] 修复 `_next_key()` 索引越界：运行时删除 API Key 后不再导致 IndexError

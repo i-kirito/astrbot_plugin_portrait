@@ -22,7 +22,8 @@ TPL_HEADER = """# Visual Context Injection (System Override)
 3.  **Prompt Structure**: `[Character Visuals] + [User Action/Outfit] + [Environment] + [Camera]`
 4.  **IMPORTANT**: Always use `portrait_draw_image` tool for image generation.
 5.  **CRITICAL**: When calling any tool, do NOT output any text content in the same response. Call the tool ONLY, then wait for the result before responding to the user.
-6.  **MANDATORY**: You MUST copy the EXACT prompt blocks from the Environment and Camera sections below verbatim. Do NOT simplify, summarize, or omit any parameters. Include ALL lighting, style, and quality tags exactly as written."""
+6.  **MANDATORY**: You MUST copy the EXACT prompt blocks from the Environment and Camera sections below verbatim. Do NOT simplify, summarize, or omit any parameters. Include ALL lighting, style, and quality tags exactly as written.
+7.  **NO REPEAT**: After the tool returns [SUCCESS], do NOT call portrait_draw_image again with the same or similar prompt. The image has already been sent to the user."""
 
 TPL_CHAR = """## 1. Character Visuals (Fixed Identity)
 **Core Appearance (Always Active):**
@@ -640,7 +641,7 @@ class PortraitPlugin(Star):
     # === v2.0.0: LLM 工具调用 - 文生图 ===
     @filter.llm_tool(name="portrait_draw_image")
     async def portrait_draw_image(self, event: AstrMessageEvent, prompt: str):
-        """根据提示词生成图片。如果配置了自拍参考照，会自动使用参考照保持人物形象一致。
+        """根据提示词生成图片。调用一次即可，图片会自动发送给用户。收到 [SUCCESS] 后请勿重复调用。
 
         Args:
             prompt(string): 图片提示词，需要包含主体、场景、风格等描述
@@ -665,7 +666,7 @@ class PortraitPlugin(Star):
         size: str = "",
         resolution: str = "",
     ):
-        """根据提示词生成图片，可指定尺寸。如果配置了自拍参考照，会自动使用参考照保持人物形象一致。
+        """根据提示词生成图片，可指定尺寸。调用一次即可，图片会自动发送给用户。收到 [SUCCESS] 后请勿重复调用。
 
         Args:
             prompt(string): 图片提示词，需要包含主体、场景、风格等描述
