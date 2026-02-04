@@ -197,8 +197,15 @@ class PortraitPlugin(Star):
                 port=webui_conf.get("port", 8088) or 8088,
                 token=webui_conf.get("token", "") or "",
             )
-            # WebUI 启动延迟到首次 LLM 请求时（避免 __init__ 中调用 create_task）
-            # 注：如果仅使用 WebUI 而不触发 LLM，可通过触发任意绘图关键词来启动服务
+            # 立即启动 WebUI（在事件循环中调度）
+            try:
+                loop = asyncio.get_running_loop()
+                self._webui_started = True
+                task = loop.create_task(self._start_webui())
+                self._bg_tasks.add(task)
+            except RuntimeError:
+                # 没有运行中的事件循环，延迟到首次 LLM 请求时启动
+                pass
 
     def _load_dynamic_config(self) -> dict:
         """从独立文件加载动态配置（环境和摄影模式）"""

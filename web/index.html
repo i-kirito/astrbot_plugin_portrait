@@ -926,16 +926,9 @@
     <script>
         const { createApp, ref, reactive, computed, onMounted, nextTick, watch } = Vue;
 
-        // 从 URL 或 sessionStorage 获取 token
+        // 从 URL 获取 token（用于首次认证）
         const urlParams = new URLSearchParams(window.location.search);
-        let authToken = urlParams.get('token') || sessionStorage.getItem('portrait_token') || '';
-
-        // 封装 fetch，自动附带 token
-        async function apiFetch(url, options = {}) {
-            const separator = url.includes('?') ? '&' : '?';
-            const urlWithToken = authToken ? `${url}${separator}token=${encodeURIComponent(authToken)}` : url;
-            return fetch(urlWithToken, options);
-        }
+        let authToken = urlParams.get('token') || '';
 
         const app = createApp({
             setup() {
@@ -1055,29 +1048,33 @@
                         }
                     } catch {}
 
-                    // 需要认证，检查是否已有有效 token
+                    // 需要认证：如果 URL 有 token 参数，自动设置 Cookie
                     if (authToken) {
-                        const valid = await checkAuth();
-                        if (valid) {
-                            isAuthenticated.value = true;
-                            await loadConfig();
-                            await loadImages();
-                            nextTick(() => initSortable());
-                        }
+                        try {
+                            const res = await fetch('/api/auth', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ token: authToken }),
+                            });
+                            const data = await res.json();
+                            if (data.success) {
+                                // Cookie 已设置，清除 URL 中的 token 参数
+                                authToken = '';
+                                sessionStorage.removeItem('portrait_token');
+                                // 从 URL 移除 token 参数
+                                const url = new URL(window.location.href);
+                                url.searchParams.delete('token');
+                                window.history.replaceState({}, '', url.pathname + url.search);
+                                isAuthenticated.value = true;
+                                await loadConfig();
+                                await loadImages();
+                                nextTick(() => initSortable());
+                            }
+                        } catch {}
                     }
                 });
 
-                // 验证 token 是否有效
-                async function checkAuth() {
-                    try {
-                        const res = await apiFetch('/api/health');
-                        return res.ok;
-                    } catch {
-                        return false;
-                    }
-                }
-
-                // 登录
+                // 登录（Cookie 认证）
                 async function doLogin() {
                     if (!loginToken.value.trim()) {
                         loginError.value = '请输入访问令牌';
@@ -1086,25 +1083,27 @@
                     loggingIn.value = true;
                     loginError.value = '';
 
-                    // 临时设置 token 进行验证
-                    authToken = loginToken.value.trim();
-
                     try {
-                        const valid = await checkAuth();
-                        if (valid) {
-                            // 保存到 sessionStorage
-                            sessionStorage.setItem('portrait_token', authToken);
+                        // 调用 /api/auth 设置 Cookie
+                        const res = await fetch('/api/auth', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ token: loginToken.value.trim() }),
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            // Cookie 已设置，不再需要 authToken
+                            authToken = '';
+                            sessionStorage.removeItem('portrait_token');
                             isAuthenticated.value = true;
                             // 加载数据
                             await loadConfig();
                             await loadImages();
                             nextTick(() => initSortable());
                         } else {
-                            authToken = '';
-                            loginError.value = '访问令牌无效';
+                            loginError.value = data.error || '访问令牌无效';
                         }
                     } catch (e) {
-                        authToken = '';
                         loginError.value = '连接失败: ' + e.message;
                     } finally {
                         loggingIn.value = false;
@@ -1147,7 +1146,7 @@
 
                 async function loadConfig() {
                     try {
-                        const res = await apiFetch('/api/config');
+                        const res = await fetch('/api/config');
                         const data = await res.json();
                         if (data.success && data.config) {
                             Object.assign(config, data.config);
@@ -1217,7 +1216,7 @@
                                 enable_fallback: providerConfig.enable_fallback,
                             }
                         };
-                        const res = await apiFetch('/api/config', {
+                        const res = await fetch('/api/config', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)
@@ -1249,7 +1248,7 @@
                             prompt: c.prompt
                         }));
 
-                        const res = await apiFetch('/api/dynamic-config', {
+                        const res = await fetch('/api/dynamic-config', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -1308,18 +1307,6 @@
                     cameras.value.splice(index, 1);
                 }
 
-                // 为 URL 添加 token 参数（使用 URL API 正确处理）
-                function withToken(urlStr) {
-                    if (!authToken || !urlStr) return urlStr;
-                    try {
-                        const url = new URL(urlStr, window.location.href);
-                        url.searchParams.set('token', authToken);
-                        return urlStr.startsWith('http') ? url.href : url.pathname + url.search;
-                    } catch (e) {
-                        return urlStr;
-                    }
-                }
-
                 async function loadImages() {
                     loadingImages.value = true;
                     try {
@@ -1330,15 +1317,11 @@
                         if (showFavoritesOnly.value) {
                             params.append('favorites', 'true');
                         }
-                        const res = await apiFetch(`/api/images?${params}`);
+                        const res = await fetch(`/api/images?${params}`);
                         const data = await res.json();
                         if (data.success) {
-                            // 为图片 URL 添加 token
-                            images.value = data.images.map(img => ({
-                                ...img,
-                                url: withToken(img.url),
-                                thumbnail: img.thumbnail ? withToken(img.thumbnail) : null,
-                            }));
+                            // Cookie 认证，不再需要在 URL 中添加 token
+                            images.value = data.images;
                             totalImages.value = data.total;
                             // 计算收藏数量
                             favoriteCount.value = data.images.filter(img => img.favorite).length;
@@ -1363,7 +1346,7 @@
                 async function toggleFavorite(img) {
                     if (!img) return;
                     try {
-                        const res = await apiFetch(`/api/images/${encodeURIComponent(img.name)}/favorite`, {
+                        const res = await fetch(`/api/images/${encodeURIComponent(img.name)}/favorite`, {
                             method: 'POST'
                         });
                         const data = await res.json();
@@ -1441,7 +1424,7 @@
                             '确认删除',
                             { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
                         );
-                        const res = await apiFetch(`/api/images/${encodeURIComponent(img.name)}`, { method: 'DELETE' });
+                        const res = await fetch(`/api/images/${encodeURIComponent(img.name)}`, { method: 'DELETE' });
                         const data = await res.json();
                         if (data.success) {
                             ElementPlus.ElMessage.success('图片已删除');
@@ -1464,14 +1447,11 @@
                 // ========== 自拍人像参考 ==========
                 async function loadSelfieRefs() {
                     try {
-                        const res = await apiFetch('/api/selfie-refs');
+                        const res = await fetch('/api/selfie-refs');
                         const data = await res.json();
                         if (data.success) {
-                            // 为参考照 URL 添加 token
-                            selfieRefs.value = (data.refs || []).map(ref => ({
-                                ...ref,
-                                url: withToken(ref.url),
-                            }));
+                            // Cookie 认证，不再需要在 URL 中添加 token
+                            selfieRefs.value = data.refs || [];
                         }
                     } catch (e) {
                         console.error('加载人像参考失败:', e);
@@ -1494,7 +1474,7 @@
                         for (const file of selfieUploadFiles.value) {
                             formData.append('files', file);
                         }
-                        const res = await apiFetch('/api/selfie-refs', {
+                        const res = await fetch('/api/selfie-refs', {
                             method: 'POST',
                             body: formData,
                         });
@@ -1521,7 +1501,7 @@
                             '确认删除',
                             { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
                         );
-                        const res = await apiFetch(`/api/selfie-refs/${encodeURIComponent(ref.name)}`, {
+                        const res = await fetch(`/api/selfie-refs/${encodeURIComponent(ref.name)}`, {
                             method: 'DELETE'
                         });
                         const data = await res.json();
@@ -1548,7 +1528,7 @@
                         );
                         // 逐个删除
                         for (const ref of [...selfieRefs.value]) {
-                            await apiFetch(`/api/selfie-refs/${encodeURIComponent(ref.name)}`, {
+                            await fetch(`/api/selfie-refs/${encodeURIComponent(ref.name)}`, {
                                 method: 'DELETE'
                             });
                         }
@@ -1571,7 +1551,7 @@
                                 }
                             }
                         };
-                        const res = await apiFetch('/api/config', {
+                        const res = await fetch('/api/config', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)

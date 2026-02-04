@@ -48,20 +48,26 @@ class WebServer:
 
     @web.middleware
     async def _auth_middleware(self, request: web.Request, handler):
-        """Token 认证中间件"""
+        """Token 认证中间件（支持 Cookie / Header / Query）"""
         # 如果未设置 token，跳过认证（任何请求都放行）
         if not self.token:
             return await handler(request)
 
         # 静态资源不需要认证（index.html、CSS、JS 等）
-        # 注意：/images/、/thumbnails/、/selfie-refs/ 需要认证保护
         if request.path in ["/", "/index.html"]:
             return await handler(request)
         if request.path.startswith(("/static/", "/web/")):
             return await handler(request)
+        # 登录接口不需要认证
+        if request.path == "/api/auth":
+            return await handler(request)
 
-        # 从 query 参数或 header 获取 token
-        req_token = request.query.get("token") or request.headers.get("X-Token", "")
+        # 优先从 Cookie 获取 token，其次是 Header 或 Query
+        req_token = (
+            request.cookies.get("portrait_token")
+            or request.headers.get("X-Token", "")
+            or request.query.get("token")
+        )
 
         if req_token != self.token:
             return web.json_response(
@@ -73,6 +79,9 @@ class WebServer:
 
     def _setup_routes(self):
         """设置路由"""
+        # 认证 API
+        self.app.router.add_post("/api/auth", self.handle_auth)
+
         # API 路由
         self.app.router.add_get("/api/config", self.handle_get_config)
         self.app.router.add_post("/api/config", self.handle_save_config)
@@ -182,6 +191,39 @@ class WebServer:
     async def handle_health(self, request: web.Request) -> web.Response:
         """健康检查"""
         return web.json_response({"status": "ok", "service": "portrait-webui"})
+
+    async def handle_auth(self, request: web.Request) -> web.Response:
+        """登录认证，验证 token 后设置 Cookie"""
+        try:
+            data = await request.json()
+            req_token = data.get("token", "")
+
+            if not self.token:
+                # 未设置 token，直接放行
+                return web.json_response({"success": True, "message": "无需认证"})
+
+            if req_token != self.token:
+                return web.json_response(
+                    {"success": False, "error": "Token 错误"},
+                    status=401
+                )
+
+            # 设置 HttpOnly Cookie
+            response = web.json_response({"success": True, "message": "认证成功"})
+            response.set_cookie(
+                "portrait_token",
+                self.token,
+                httponly=True,
+                samesite="Strict",
+                max_age=86400 * 7,  # 7 天有效
+            )
+            return response
+
+        except json.JSONDecodeError:
+            return web.json_response(
+                {"success": False, "error": "无效的 JSON"},
+                status=400
+            )
 
     async def handle_get_config(self, request: web.Request) -> web.Response:
         """获取配置"""
