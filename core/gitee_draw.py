@@ -121,13 +121,12 @@ class GiteeDrawService:
                 logger.warning("[GiteeDrawService] base_url 是 localhost，已阻断")
                 return "https://ai.gitee.com/v1"
 
-            # 使用 ipaddress 模块检测私网/回环地址
-            if _is_private_ip(host):
-                logger.warning(f"[GiteeDrawService] base_url '{host}' 是私网地址，已阻断")
-                return "https://ai.gitee.com/v1"
-
-            # 仅对非默认域名发出提示
+            # 白名单域名跳过私网检查
             if host not in DEFAULT_ALLOWED_HOSTS:
+                # 使用 ipaddress 模块检测私网/回环地址
+                if _is_private_ip(host):
+                    logger.warning(f"[GiteeDrawService] base_url '{host}' 是私网地址，已阻断")
+                    return "https://ai.gitee.com/v1"
                 logger.info(f"[GiteeDrawService] 使用自定义 base_url: {url}")
 
             # 确保使用 HTTPS（仅警告，不强制）
