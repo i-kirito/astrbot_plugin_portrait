@@ -111,6 +111,15 @@
 
 ## 🛠️ 版本历史
 
+### v2.8.1 (2026-02-04)
+
+**性能优化**
+- 修复 `_load_selfie_reference_images` 阻塞 I/O 问题，改用 `asyncio.to_thread` 异步加载
+
+**代码清理**
+- 移除 `core/utils.py` 中未使用的函数（get_key_index, save_images, read_file, clear_cache, random_string, download_image, get_avatar, get_images_from_event, image_segs_to_bytes）
+- 精简代码约 250 行
+
 ### v2.8.0 (2026-02-04)
 
 **安全性增强**

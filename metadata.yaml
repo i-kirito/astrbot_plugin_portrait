@@ -1,6 +1,6 @@
 name: astrbot_plugin_portrait
 display_name: 人物形象
 desc: 检测到用户有"画图"、"拍照"或"查看形象"的需求时，自动注入一套预设的高质量视觉描述符（Visual Descriptors），并通过内置的 Gitee AI / Gemini AI 文生图服务生成图片，支持web管理。
-version: 2.8.0
+version: 2.8.1
 author: ikirito
 repo: https://github.com/i-kirito/astrbot_plugin_portrait

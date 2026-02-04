@@ -336,8 +336,8 @@ class PortraitPlugin(Star):
                 self._webui_started = False  # 重置标志以允许重试
                 raise
 
-    def _load_selfie_reference_images(self) -> list[bytes]:
-        """加载人像参考照片 - 自动扫描 selfie_refs 目录"""
+    async def _load_selfie_reference_images(self) -> list[bytes]:
+        """加载人像参考照片 - 自动扫描 selfie_refs 目录（异步）"""
         if not self.selfie_enabled:
             return []
 
@@ -346,15 +346,19 @@ class PortraitPlugin(Star):
             return []
 
         allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
-        images: list[bytes] = []
 
-        for file_path in sorted(selfie_refs_dir.iterdir()):
-            if file_path.is_file() and file_path.suffix.lower() in allowed_exts:
-                try:
-                    images.append(file_path.read_bytes())
-                except Exception as e:
-                    logger.warning(f"[Portrait] 读取参考照失败: {file_path.name}, {e}")
+        def _load_sync() -> list[bytes]:
+            """同步加载逻辑，在线程池中执行"""
+            images: list[bytes] = []
+            for file_path in sorted(selfie_refs_dir.iterdir()):
+                if file_path.is_file() and file_path.suffix.lower() in allowed_exts:
+                    try:
+                        images.append(file_path.read_bytes())
+                    except Exception as e:
+                        logger.warning(f"[Portrait] 读取参考照失败: {file_path.name}, {e}")
+            return images
 
+        images = await asyncio.to_thread(_load_sync)
         if images:
             logger.info(f"[Portrait] 已加载 {len(images)} 张人像参考")
         return images
@@ -631,7 +635,7 @@ class PortraitPlugin(Star):
             生成的图片路径
         """
         # 加载自拍参考照（如果启用且使用 Gemini）
-        selfie_refs = self._load_selfie_reference_images()
+        selfie_refs = await self._load_selfie_reference_images()
 
         # 合并参考图：自拍参考照在前，用户提供的图片在后
         all_images: list[bytes] | None = None
