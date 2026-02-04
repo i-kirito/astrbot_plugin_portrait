@@ -7,7 +7,6 @@ import asyncio
 import json
 import os
 import secrets
-import hashlib
 from pathlib import Path
 from datetime import datetime
 
@@ -24,6 +23,10 @@ class WebServer:
         self.plugin = plugin
         self.host = host
         self.port = port
+        # 安全默认：如果未设置 token 且非本地监听，自动生成随机 token
+        if not token and host != "127.0.0.1":
+            token = secrets.token_urlsafe(32)
+            logger.warning(f"[Portrait WebUI] 未设置 token，已自动生成: {token}")
         self.token = token  # 访问令牌
         self.app = web.Application(middlewares=[self._auth_middleware])
         self.runner: web.AppRunner | None = None

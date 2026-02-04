@@ -86,11 +86,6 @@ class GeminiDrawService:
         """检查服务是否可用"""
         return bool(self.api_key)
 
-    @property
-    def use_native_api(self) -> bool:
-        """判断是否使用原生 API（默认始终使用原生接口）"""
-        return True
-
     async def _get_session(self) -> aiohttp.ClientSession:
         """获取或创建 HTTP 会话（复用连接）"""
         if self._session is None or self._session.closed:

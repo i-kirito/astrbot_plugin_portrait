@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -21,11 +22,20 @@ MODELS_WITHOUT_NEGATIVE_PROMPT = frozenset({
     "flux.1-schnell",
 })
 
-# 允许的 base_url 域名白名单（防止 SSRF）
-ALLOWED_BASE_URLS = frozenset({
+# 默认允许的 base_url 域名
+DEFAULT_ALLOWED_HOSTS = frozenset({
     "ai.gitee.com",
     "api.gitee.com",
 })
+
+
+def _is_private_ip(host: str) -> bool:
+    """检测是否为私网/回环/保留地址"""
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local
+    except ValueError:
+        return False
 
 
 def resolution_to_size(resolution: str) -> str | None:
@@ -88,25 +98,32 @@ class GiteeDrawService:
 
     @staticmethod
     def _validate_base_url(url: str) -> str:
-        """校验 base_url，只允许白名单域名"""
+        """校验 base_url，阻断私网地址防止 SSRF"""
         url = (url or "").strip().rstrip("/")
         if not url:
             return "https://ai.gitee.com/v1"
 
         try:
             parsed = urlparse(url)
-            host = parsed.netloc.lower()
+            host = (parsed.hostname or "").lower()
 
-            # 检查是否在白名单中
-            if host not in ALLOWED_BASE_URLS:
-                logger.warning(
-                    f"[GiteeDrawService] base_url '{url}' 不在允许列表中，使用默认值"
-                )
+            # 阻断 localhost
+            if host == "localhost":
+                logger.warning("[GiteeDrawService] base_url 是 localhost，已阻断")
                 return "https://ai.gitee.com/v1"
 
-            # 确保使用 HTTPS
+            # 使用 ipaddress 模块检测私网/回环地址
+            if _is_private_ip(host):
+                logger.warning(f"[GiteeDrawService] base_url '{host}' 是私网地址，已阻断")
+                return "https://ai.gitee.com/v1"
+
+            # 仅对非默认域名发出提示
+            if host not in DEFAULT_ALLOWED_HOSTS:
+                logger.info(f"[GiteeDrawService] 使用自定义 base_url: {url}")
+
+            # 确保使用 HTTPS（仅警告，不强制）
             if parsed.scheme != "https":
-                url = url.replace(parsed.scheme + "://", "https://", 1)
+                logger.warning("[GiteeDrawService] base_url 使用非 HTTPS 协议，建议使用 HTTPS")
 
             return url
         except Exception as e:

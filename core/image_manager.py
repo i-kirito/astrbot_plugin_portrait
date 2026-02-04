@@ -12,18 +12,7 @@ from pathlib import Path
 import aiohttp
 from astrbot.api import logger
 
-
-def guess_image_ext(data: bytes) -> str:
-    """根据图片数据头判断扩展名"""
-    if data[:8] == b"\x89PNG\r\n\x1a\n":
-        return "png"
-    if data[:2] == b"\xff\xd8":
-        return "jpg"
-    if data[:6] in (b"GIF87a", b"GIF89a"):
-        return "gif"
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "webp"
-    return "png"
+from .image_format import guess_image_mime_and_ext
 
 
 class ImageManager:
@@ -82,7 +71,6 @@ class ImageManager:
         if current_mtime > self._metadata_mtime:
             self._metadata = self._load_metadata()
             self._metadata_mtime = current_mtime
-        return {}
 
     def _save_metadata_sync(self) -> None:
         """保存图片元数据（同步版本，内部使用）"""
@@ -202,8 +190,10 @@ class ImageManager:
             logger.error(f"[ImageManager] 下载图片失败: {e}")
             raise
 
-        ext = guess_image_ext(data)
-        filename = f"{int(time.time() * 1000)}_{hashlib.md5(data).hexdigest()[:8]}.{ext}"
+        _, ext = guess_image_mime_and_ext(data)
+        # 将 MD5 计算移至线程池避免阻塞
+        md5_hash = await asyncio.to_thread(lambda: hashlib.md5(data).hexdigest()[:8])
+        filename = f"{int(time.time() * 1000)}_{md5_hash}.{ext}"
         path = self.images_dir / filename
 
         await asyncio.to_thread(path.write_bytes, data)
@@ -223,8 +213,10 @@ class ImageManager:
 
     async def save_image_bytes(self, data: bytes, prompt: str = "") -> Path:
         """保存字节数据的图片"""
-        ext = guess_image_ext(data)
-        filename = f"{int(time.time() * 1000)}_{hashlib.md5(data).hexdigest()[:8]}.{ext}"
+        _, ext = guess_image_mime_and_ext(data)
+        # 将 MD5 计算移至线程池避免阻塞
+        md5_hash = await asyncio.to_thread(lambda: hashlib.md5(data).hexdigest()[:8])
+        filename = f"{int(time.time() * 1000)}_{md5_hash}.{ext}"
         path = self.images_dir / filename
 
         await asyncio.to_thread(path.write_bytes, data)

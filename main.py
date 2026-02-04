@@ -3,10 +3,7 @@ from astrbot.api.star import Context, Star, StarTools
 from astrbot.api import logger
 from astrbot.core.provider.entities import ProviderRequest
 import astrbot.api.message_components as Comp
-import base64
 import re
-import copy
-import random
 import asyncio
 import json
 from datetime import datetime
@@ -14,7 +11,6 @@ from pathlib import Path
 
 from .core.gitee_draw import GiteeDrawService
 from .core.gemini_draw import GeminiDrawService
-from .core.utils import close_session
 from .web_server import WebServer
 
 
@@ -131,77 +127,9 @@ class PortraitPlugin(Star):
         # 是否自动添加角色外貌到 prompt
         self.auto_prepend_identity = self.config.get("auto_prepend_identity", True)
 
-        # === 动态环境与镜头处理（从独立配置文件加载）===
-        # 1. 环境列表（根据开关决定是否生成）
-        if self.enable_env_injection:
-            environments = self._dynamic_config.get("environments", self.DEFAULT_ENVIRONMENTS)
-
-            # 生成环境 Prompt Section
-            env_section_lines = ["## 3. 动态环境与风格 (Dynamic Environment & Style)"]
-            env_section_lines.append("**逻辑判断 (Logic Branching):** Check user input for keywords.")
-
-            for idx, env in enumerate(environments):
-                name = env.get("name", f"Scene {idx}")
-                keywords = env.get("keywords", [])
-                prompt_content = env.get("prompt", "")
-
-                # 格式化关键词显示
-                if "default" in keywords:
-                    trigger_desc = "**默认场景 (Default)**: 当未匹配到其他特定场景关键词时使用。"
-                else:
-                    kws_str = ", ".join([f'"{k}"' for k in keywords])
-                    trigger_desc = f"**触发关键词**: {kws_str}"
-
-                env_section_lines.append(f"\n* **Scenario: {name}**")
-                env_section_lines.append(f"    * {trigger_desc}")
-                env_section_lines.append(f"    * *Prompt Block:*")
-                env_section_lines.append(f"    > **{prompt_content}**")
-
-            section_env = "\n".join(env_section_lines)
-        else:
-            section_env = ""
-
-        # 2. 镜头列表（根据开关决定是否生成）
-        if self.enable_camera_injection:
-            cameras = self._dynamic_config.get("cameras", self.DEFAULT_CAMERAS)
-
-            # 生成镜头 Prompt Section
-            cam_section_lines = ["## 4. 摄影模式切换 (Photo Format Switching)"]
-            cam_section_lines.append("**指令:** 检查**当前用户输入**中的关键词。**不要**参考历史记录。")
-
-            for idx, cam in enumerate(cameras):
-                name = cam.get("name", f"Mode {idx}")
-                keywords = cam.get("keywords", [])
-                prompt_content = cam.get("prompt", "")
-
-                if "default" in keywords:
-                    trigger_desc = "触发: **默认模式** (当无其他匹配时)。"
-                else:
-                    kws_str = ", ".join([f'"{k}"' for k in keywords])
-                    trigger_desc = f"触发 (必须出现在当前句中): {kws_str}"
-
-                cam_section_lines.append(f"\n* **模式: {name}**")
-                cam_section_lines.append(f"    * {trigger_desc}")
-                cam_section_lines.append(f"    * *Camera Params:* `{prompt_content}`")
-
-            section_camera = "\n".join(cam_section_lines)
-        else:
-            section_camera = ""
-
-        # === 核心 Prompt 组装 ===
-        prompt_parts = [
-            TPL_HEADER,
-            TPL_CHAR.format(content=p_char_id),
-            TPL_MIDDLE,
-        ]
-        if section_env:
-            prompt_parts.append(section_env)
-        if section_camera:
-            prompt_parts.append(section_camera)
-        prompt_parts.append(TPL_FOOTER)
-        prompt_parts.append("--- END CONTEXT DATA ---")
-
-        self.full_prompt = "\n\n".join(prompt_parts)
+        # === 初始化 full_prompt（复用 rebuild 方法避免重复代码）===
+        self.full_prompt = ""
+        self.rebuild_full_prompt()
 
         # === v1.8.1: 注入轮次控制 ===
         # 每个会话的剩余注入次数 {session_id: remaining_count}
@@ -381,7 +309,7 @@ class PortraitPlugin(Star):
 
     def rebuild_full_prompt(self):
         """重建完整 Prompt（热更新时调用）"""
-        p_char_id = self.config.get("char_identity") or self.DEF_CHAR_IDENTITY
+        p_char_id = self.config.get("char_identity") or DEF_CHAR_IDENTITY
 
         # 环境列表（根据开关决定是否生成）
         if self.enable_env_injection:
@@ -468,8 +396,6 @@ class PortraitPlugin(Star):
             await self.gitee_draw.close()
             # 关闭 Gemini 服务
             await self.gemini_draw.close()
-            # 关闭 HTTP 会话
-            await close_session()
             logger.info("[Portrait] 插件已停止，清理资源完成")
         except Exception as e:
             logger.error(f"[Portrait] 停止插件出错: {e}")
