@@ -14,6 +14,9 @@ from astrbot.api import logger
 from .image_manager import ImageManager
 from .image_format import guess_image_mime_and_ext
 
+# 支持高分辨率 (2K/4K) 的模型前缀
+GEMINI_HIGH_RES_MODEL_PREFIX = "gemini-3"
+
 
 class GeminiDrawService:
     """Google Gemini AI 文生图服务
@@ -174,7 +177,7 @@ class GeminiDrawService:
         }
 
         # 仅 gemini-3 系列支持 imageSize 参数（1K/2K/4K）
-        if "gemini-3" in self.model.lower():
+        if GEMINI_HIGH_RES_MODEL_PREFIX in self.model.lower():
             payload["generationConfig"]["imageConfig"] = {"imageSize": self.image_size}
 
         logger.debug(f"[Gemini Native] URL: {url}, has_images={bool(images)}")

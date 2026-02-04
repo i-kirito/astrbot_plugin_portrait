@@ -34,12 +34,28 @@ class ImageManager:
         self.max_storage_mb = max_storage_mb
         self.max_count = max_count
         self._session: aiohttp.ClientSession | None = None
-        self._metadata: dict = self._load_metadata()
-        self._metadata_mtime: float = self._get_metadata_mtime()
-        self._favorites: set = self._load_favorites()
+        # 延迟加载：避免阻塞启动
+        self._metadata: dict = {}
+        self._metadata_loaded: bool = False
+        self._metadata_mtime: float = 0.0
+        self._favorites: set = set()
+        self._favorites_loaded: bool = False
         # 并发锁：保护元数据和收藏文件的读写
         self._metadata_lock = asyncio.Lock()
         self._favorites_lock = asyncio.Lock()
+
+    def _ensure_metadata_loaded(self) -> None:
+        """确保元数据已加载（延迟加载）"""
+        if not self._metadata_loaded:
+            self._metadata = self._load_metadata()
+            self._metadata_mtime = self._get_metadata_mtime()
+            self._metadata_loaded = True
+
+    def _ensure_favorites_loaded(self) -> None:
+        """确保收藏已加载（延迟加载）"""
+        if not self._favorites_loaded:
+            self._favorites = self._load_favorites()
+            self._favorites_loaded = True
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -67,6 +83,7 @@ class ImageManager:
 
     def _reload_metadata_if_changed(self) -> None:
         """如果文件已修改则重新加载元数据"""
+        self._ensure_metadata_loaded()
         current_mtime = self._get_metadata_mtime()
         if current_mtime > self._metadata_mtime:
             self._metadata = self._load_metadata()
@@ -124,6 +141,7 @@ class ImageManager:
 
     def set_metadata(self, filename: str, prompt: str) -> None:
         """设置图片元数据"""
+        self._ensure_metadata_loaded()
         self._metadata[filename] = {
             "prompt": prompt,
             "created_at": int(time.time()),
@@ -134,6 +152,10 @@ class ImageManager:
     async def set_metadata_async(self, filename: str, prompt: str) -> None:
         """设置图片元数据（异步版本，带锁，非阻塞 I/O）"""
         async with self._metadata_lock:
+            if not self._metadata_loaded:
+                self._metadata = await asyncio.to_thread(self._load_metadata)
+                self._metadata_mtime = self._get_metadata_mtime()
+                self._metadata_loaded = True
             self._metadata[filename] = {
                 "prompt": prompt,
                 "created_at": int(time.time()),
@@ -143,10 +165,12 @@ class ImageManager:
 
     def is_favorite(self, filename: str) -> bool:
         """检查是否为收藏"""
+        self._ensure_favorites_loaded()
         return filename in self._favorites
 
     def toggle_favorite(self, filename: str) -> bool:
         """切换收藏状态，返回新状态"""
+        self._ensure_favorites_loaded()
         if filename in self._favorites:
             self._favorites.discard(filename)
             self._save_favorites()
@@ -159,6 +183,10 @@ class ImageManager:
     async def toggle_favorite_async(self, filename: str) -> bool:
         """切换收藏状态（异步版本，带锁，非阻塞 I/O）"""
         async with self._favorites_lock:
+            # 延迟加载收藏
+            if not self._favorites_loaded:
+                self._favorites = await asyncio.to_thread(self._load_favorites)
+                self._favorites_loaded = True
             if filename in self._favorites:
                 self._favorites.discard(filename)
                 await asyncio.to_thread(self._save_favorites_sync)
@@ -170,6 +198,8 @@ class ImageManager:
 
     def remove_metadata(self, filename: str) -> None:
         """删除图片元数据"""
+        self._ensure_metadata_loaded()
+        self._ensure_favorites_loaded()
         self._metadata.pop(filename, None)
         self._favorites.discard(filename)
         self._save_metadata()
@@ -179,6 +209,13 @@ class ImageManager:
         """删除图片元数据（异步版本，带锁，非阻塞 I/O）"""
         async with self._metadata_lock:
             async with self._favorites_lock:
+                if not self._metadata_loaded:
+                    self._metadata = await asyncio.to_thread(self._load_metadata)
+                    self._metadata_mtime = self._get_metadata_mtime()
+                    self._metadata_loaded = True
+                if not self._favorites_loaded:
+                    self._favorites = await asyncio.to_thread(self._load_favorites)
+                    self._favorites_loaded = True
                 self._metadata.pop(filename, None)
                 self._favorites.discard(filename)
                 await asyncio.to_thread(self._save_metadata_sync)
@@ -239,6 +276,12 @@ class ImageManager:
         """清理旧图片（跳过收藏），返回删除数量"""
         if self.max_storage_mb <= 0 and self.max_count <= 0:
             return 0  # 不限制
+
+        # 确保收藏列表已加载，避免误删
+        async with self._favorites_lock:
+            if not self._favorites_loaded:
+                self._favorites = await asyncio.to_thread(self._load_favorites)
+                self._favorites_loaded = True
 
         try:
             allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}

@@ -322,6 +322,113 @@
             max-width: 400px;
             animation: fadeIn 0.5s ease-out;
         }
+        /* 移动端汉堡菜单按钮 */
+        .mobile-menu-btn {
+            display: none;
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            z-index: 1001;
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid rgba(255, 182, 193, 0.4);
+            box-shadow: 0 4px 16px rgba(255, 182, 193, 0.3);
+            cursor: pointer;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+        /* 移动端遮罩层 */
+        .mobile-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.4);
+            z-index: 999;
+        }
+        /* 移动端适配 */
+        @media (max-width: 768px) {
+            .mobile-menu-btn {
+                display: flex;
+            }
+            .mobile-overlay.show {
+                display: block;
+            }
+            .sidebar {
+                position: fixed;
+                left: -280px;
+                top: 0;
+                bottom: 0;
+                width: 280px !important;
+                z-index: 1000;
+                transition: left 0.3s ease;
+            }
+            .sidebar.open {
+                left: 0;
+            }
+            .main-content {
+                margin-left: 0 !important;
+                padding: 70px 16px 16px 16px !important;
+            }
+            .page-header {
+                flex-direction: column;
+                gap: 16px;
+                align-items: flex-start;
+            }
+            .page-title {
+                font-size: 1.4rem;
+            }
+            .stats-bar {
+                flex-wrap: wrap;
+            }
+            .stat-item {
+                flex: 1 1 45%;
+                min-width: 120px;
+                padding: 12px 16px;
+            }
+            .stat-value {
+                font-size: 1.2rem;
+            }
+            .image-card img {
+                height: 180px;
+            }
+            .login-card {
+                padding: 32px 24px;
+                margin: 16px;
+            }
+            .el-dialog {
+                width: 95% !important;
+                margin: 10px auto !important;
+            }
+            .list-item {
+                padding: 12px;
+            }
+            .el-form-item {
+                margin-bottom: 16px;
+            }
+        }
+        /* 小屏幕手机 */
+        @media (max-width: 480px) {
+            .stat-item {
+                flex: 1 1 100%;
+            }
+            .image-card img {
+                height: 150px;
+            }
+            .page-header .flex {
+                width: 100%;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .page-header .el-button {
+                flex: 1;
+            }
+        }
     </style>
 </head>
 <body>
@@ -361,37 +468,55 @@
 
         <!-- 主界面 -->
         <div v-else class="flex h-screen">
+            <!-- 移动端菜单按钮 -->
+            <div class="mobile-menu-btn"
+                 @click="mobileMenuOpen = !mobileMenuOpen"
+                 @keyup.enter="mobileMenuOpen = !mobileMenuOpen"
+                 @keyup.escape="mobileMenuOpen = false"
+                 role="button"
+                 tabindex="0"
+                 :aria-expanded="mobileMenuOpen"
+                 aria-label="切换菜单">
+                <span v-if="!mobileMenuOpen">&#9776;</span>
+                <span v-else>&#10005;</span>
+            </div>
+            <!-- 移动端遮罩层 -->
+            <div class="mobile-overlay"
+                 :class="{ show: mobileMenuOpen }"
+                 @click="mobileMenuOpen = false"
+                 @keyup.escape="mobileMenuOpen = false"
+                 aria-hidden="true"></div>
             <!-- 侧边栏 -->
-            <div class="sidebar w-64 flex-shrink-0 flex flex-col">
+            <div class="sidebar w-64 flex-shrink-0 flex flex-col" :class="{ open: mobileMenuOpen }">
                 <div class="logo-section">
                     <h1 class="logo-title">人物形象</h1>
                     <p class="text-xs text-pink-400 mt-2">AstrBot 角色视觉管理器</p>
                 </div>
                 <nav class="py-6 flex-1" role="navigation" aria-label="主导航">
-                    <div class="nav-item" :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'" @keyup.enter="activeTab = 'settings'" tabindex="0" role="button" aria-pressed="activeTab === 'settings'">
+                    <div class="nav-item" :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'; mobileMenuOpen = false" @keyup.enter="activeTab = 'settings'" tabindex="0" role="button" aria-pressed="activeTab === 'settings'">
                         <span class="icon">&#9881;</span>
                         <span>配置设置</span>
                     </div>
-                    <div class="nav-item" :class="{ active: activeTab === 'environments' }" @click="activeTab = 'environments'" @keyup.enter="activeTab = 'environments'" tabindex="0" role="button" aria-pressed="activeTab === 'environments'">
+                    <div class="nav-item" :class="{ active: activeTab === 'environments' }" @click="activeTab = 'environments'; mobileMenuOpen = false" @keyup.enter="activeTab = 'environments'" tabindex="0" role="button" aria-pressed="activeTab === 'environments'">
                         <span class="icon">&#127968;</span>
                         <span>环境场景</span>
                     </div>
-                    <div class="nav-item" :class="{ active: activeTab === 'cameras' }" @click="activeTab = 'cameras'" @keyup.enter="activeTab = 'cameras'" tabindex="0" role="button" aria-pressed="activeTab === 'cameras'">
+                    <div class="nav-item" :class="{ active: activeTab === 'cameras' }" @click="activeTab = 'cameras'; mobileMenuOpen = false" @keyup.enter="activeTab = 'cameras'" tabindex="0" role="button" aria-pressed="activeTab === 'cameras'">
                         <span class="icon">&#128247;</span>
                         <span>摄影模式</span>
                     </div>
-                    <div class="nav-item" :class="{ active: activeTab === 'selfie' }" @click="activeTab = 'selfie'" @keyup.enter="activeTab = 'selfie'" tabindex="0" role="button" aria-pressed="activeTab === 'selfie'">
+                    <div class="nav-item" :class="{ active: activeTab === 'selfie' }" @click="activeTab = 'selfie'; mobileMenuOpen = false" @keyup.enter="activeTab = 'selfie'" tabindex="0" role="button" aria-pressed="activeTab === 'selfie'">
                         <span class="icon">&#128248;</span>
                         <span>人像参考</span>
                     </div>
-                    <div class="nav-item" :class="{ active: activeTab === 'gallery' }" @click="activeTab = 'gallery'" @keyup.enter="activeTab = 'gallery'" tabindex="0" role="button" aria-pressed="activeTab === 'gallery'">
+                    <div class="nav-item" :class="{ active: activeTab === 'gallery' }" @click="activeTab = 'gallery'; mobileMenuOpen = false" @keyup.enter="activeTab = 'gallery'" tabindex="0" role="button" aria-pressed="activeTab === 'gallery'">
                         <span class="icon">&#128444;</span>
                         <span>图片画廊</span>
                     </div>
                     <!-- 画廊每行图片数量滑块 -->
                     <div v-if="activeTab === 'gallery'" class="py-3" style="padding-left: 30px;">
                         <div class="text-xs text-gray-400 mb-2">每行 {{ galleryColumns }} 张</div>
-                        <el-slider v-model="galleryColumns" :min="6" :max="10" :step="1" :show-tooltip="false" size="small" @change="saveGalleryColumns" style="width: 180px;" />
+                        <el-slider v-model="galleryColumns" :min="2" :max="10" :step="1" :show-tooltip="false" size="small" @change="saveGalleryColumns" style="width: 180px;" />
                     </div>
                 </nav>
                 <div class="p-4 border-t border-pink-200/30">
@@ -400,7 +525,7 @@
             </div>
 
             <!-- 主内容区 -->
-            <div class="flex-1 overflow-auto p-8">
+            <div class="main-content flex-1 overflow-auto p-8">
                 <!-- 配置页面 -->
                 <div v-if="activeTab === 'settings'" class="max-w-4xl mx-auto fade-in">
                     <div class="page-header">
@@ -841,11 +966,11 @@
                                     <el-button :type="img.favorite ? 'warning' : 'default'" circle @click.stop="toggleFavorite(img)" :title="img.favorite ? '取消收藏' : '添加收藏'" :aria-label="img.favorite ? '取消收藏' : '添加收藏'">
                                         <span>{{ img.favorite ? '&#9829;' : '&#9825;' }}</span>
                                     </el-button>
-                                    <el-button type="primary" circle @click.stop="downloadImage(img)" title="下载" aria-label="下载图片">
+                                    <el-button type="default" circle @click.stop="downloadImage(img)" title="下载" aria-label="下载图片">
                                         <span>&#8681;</span>
                                     </el-button>
-                                    <el-button type="danger" circle @click.stop="deleteImage(img)" title="删除" aria-label="删除图片">
-                                        <span>&#128465;</span>
+                                    <el-button type="default" circle @click.stop="deleteImage(img)" title="删除" aria-label="删除图片">
+                                        <span>&#10005;</span>
                                     </el-button>
                                 </div>
                             </div>
@@ -884,9 +1009,6 @@
                         <el-button :type="detailImage?.favorite ? 'warning' : 'primary'" @click="toggleFavorite(detailImage)">
                             <span style="margin-right: 6px;">{{ detailImage?.favorite ? '&#9829;' : '&#9825;' }}</span>
                             {{ detailImage?.favorite ? '取消收藏' : '添加收藏' }}
-                        </el-button>
-                        <el-button type="success" @click="downloadImage(detailImage)">
-                            <span style="margin-right: 6px;">&#8681;</span> 下载
                         </el-button>
                         <el-button type="danger" @click="deleteImageFromDetail">
                             <span style="margin-right: 6px;">&#128465;</span> 删除
@@ -945,6 +1067,7 @@
                 const loggingIn = ref(false);
 
                 const activeTab = ref('gallery');
+                const mobileMenuOpen = ref(false);
                 const saving = ref(false);
                 const savingDynamic = ref(false);
                 const loadingImages = ref(false);
@@ -1445,24 +1568,14 @@
                     }
                 }
 
-                async function downloadImage(img) {
-                    if (!img) return;
-                    try {
-                        // 使用 fetch + Blob 方式下载，避免浏览器安全警告
-                        const res = await fetch(`/images/${encodeURIComponent(img.name)}`);
-                        if (!res.ok) throw new Error('下载失败');
-                        const blob = await res.blob();
-                        const url = URL.createObjectURL(blob);
-                        const link = document.createElement('a');
-                        link.href = url;
-                        link.download = img.name;
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                        URL.revokeObjectURL(url);
-                    } catch (e) {
-                        ElementPlus.ElMessage.error('下载失败: ' + e.message);
-                    }
+                function downloadImage(img) {
+                    // 使用隐藏的 <a> 标签触发下载
+                    const link = document.createElement('a');
+                    link.href = `/api/images/${encodeURIComponent(img.name)}/download`;
+                    link.download = img.name;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
                 }
 
                 function formatDate(timestamp) {
@@ -1604,6 +1717,7 @@
                     doLogin,
                     // 其他
                     activeTab,
+                    mobileMenuOpen,
                     saving,
                     savingDynamic,
                     loadingImages,

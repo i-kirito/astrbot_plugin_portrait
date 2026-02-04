@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import socket
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -30,12 +31,20 @@ DEFAULT_ALLOWED_HOSTS = frozenset({
 
 
 def _is_private_ip(host: str) -> bool:
-    """检测是否为私网/回环/保留地址"""
+    """检测是否为私网/回环/保留地址（支持域名解析）"""
     try:
+        # 先尝试直接解析为 IP
         ip = ipaddress.ip_address(host)
         return ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local
     except ValueError:
-        return False
+        # 不是 IP 地址，尝试 DNS 解析
+        try:
+            resolved_ip = socket.gethostbyname(host)
+            ip = ipaddress.ip_address(resolved_ip)
+            return ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local
+        except (socket.gaierror, ValueError):
+            # DNS 解析失败，保守处理为安全（允许）
+            return False
 
 
 def resolution_to_size(resolution: str) -> str | None:

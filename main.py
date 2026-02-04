@@ -11,72 +11,20 @@ from pathlib import Path
 
 from .core.gitee_draw import GiteeDrawService
 from .core.gemini_draw import GeminiDrawService
+from .core.defaults import (
+    DEF_CHAR_IDENTITY,
+    DEFAULT_ENVIRONMENTS,
+    DEFAULT_CAMERAS,
+    TPL_HEADER,
+    TPL_CHAR,
+    TPL_MIDDLE,
+    TPL_FOOTER,
+)
 from .web_server import WebServer
-
-
-# === Issue 2 fix: Move template constants to module level ===
-TPL_HEADER = """# Visual Context Injection (System Override)
-## 0. Chain of Thought & Trigger Logic
-1.  **Analyze User Intent**: specific keywords like "draw", "photo", "selfie", "show me", "look at you", or implicitly asking for a visual representation.
-2.  **If Drawing Intent Detected**: You MUST call the `portrait_draw_image` tool with the Visual Data below.
-3.  **Prompt Structure**: `[Character Visuals] + [User Action/Outfit] + [Environment] + [Camera]`
-4.  **IMPORTANT**: Always use `portrait_draw_image` tool for image generation.
-5.  **CRITICAL**: When calling any tool, do NOT output any text content in the same response. Call the tool ONLY, then wait for the result before responding to the user.
-6.  **MANDATORY**: You MUST copy the EXACT prompt blocks from the Environment and Camera sections below verbatim. Do NOT simplify, summarize, or omit any parameters. Include ALL lighting, style, and quality tags exactly as written.
-7.  **NO REPEAT**: After the tool returns [SUCCESS], do NOT call portrait_draw_image again with the same or similar prompt. The image has already been sent to the user."""
-
-TPL_CHAR = """## 1. Character Visuals (Fixed Identity)
-**Core Appearance (Always Active):**
-{content}"""
-
-TPL_MIDDLE = """## 2. 动态内容处理 (Handling User Input)
-* **穿搭 (Outfit):** 用户未指定时，默认保持简洁风格或根据场景补全。
-* **动作 (Action):** 自然融入用户描述的动作。如果动作/表情与核心设定的冲突，**以用户要求为准**"""
-
-TPL_FOOTER = """---"""
-
-DEF_CHAR_IDENTITY = """> **The subject is a young 18-year-old Asian girl with fair skin and delicate features. She has dusty rose pink hair featuring essential wispy air bangs. Her large, round, doll-like eyes are deep-set and natural dark brown. She possesses a slender hourglass figure with a tiny waist and a full bust, emphasizing a natural soft tissue silhouette.**"""
 
 
 class PortraitPlugin(Star):
     """人物特征Prompt注入器,增强美化画图,内置Gitee AI文生图"""
-
-    # 默认环境和摄影配置
-    DEFAULT_ENVIRONMENTS = [
-        {
-            "name": "默认/卧室",
-            "keywords": ["default"],
-            "prompt": "(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones:1.1), cozy atmosphere"
-        },
-        {
-            "name": "更衣室",
-            "keywords": ["穿搭", "全身", "OOTD", "look"],
-            "prompt": "(indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4), (white vanity table), (pink fluffy stool), (pink clothing rack), (pastel pink and white tones:1.2), cozy, kawaii aesthetic"
-        },
-        {
-            "name": "户外/自定义",
-            "keywords": ["户外", "外面", "公园", "街"],
-            "prompt": "根据用户指定地点生成场景。必须添加: (blurred background), (bokeh), (natural lighting)"
-        }
-    ]
-
-    DEFAULT_CAMERAS = [
-        {
-            "name": "自拍模式",
-            "keywords": ["自拍", "selfie", "对镜"],
-            "prompt": "(mirror selfie style:1.2), holding phone, looking at phone screen or mirror, (realistic screen light reflection on face), cute pose, close-up POV shot"
-        },
-        {
-            "name": "全身/远景",
-            "keywords": ["全身", "full body", "穿搭", "OOTD"],
-            "prompt": "full body shot, head to toe visible, wide angle, far shot, (relaxed fashion pose:1.3), casual stance, legs and shoes visible"
-        },
-        {
-            "name": "半身/默认",
-            "keywords": ["default"],
-            "prompt": "upper body shot, medium close-up portrait, looking at camera, (dynamic random pose:1.2), (playful gestures:1.1), candid portrait"
-        }
-    ]
 
     def __init__(self, context: Context, config: dict | None):
         super().__init__(context)
@@ -216,8 +164,8 @@ class PortraitPlugin(Star):
             except Exception as e:
                 logger.warning(f"[Portrait] 加载动态配置失败: {e}，使用默认值")
         return {
-            "environments": self.DEFAULT_ENVIRONMENTS,
-            "cameras": self.DEFAULT_CAMERAS,
+            "environments": DEFAULT_ENVIRONMENTS,
+            "cameras": DEFAULT_CAMERAS,
         }
 
     def _save_dynamic_config(self):
@@ -302,8 +250,8 @@ class PortraitPlugin(Star):
     def get_dynamic_config(self) -> dict:
         """获取动态配置（环境和摄影模式列表）"""
         return {
-            "environments": self._dynamic_config.get("environments", self.DEFAULT_ENVIRONMENTS),
-            "cameras": self._dynamic_config.get("cameras", self.DEFAULT_CAMERAS),
+            "environments": self._dynamic_config.get("environments", DEFAULT_ENVIRONMENTS),
+            "cameras": self._dynamic_config.get("cameras", DEFAULT_CAMERAS),
         }
 
     def update_dynamic_config(self, new_config: dict):
@@ -321,7 +269,7 @@ class PortraitPlugin(Star):
 
         # 环境列表（根据开关决定是否生成）
         if self.enable_env_injection:
-            environments = self._dynamic_config.get("environments", self.DEFAULT_ENVIRONMENTS)
+            environments = self._dynamic_config.get("environments", DEFAULT_ENVIRONMENTS)
             env_section_lines = ["## 3. 动态环境与风格 (Dynamic Environment & Style)"]
             env_section_lines.append("**逻辑判断 (Logic Branching):** Check user input for keywords.")
 
@@ -347,7 +295,7 @@ class PortraitPlugin(Star):
 
         # 镜头列表（根据开关决定是否生成）
         if self.enable_camera_injection:
-            cameras = self._dynamic_config.get("cameras", self.DEFAULT_CAMERAS)
+            cameras = self._dynamic_config.get("cameras", DEFAULT_CAMERAS)
             cam_section_lines = ["## 4. 摄影模式切换 (Photo Format Switching)"]
             cam_section_lines.append("**指令:** 检查**当前用户输入**中的关键词。**不要**参考历史记录。")
 
@@ -425,10 +373,12 @@ class PortraitPlugin(Star):
 
         # 获取用户消息内容 - 优先使用原始消息，避免被其他插件修改
         user_message = ""
+        extract_source = ""
 
         # 方式1 (优先): 从 event.message_str 获取（用户原始消息，未被其他插件修改）
         if hasattr(event, 'message_str') and event.message_str:
             user_message = event.message_str
+            extract_source = "message_str"
 
         # 方式2: 从 event.message 获取
         if not user_message and hasattr(event, 'message') and event.message:
@@ -438,14 +388,19 @@ class PortraitPlugin(Star):
                         user_message += seg.text
                     elif hasattr(seg, 'data') and isinstance(seg.data, dict):
                         user_message += seg.data.get('text', '')
+                if user_message:
+                    extract_source = "event.message.message"
             # 尝试直接获取 raw_message
             if not user_message and hasattr(event.message, 'raw_message'):
                 user_message = event.message.raw_message or ""
+                if user_message:
+                    extract_source = "raw_message"
 
         # 方式3 (备选): 从 req.prompt 获取（可能被记忆插件等修改过）
         if not user_message and hasattr(req, 'prompt') and req.prompt:
             if isinstance(req.prompt, str):
                 user_message = req.prompt
+                extract_source = "req.prompt (str)"
             elif isinstance(req.prompt, list):
                 # 如果是消息列表，提取最后一条用户消息
                 for msg in reversed(req.prompt):
@@ -453,6 +408,7 @@ class PortraitPlugin(Star):
                         content = msg.get('content', '')
                         if isinstance(content, str):
                             user_message = content
+                            extract_source = "req.prompt (list)"
                         break
 
         # 方式4 (最后备选): 从 req.messages 获取最后一条用户消息
@@ -461,9 +417,13 @@ class PortraitPlugin(Star):
                 if hasattr(msg, 'role') and msg.role == 'user':
                     if hasattr(msg, 'content'):
                         user_message = str(msg.content) if msg.content else ""
+                        extract_source = "req.messages"
                     break
 
-        logger.debug(f"[Portrait] 提取到用户消息: {user_message[:50] if user_message else '(空)'}")
+        if user_message:
+            logger.debug(f"[Portrait] 消息提取成功 (来源: {extract_source}): {user_message[:50]}...")
+        else:
+            logger.debug("[Portrait] 消息提取失败: 所有方式均未获取到用户消息")
 
         # 正则匹配检测绘图意图
         if not user_message or not self.trigger_regex.search(user_message):
@@ -646,17 +606,17 @@ class PortraitPlugin(Star):
         return prompt
 
     # === v2.0.0: LLM 工具调用 - 文生图 ===
-    @filter.llm_tool(name="portrait_draw_image")
-    async def portrait_draw_image(self, event: AstrMessageEvent, prompt: str):
-        """根据提示词生成图片。调用一次即可，图片会自动发送给用户。收到 [SUCCESS] 后请勿重复调用。
-
-        Args:
-            prompt(string): 图片提示词，需要包含主体、场景、风格等描述
-        """
+    async def _handle_image_generation(
+        self,
+        event: AstrMessageEvent,
+        prompt: str,
+        size: str | None = None,
+        resolution: str | None = None,
+    ) -> str:
+        """通用图片生成处理"""
         try:
             final_prompt = self._build_final_prompt(prompt)
-            image_path = await self._generate_image(final_prompt)
-            # 发送图片
+            image_path = await self._generate_image(final_prompt, size=size, resolution=resolution)
             await event.send(
                 event.chain_result([Comp.Image.fromFileSystem(str(image_path))])
             )
@@ -664,6 +624,15 @@ class PortraitPlugin(Star):
         except Exception as e:
             logger.error(f"[Portrait] 文生图失败: {e}")
             return f"[ERROR] 生成图片失败: {str(e)}"
+
+    @filter.llm_tool(name="portrait_draw_image")
+    async def portrait_draw_image(self, event: AstrMessageEvent, prompt: str):
+        """根据提示词生成图片。调用一次即可，图片会自动发送给用户。收到 [SUCCESS] 后请勿重复调用。
+
+        Args:
+            prompt(string): 图片提示词，需要包含主体、场景、风格等描述
+        """
+        return await self._handle_image_generation(event, prompt)
 
     @filter.llm_tool(name="portrait_generate_image")
     async def portrait_generate_image(
@@ -680,21 +649,7 @@ class PortraitPlugin(Star):
             size(string): 图片尺寸，如 "1024x1024"、"2048x2048"、"4096x4096"
             resolution(string): 分辨率，可选 "1K"、"2K"、"4K"
         """
-        try:
-            final_prompt = self._build_final_prompt(prompt)
-            image_path = await self._generate_image(
-                final_prompt,
-                size=size or None,
-                resolution=resolution or None,
-            )
-            # 发送图片
-            await event.send(
-                event.chain_result([Comp.Image.fromFileSystem(str(image_path))])
-            )
-            return "[SUCCESS] 图片已成功生成并发送给用户。任务完成，无需再次调用此工具。"
-        except Exception as e:
-            logger.error(f"[Portrait] 文生图失败: {e}")
-            return f"[ERROR] 生成图片失败: {str(e)}"
+        return await self._handle_image_generation(event, prompt, size or None, resolution or None)
 
     # === v2.5.0: 画图帮助指令 ===
     @filter.command("画图帮助")

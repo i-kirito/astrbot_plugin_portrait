@@ -90,6 +90,7 @@ class WebServer:
         self.app.router.add_get("/api/images", self.handle_list_images)
         self.app.router.add_delete("/api/images/{name}", self.handle_delete_image)
         self.app.router.add_post("/api/images/{name}/favorite", self.handle_toggle_favorite)
+        self.app.router.add_get("/api/images/{name}/download", self.handle_download_image)
         self.app.router.add_get("/api/health", self.handle_health)
 
         # 自拍参考照 API
@@ -597,6 +598,62 @@ class WebServer:
 
         except Exception as e:
             logger.error(f"[Portrait WebUI] 切换收藏状态失败: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_download_image(self, request: web.Request) -> web.Response:
+        """下载图片（带 Content-Disposition 头）"""
+        try:
+            name = request.match_info.get("name", "")
+            if not name:
+                return web.json_response(
+                    {"success": False, "error": "文件名为空"}, status=400
+                )
+
+            # 安全检查：防止路径遍历
+            if "/" in name or "\\" in name or ".." in name:
+                return web.json_response(
+                    {"success": False, "error": "非法文件名"}, status=400
+                )
+
+            file_path = self.images_dir / name
+            if not file_path.exists():
+                return web.json_response(
+                    {"success": False, "error": "文件不存在"}, status=404
+                )
+
+            # 确保文件在 images_dir 内
+            try:
+                file_path.relative_to(self.images_dir)
+            except ValueError:
+                return web.json_response(
+                    {"success": False, "error": "非法路径"}, status=400
+                )
+
+            # 非阻塞读取文件
+            content = await asyncio.to_thread(file_path.read_bytes)
+
+            # 推断 Content-Type
+            suffix = file_path.suffix.lower()
+            content_types = {
+                ".png": "image/png",
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".gif": "image/gif",
+                ".webp": "image/webp",
+            }
+            content_type = content_types.get(suffix, "application/octet-stream")
+
+            # 返回带下载头的响应
+            return web.Response(
+                body=content,
+                content_type=content_type,
+                headers={
+                    "Content-Disposition": f'attachment; filename="{name}"',
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"[Portrait WebUI] 下载图片失败: {e}")
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
     async def _generate_thumbnail(self, src_path: Path, dest_path: Path, max_size: int = 300) -> bool:
