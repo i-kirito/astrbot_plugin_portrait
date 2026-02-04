@@ -131,6 +131,8 @@ class GiteeDrawService:
     def _next_key(self) -> str:
         if not self.api_keys:
             raise RuntimeError("未配置 Gitee AI API Key")
+        # 确保索引在边界内（处理运行时 Key 被删除的情况）
+        self._key_index = self._key_index % len(self.api_keys)
         key = self.api_keys[self._key_index]
         self._key_index = (self._key_index + 1) % len(self.api_keys)
         return key

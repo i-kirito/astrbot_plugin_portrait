@@ -800,12 +800,22 @@ class PortraitPlugin(Star):
         """
         action = action.strip()
 
-        # 检查 WebUI 是否已配置
-        if not self.web_server:
-            yield event.plain_result("WebUI 未启用，请在插件配置中开启 webui_config.enabled")
-            return
+        # 获取 WebUI 配置
+        webui_conf = self.config.get("webui_config", {}) or {}
+        default_host = webui_conf.get("host", "127.0.0.1") or "127.0.0.1"
+        default_port = webui_conf.get("port", 8088) or 8088
+        default_token = webui_conf.get("token", "") or ""
 
         if action == "开":
+            # 如果 WebServer 未实例化，动态创建
+            if not self.web_server:
+                self.web_server = WebServer(
+                    plugin=self,
+                    host=default_host,
+                    port=default_port,
+                    token=default_token,
+                )
+
             if self._webui_started:
                 host = self.web_server.host
                 port = self.web_server.port
@@ -823,7 +833,7 @@ class PortraitPlugin(Star):
                 yield event.plain_result(f"WebUI 启动失败: {e}")
 
         elif action == "关":
-            if not self._webui_started:
+            if not self.web_server or not self._webui_started:
                 yield event.plain_result("WebUI 未在运行")
                 return
 
@@ -836,9 +846,14 @@ class PortraitPlugin(Star):
 
         else:
             # 显示当前状态
-            status = "运行中" if self._webui_started else "已停止"
-            host = self.web_server.host
-            port = self.web_server.port
+            if self.web_server:
+                status = "运行中" if self._webui_started else "已停止"
+                host = self.web_server.host
+                port = self.web_server.port
+            else:
+                status = "未初始化"
+                host = default_host
+                port = default_port
             msg = f"""WebUI 后台管理
 ━━━━━━━━━━━━━━━
 状态: {status}
