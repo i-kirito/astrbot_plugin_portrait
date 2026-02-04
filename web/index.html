@@ -841,6 +841,9 @@
                                     <el-button :type="img.favorite ? 'warning' : 'default'" circle @click.stop="toggleFavorite(img)" :title="img.favorite ? '取消收藏' : '添加收藏'" :aria-label="img.favorite ? '取消收藏' : '添加收藏'">
                                         <span>{{ img.favorite ? '&#9829;' : '&#9825;' }}</span>
                                     </el-button>
+                                    <el-button type="primary" circle @click.stop="downloadImage(img)" title="下载" aria-label="下载图片">
+                                        <span>&#8681;</span>
+                                    </el-button>
                                     <el-button type="danger" circle @click.stop="deleteImage(img)" title="删除" aria-label="删除图片">
                                         <span>&#128465;</span>
                                     </el-button>
@@ -881,6 +884,9 @@
                         <el-button :type="detailImage?.favorite ? 'warning' : 'primary'" @click="toggleFavorite(detailImage)">
                             <span style="margin-right: 6px;">{{ detailImage?.favorite ? '&#9829;' : '&#9825;' }}</span>
                             {{ detailImage?.favorite ? '取消收藏' : '添加收藏' }}
+                        </el-button>
+                        <el-button type="success" @click="downloadImage(detailImage)">
+                            <span style="margin-right: 6px;">&#8681;</span> 下载
                         </el-button>
                         <el-button type="danger" @click="deleteImageFromDetail">
                             <span style="margin-right: 6px;">&#128465;</span> 删除
@@ -1439,6 +1445,26 @@
                     }
                 }
 
+                async function downloadImage(img) {
+                    if (!img) return;
+                    try {
+                        // 使用 fetch + Blob 方式下载，避免浏览器安全警告
+                        const res = await fetch(`/images/${encodeURIComponent(img.name)}`);
+                        if (!res.ok) throw new Error('下载失败');
+                        const blob = await res.blob();
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = img.name;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        URL.revokeObjectURL(url);
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('下载失败: ' + e.message);
+                    }
+                }
+
                 function formatDate(timestamp) {
                     if (!timestamp) return '';
                     return new Date(timestamp * 1000).toLocaleString('zh-CN');
@@ -1615,6 +1641,7 @@
                     removeCamera,
                     loadImages,
                     deleteImage,
+                    downloadImage,
                     toggleFavoritesFilter,
                     toggleFavorite,
                     openImageDetail,
