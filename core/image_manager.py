@@ -112,6 +112,16 @@ class ImageManager:
         self._reload_metadata_if_changed()
         return self._metadata.get(filename)
 
+    async def get_metadata_async(self, filename: str) -> dict | None:
+        """获取图片元数据（异步版本，非阻塞 I/O）"""
+        async with self._metadata_lock:
+            # 异步检查并重载元数据
+            current_mtime = await asyncio.to_thread(self._get_metadata_mtime)
+            if current_mtime > self._metadata_mtime:
+                self._metadata = await asyncio.to_thread(self._load_metadata)
+                self._metadata_mtime = current_mtime
+            return self._metadata.get(filename)
+
     def set_metadata(self, filename: str, prompt: str) -> None:
         """设置图片元数据"""
         self._metadata[filename] = {

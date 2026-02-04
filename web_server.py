@@ -462,12 +462,15 @@ class WebServer:
 
             file_stats = await asyncio.to_thread(scan_images)
 
+            # 一次性加载元数据（避免循环中重复读取文件）
+            await self.imgr.get_metadata_async("")  # 触发元数据重载
+
             images = []
             for file_path, stat in file_stats:
                 filename = file_path.name
 
-                # 获取元数据
-                metadata = self.imgr.get_metadata(filename)
+                # 从内存缓存获取元数据（不再触发文件 I/O）
+                metadata = self.imgr._metadata.get(filename)
                 is_favorite = self.imgr.is_favorite(filename)
 
                 # 如果筛选收藏，跳过非收藏

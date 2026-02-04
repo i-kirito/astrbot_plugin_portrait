@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import time
 from pathlib import Path
@@ -199,10 +200,10 @@ class GeminiDrawService:
 
         # 解析响应 - 有参考图时可能返回多张，取最后一张
         if images:
-            all_images = self._extract_images(data)
+            all_images = await asyncio.to_thread(self._extract_images, data)
             if all_images:
                 return all_images[-1]
-        return self._parse_native_response(data)
+        return await asyncio.to_thread(self._parse_native_response, data)
 
     async def _generate_openai_compatible(self, prompt: str) -> bytes:
         """使用 OpenAI 兼容接口生成图片（作为原生接口的回退）"""
@@ -248,8 +249,8 @@ class GeminiDrawService:
             logger.error(f"[Gemini OpenAI] 请求失败: {e}")
             raise Exception(f"Gemini OpenAI 兼容接口请求失败: {str(e)}")
 
-        # 解析 OpenAI 格式响应
-        return self._parse_openai_response(data)
+        # 解析 OpenAI 格式响应（在线程池执行避免阻塞）
+        return await asyncio.to_thread(self._parse_openai_response, data)
 
     def _parse_native_response(self, data: dict) -> bytes:
         """解析原生 Gemini API 响应"""
