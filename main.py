@@ -452,6 +452,11 @@ class PortraitPlugin(Star):
             logger.debug(f"[Portrait] 未检测到绘图意图，跳过注入")
             return
 
+        # === v2.9.2: 前置角色相关性判断，非角色内容不注入 ===
+        if not self._is_character_related_prompt(user_message):
+            logger.info(f"[Portrait] 用户消息非角色相关，跳过注入: {user_message[:50]}...")
+            return
+
         # === v1.8.1: 多轮次注入逻辑 ===
         # 修复：使用 群ID + 用户ID 作为 session key，避免群内用户互相污染
         group_id = event.unified_msg_origin or "default"
@@ -543,10 +548,14 @@ class PortraitPlugin(Star):
                 req.prompt = cleaned
                 logger.debug("[Portrait] 已从 prompt 清理注入内容")
 
-    def _is_character_related_prompt(self, prompt: str) -> bool:
-        """判断 prompt 是否与角色本人相关
+    def _is_character_related_prompt(self, text: str) -> bool:
+        """判断文本是否与角色本人相关
 
-        只有明确与角色相关的请求才使用参考图,避免生成奇怪的图片
+        用于两个场景：
+        1. 注入判断：检查用户消息是否需要注入 Visual Context
+        2. 生成判断：检查 prompt 是否需要使用参考图和角色外貌
+
+        只有明确与角色相关的请求才注入/使用参考图，避免污染非角色内容
         """
         # 排除关键词：非角色内容（其他IP角色、动物、物品、场景等）
         exclude_keywords = [
@@ -558,45 +567,58 @@ class PortraitPlugin(Star):
             '擎天柱', '威震天', '大黄蜂', '机甲', '机器人', '高达',
             '蝙蝠侠', '超人', '钢铁侠', '蜘蛛侠', '绿巨人',
             '皮卡丘', '火影', '鸣人', '悟空', '路飞', '美少女战士',
-            # 动物/物品/场景
+            # 动物
             'cat', 'dog', 'bird', 'dragon', 'unicorn', 'horse', 'wolf', 'fox',
-            '猫', '狗', '鸟', '龙', '马', '狼', '狐狸',
+            '猫', '狗', '鸟', '龙', '马', '狼', '狐狸', '兔子', '老虎', '狮子',
+            '猫咪', '小猫', '小狗', '宠物',
+            # 物品/载具
             'car', 'vehicle', 'automobile', 'motorcycle', 'bike',
-            '汽车', '车辆', '摩托车', '自行车',
+            '汽车', '车辆', '摩托车', '自行车', '飞机', '火车',
+            # 场景/风景
             'building', 'landscape', 'scenery', 'architecture', 'cityscape',
-            '建筑', '风景', '景色', '城市',
+            '建筑', '风景', '景色', '城市', '山', '海', '森林', '花',
         ]
 
-        # 如果包含排除关键词,则不使用参考图
-        prompt_lower = prompt.lower()
+        # 如果包含排除关键词，不注入/不使用参考图
+        text_lower = text.lower()
         for keyword in exclude_keywords:
-            if keyword in prompt_lower:
-                logger.info(f"[Portrait] 检测到非角色内容关键词 '{keyword}',跳过参考图和外貌注入")
+            if keyword in text_lower:
+                logger.info(f"[Portrait] 检测到非角色内容 '{keyword}'，跳过注入")
                 return False
 
-        # 角色相关关键词：人物特征、自拍、身体部位等
+        # 角色相关关键词：人物特征、自拍、身体部位、常见用户表达等
         character_keywords = [
+            # 英文
             'girl', 'woman', 'lady', 'female', 'person', 'human',
-            '女孩', '女生', '女性', '人物', '人像',
-            'selfie', 'portrait', 'headshot', 'profile','cos',
-            '自拍', '肖像', '头像', '形象',
+            'selfie', 'portrait', 'headshot', 'profile', 'cos',
             'face', 'body', 'hand', 'eyes',
-            '脸', '身体', '手', '眼睛',
+            # 中文 - 人物
+            '女孩', '女生', '女性', '人物', '人像', '美女', '小姐姐',
+            # 中文 - 自拍/照片相关
+            '自拍', '肖像', '头像', '形象', '照片', '写真', '爆照',
+            # 中文 - 身体部位
+            '脸', '身体', '手', '眼睛', '腿', '脚',
+            # 中文 - 穿搭/外貌
+            '穿', '衣服', '裙子', '裤子', '鞋', '发型', '头发', '妆',
+            # 中文 - 常见用户表达（隐式角色请求）
+            '你', '自己', '本人', '真人', '样子', '长什么样', '什么样子',
+            '看看你', '给我看', '让我看', '康康', '瞧瞧', '瞅瞅',
+            '全身', 'ootd', '今日穿搭',
         ]
 
-        # 如果包含角色相关关键词,则使用参考图
+        # 如果包含角色相关关键词，注入/使用参考图
         for keyword in character_keywords:
-            if keyword in prompt_lower:
-                logger.info(f"[Portrait] 检测到角色相关关键词 '{keyword}',使用参考图和外貌注入")
+            if keyword in text_lower:
+                logger.info(f"[Portrait] 检测到角色相关 '{keyword}'，执行注入")
                 return True
 
-        # 默认策略:如果 prompt 很短(少于 30 字符)且没有明确排除词,可能是简单的人物请求
-        if len(prompt) < 30 and not any(kw in prompt_lower for kw in exclude_keywords):
-            logger.info(f"[Portrait] Prompt 较短且未检测到排除词,使用参考图和外貌注入")
+        # 默认策略：短文本（< 30 字符）且无排除词，视为简单人物请求
+        if len(text) < 30:
+            logger.info(f"[Portrait] 文本较短且无排除词，默认注入")
             return True
 
-        # 其他情况不使用参考图
-        logger.info(f"[Portrait] 未匹配角色相关特征,跳过参考图和外貌注入")
+        # 其他情况不注入
+        logger.info(f"[Portrait] 未匹配角色特征，跳过注入")
         return False
 
     # === v2.4.0: 统一图片生成方法（支持主备切换） ===
