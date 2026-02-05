@@ -663,8 +663,21 @@ class PortraitPlugin(Star):
             if images:
                 all_images.extend(images)
 
+        # === v2.9.3: 检测是否需要自定义尺寸（非正方形）===
+        # Gemini 不支持自定义宽高比，有自定义尺寸时强制使用 Gitee
+        needs_custom_size = False
+        if size:
+            size_upper = size.upper()
+            if "X" in size_upper:
+                parts = size_upper.split("X")
+                if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                    w, h = int(parts[0]), int(parts[1])
+                    if w != h:  # 非正方形
+                        needs_custom_size = True
+                        logger.info(f"[Portrait] 检测到非正方形尺寸 {size}，将使用 Gitee")
+
         # 有参考图时，优先使用 Gemini，失败则降级到 Gitee（不带参考图）
-        if all_images:
+        if all_images and not needs_custom_size:
             logger.info(f"[Portrait] 准备使用 {len(all_images)} 张参考图生成图片")
             if self.gemini_draw.enabled:
                 try:
@@ -682,6 +695,13 @@ class PortraitPlugin(Star):
                 raise ValueError("参考图功能需要配置 Gemini API Key")
 
         # 确定主备提供商
+        # === v2.9.3: 非正方形尺寸时强制使用 Gitee ===
+        if needs_custom_size:
+            if self.gitee_draw.enabled:
+                return await self.gitee_draw.generate(prompt, size=size, resolution=resolution)
+            else:
+                raise ValueError("自定义尺寸需要配置 Gitee AI API Key（Gemini 不支持自定义宽高比）")
+
         if self.draw_provider == "gemini":
             primary, fallback = self.gemini_draw, self.gitee_draw
             primary_name, fallback_name = "Gemini", "Gitee"
@@ -900,3 +920,88 @@ class PortraitPlugin(Star):
 ━━━━━━━━━━━━━━━"""
             yield event.plain_result(msg)
 
+    # === v2.9.4: 消息撤回和图片删除命令 ===
+    async def _recall_message(self, event: AstrMessageEvent, message_id: str) -> bool:
+        """撤回指定消息
+
+        Args:
+            event: 消息事件
+            message_id: 要撤回的消息 ID
+
+        Returns:
+            是否成功撤回
+        """
+        try:
+            # 尝试获取 bot 对象并调用撤回 API
+            if hasattr(event, 'bot') and event.bot:
+                await event.bot.call_action("delete_msg", message_id=int(message_id))
+                return True
+            else:
+                logger.warning("[Portrait] 无法获取 bot 对象，撤回失败")
+                return False
+        except Exception as e:
+            logger.error(f"[Portrait] 撤回消息失败: {e}")
+            return False
+
+    def _extract_image_filename_from_url(self, url: str) -> str | None:
+        """从图片 URL 中提取文件名"""
+        if not url:
+            return None
+        # 尝试从 URL 中提取文件名
+        # 格式可能是: .../generated_images/1770263908130_e5f0ff33.jpg
+        import re
+        match = re.search(r'(\d+_[a-f0-9]+\.(jpg|jpeg|png|gif|webp))', url, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        return None
+
+    @filter.command("删图")
+    async def delete_image(self, event: AstrMessageEvent):
+        """引用一张由本插件生成的图片，撤回并从 WebUI 删除"""
+        # 获取被引用的消息
+        reply_msg_id = None
+        image_url = None
+
+        for comp in event.get_messages():
+            if isinstance(comp, Comp.Reply):
+                reply_msg_id = str(comp.id) if comp.id else None
+                logger.debug(f"[Portrait] Reply 组件: id={comp.id}, chain={getattr(comp, 'chain', None)}")
+                # 从引用消息中获取图片
+                if hasattr(comp, 'chain') and comp.chain:
+                    for quote_comp in comp.chain:
+                        if isinstance(quote_comp, Comp.Image):
+                            image_url = quote_comp.url
+                            logger.debug(f"[Portrait] 找到图片 URL: {image_url}")
+                            break
+                break
+
+        if not reply_msg_id:
+            yield event.plain_result("请引用一张图片后使用 /删图 命令")
+            return
+
+        # 尝试撤回消息
+        recall_success = await self._recall_message(event, reply_msg_id)
+
+        # 尝试删除 WebUI 中的图片
+        delete_success = False
+        if image_url:
+            filename = self._extract_image_filename_from_url(image_url)
+            if filename:
+                image_path = self.data_dir / "generated_images" / filename
+                if image_path.exists():
+                    try:
+                        image_path.unlink()
+                        delete_success = True
+                        logger.info(f"[Portrait] 已删除图片文件: {filename}")
+                    except Exception as e:
+                        logger.error(f"[Portrait] 删除图片文件失败: {e}")
+
+        # 返回结果
+        if recall_success and delete_success:
+            yield event.plain_result("已撤回消息并删除图片")
+        elif recall_success:
+            yield event.plain_result("已撤回消息（图片文件未找到或删除失败）")
+        elif delete_success:
+            yield event.plain_result("已删除图片文件（消息撤回失败，可能已超时）")
+        else:
+            yield event.plain_result("操作失败：无法撤回消息或删除图片")
