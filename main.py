@@ -362,6 +362,9 @@ class PortraitPlugin(Star):
         if self._is_terminated:
             return
 
+        # 调试：记录钩子调用
+        logger.debug(f"[Portrait] on_llm_request 钩子被调用，当前 system_prompt 长度: {len(req.system_prompt) if req.system_prompt else 0}")
+
         # 延迟启动 WebUI（首次 LLM 请求时，此时事件循环已在运行）
         if self.web_server and not self._webui_started:
             self._webui_started = True
