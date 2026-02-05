@@ -628,6 +628,7 @@ class PortraitPlugin(Star):
         size: str | None = None,
         resolution: str | None = None,
         images: list[bytes] | None = None,
+        is_character_related: bool | None = None,
     ) -> Path:
         """统一图片生成方法，支持主备切换
 
@@ -636,13 +637,18 @@ class PortraitPlugin(Star):
             size: 图片尺寸（仅 Gitee 支持）
             resolution: 分辨率（仅 Gitee 支持）
             images: 额外参考图片列表（会与自拍参考照合并）
+            is_character_related: 是否角色相关（可选，避免重复判断）
 
         Returns:
             生成的图片路径
         """
+        # 使用传入的判断结果或重新判断
+        if is_character_related is None:
+            is_character_related = self._is_character_related_prompt(prompt)
+
         # === v2.9.0: 智能参考图加载 - 仅角色相关请求使用参考图 ===
         selfie_refs = []
-        if self._is_character_related_prompt(prompt):
+        if is_character_related:
             # 仅当 prompt 与角色相关时才加载参考照
             selfie_refs = await self._load_selfie_reference_images()
         elif self.selfie_enabled:
@@ -711,17 +717,21 @@ class PortraitPlugin(Star):
         else:
             raise ValueError("图片生成失败，备用提供商也未配置")
 
-    def _build_final_prompt(self, prompt: str) -> str:
+    def _build_final_prompt(self, prompt: str, is_character_related: bool | None = None) -> str:
         """构建最终 prompt（自动添加角色外貌）
 
-        === v2.9.1: 与智能参考图逻辑保持一致 ===
-        仅在角色相关请求时自动添加角色外貌描述
+        Args:
+            prompt: 原始提示词
+            is_character_related: 是否角色相关（可选，避免重复判断）
         """
         if not self.auto_prepend_identity or not self.char_identity:
             return prompt
 
-        # === v2.9.1: 使用智能判断逻辑，非角色相关请求不添加外貌 ===
-        if not self._is_character_related_prompt(prompt):
+        # 使用传入的判断结果或重新判断
+        if is_character_related is None:
+            is_character_related = self._is_character_related_prompt(prompt)
+
+        if not is_character_related:
             logger.debug("[Portrait] 非角色相关请求，跳过自动添加角色外貌")
             return prompt
 
@@ -743,8 +753,16 @@ class PortraitPlugin(Star):
     ) -> str:
         """通用图片生成处理"""
         try:
-            final_prompt = self._build_final_prompt(prompt)
-            image_path = await self._generate_image(final_prompt, size=size, resolution=resolution)
+            # === v2.9.2: 统一判断角色相关性，避免重复调用 ===
+            is_character_related = self._is_character_related_prompt(prompt)
+
+            final_prompt = self._build_final_prompt(prompt, is_character_related)
+            image_path = await self._generate_image(
+                final_prompt,
+                size=size,
+                resolution=resolution,
+                is_character_related=is_character_related,
+            )
             await event.send(
                 event.chain_result([Comp.Image.fromFileSystem(str(image_path))])
             )
