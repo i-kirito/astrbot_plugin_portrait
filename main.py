@@ -61,7 +61,14 @@ class PortraitPlugin(Star):
             'draw', 'photo', 'selfie', 'picture', 'image', 'shot', 'snap',
             '给我[看康瞧]', '让我[看康瞧]', '发[张个一]', '来[张个一]',
             '在干[嘛啥什么]', '干什么呢', r'现在.{0,3}样子',
-            'ootd', 'outfit', 'look', '再来一', '再拍', '再画'
+            'ootd', 'outfit', 'look', '再来一', '再拍', '再画',
+            # 角色日常场景触发词
+            '在画室', '在卧室', '在厨房', '在客厅', '在浴室', '在阳台',
+            '在书房', '在办公室', '在学校', '在教室', '在公园', '在海边',
+            '在床上', '在沙发', '在窗边', '在镜子前', '在家', '在房间',
+            '在茶水间', '在走廊', '在楼梯', '在天台', '在餐厅', '在咖啡厅',
+            '坐着', '站着', '躺着', '蹲着', '跪着', '趴着',
+            '吃饭', '睡觉', '看书', '玩手机', '做饭', '喝水', '喝咖啡', '喝茶',
         ]
         self.trigger_regex = re.compile(f"({'|'.join(trigger_keywords)})", re.IGNORECASE)
 
@@ -755,19 +762,17 @@ class PortraitPlugin(Star):
         Returns:
             消息ID（如果能获取到）
         """
-        import base64
-
         message_id = None
 
         # 尝试直接使用 bot.call_action 发送以获取消息ID
         if hasattr(event, 'bot') and event.bot:
             try:
-                # 读取图片并转为 base64
-                image_bytes = image_path.read_bytes()
-                b64 = base64.b64encode(image_bytes).decode()
+                # 使用 file:// 协议发送本地文件，让 NapCat 处理上传
+                # 这样生成的 URL 在被引用时更容易下载
+                file_uri = f"file://{image_path.resolve()}"
 
                 is_group = bool(event.get_group_id())
-                message = [{"type": "image", "data": {"file": f"base64://{b64}"}}]
+                message = [{"type": "image", "data": {"file": file_uri}}]
 
                 if is_group:
                     result = await event.bot.send_group_msg(
