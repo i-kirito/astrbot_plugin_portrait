@@ -41,7 +41,8 @@ TPL_HEADER = """# Visual Context Injection (System Override)
 4.  **IMPORTANT**: Always use `portrait_draw_image` tool for image generation.
 5.  **CRITICAL**: When calling any tool, do NOT output any text content in the same response. Call the tool ONLY, then wait for the result before responding to the user.
 6.  **MANDATORY**: You MUST copy the EXACT prompt blocks from the Environment and Camera sections below verbatim. Do NOT simplify, summarize, or omit any parameters. Include ALL lighting, style, and quality tags exactly as written.
-7.  **NO REPEAT**: After the tool returns [SUCCESS], do NOT call portrait_draw_image again with the same or similar prompt. The image has already been sent to the user."""
+7.  **NO REPEAT**: After the tool returns [SUCCESS], do NOT call portrait_draw_image again with the same or similar prompt. The image has already been sent to the user. Just respond naturally to acknowledge the task completion.
+8.  **SINGLE CALL ONLY**: Only call the tool ONCE per user request. If you already called it, DO NOT call again even if the user message contains drawing keywords."""
 
 TPL_CHAR = """## 1. Character Visuals (Fixed Identity)
 **Core Appearance (Always Active):**

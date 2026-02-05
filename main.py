@@ -428,6 +428,25 @@ class PortraitPlugin(Star):
         else:
             logger.debug("[Portrait] 消息提取失败: 所有方式均未获取到用户消息")
 
+        # === v2.9.0: 防止工具调用响应重复触发注入 ===
+        # 检查消息历史中是否已有工具调用记录（表示正在处理工具调用后的响应）
+        is_tool_response = False
+        if hasattr(req, 'messages') and req.messages:
+            # 检查最近几条消息是否有工具调用
+            for msg in reversed(list(req.messages)[-5:]):  # 只检查最近5条消息
+                if hasattr(msg, 'role') and msg.role == 'tool':
+                    is_tool_response = True
+                    break
+                # 检查 assistant 消息中是否包含工具调用
+                if hasattr(msg, 'role') and msg.role == 'assistant':
+                    if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                        is_tool_response = True
+                        break
+
+        if is_tool_response:
+            logger.debug("[Portrait] 检测到工具调用响应，跳过注入防止循环")
+            return
+
         # 正则匹配检测绘图意图
         if not user_message or not self.trigger_regex.search(user_message):
             logger.debug(f"[Portrait] 未检测到绘图意图，跳过注入")
@@ -454,12 +473,16 @@ class PortraitPlugin(Star):
         # 更新当前会话的活跃时间
         self.injection_last_active[session_id] = current_time
 
-        # 检测到绘图触发词时，重置/初始化该会话的注入计数
+        # === v2.9.0: 修复重复注入问题 - 只在计数已耗尽时才重置 ===
+        # 检测到绘图触发词时，仅在新会话或计数已完全耗尽时才重置
         if self.trigger_regex.search(user_message):
-            # 如果是新触发或计数已耗尽，重新初始化
-            if session_id not in self.injection_counter or self.injection_counter[session_id] <= 0:
+            current_count = self.injection_counter.get(session_id, 0)
+            # 只有当计数为 0 或会话不存在时才重新初始化
+            if current_count <= 0:
                 self.injection_counter[session_id] = self.injection_rounds
-                logger.info(f"[Portrait] 检测到绘图意图，初始化注入轮次: {self.injection_rounds}")
+                logger.info(f"[Portrait] 检测到新的绘图请求，初始化注入轮次: {self.injection_rounds}")
+            else:
+                logger.debug(f"[Portrait] 会话 {session_id} 仍有 {current_count} 轮注入，继续使用")
 
         # 检查是否还有剩余注入次数
         remaining = self.injection_counter.get(session_id, 0)
