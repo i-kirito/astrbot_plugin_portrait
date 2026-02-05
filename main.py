@@ -548,24 +548,21 @@ class PortraitPlugin(Star):
 
         只有明确与角色相关的请求才使用参考图,避免生成奇怪的图片
         """
-        # 非角色相关的明确排除关键词(物品、其他角色、场景等)
+        # 排除关键词：非角色内容（其他IP角色、动物、物品、场景等）
         exclude_keywords = [
-            # 变形金刚/机甲系列
+            # 机甲/其他角色
             'optimus', 'prime', 'megatron', 'bumblebee', 'transformers',
             'mecha', 'robot', 'gundam', 'mech',
-            '擎天柱', '威震天', '大黄蜂', '机甲', '机器人', '高达',
-            # 其他角色/IP
             'batman', 'superman', 'ironman', 'spiderman', 'hulk',
             'pikachu', 'naruto', 'goku', 'luffy', 'sailor moon',
+            '擎天柱', '威震天', '大黄蜂', '机甲', '机器人', '高达',
             '蝙蝠侠', '超人', '钢铁侠', '蜘蛛侠', '绿巨人',
             '皮卡丘', '火影', '鸣人', '悟空', '路飞', '美少女战士',
-            # 动物
+            # 动物/物品/场景
             'cat', 'dog', 'bird', 'dragon', 'unicorn', 'horse', 'wolf', 'fox',
             '猫', '狗', '鸟', '龙', '马', '狼', '狐狸',
-            # 物品
             'car', 'vehicle', 'automobile', 'motorcycle', 'bike',
             '汽车', '车辆', '摩托车', '自行车',
-            # 建筑/场景
             'building', 'landscape', 'scenery', 'architecture', 'cityscape',
             '建筑', '风景', '景色', '城市',
         ]
@@ -577,20 +574,14 @@ class PortraitPlugin(Star):
                 logger.info(f"[Portrait] 检测到非角色内容关键词 '{keyword}',跳过参考图和外貌注入")
                 return False
 
-        # 角色相关的明确关键词
+        # 角色相关关键词：人物特征、自拍、身体部位等
         character_keywords = [
-            # 人物特征
             'girl', 'woman', 'lady', 'female', 'person', 'human',
             '女孩', '女生', '女性', '人物', '人像',
-            # 自拍/肖像
-            'selfie', 'portrait', 'headshot', 'profile',
+            'selfie', 'portrait', 'headshot', 'profile','cos',
             '自拍', '肖像', '头像', '形象',
-            # 身体部位
             'face', 'body', 'hand', 'eyes',
             '脸', '身体', '手', '眼睛',
-            # 角色外貌特征(从 char_identity 提取核心词)
-            'pink hair', 'asian', 'air bangs',
-            '粉发', '粉色头发', '空气刘海',
         ]
 
         # 如果包含角色相关关键词,则使用参考图
