@@ -792,8 +792,8 @@ class PortraitPlugin(Star):
 
         Args:
             prompt(string): 图片提示词，需要包含主体、场景、风格等描述
-            size(string): 图片尺寸，如 "1024x1024"、"2048x2048"、"4096x4096"
-            resolution(string): 分辨率，可选 "1K"、"2K"、"4K"
+            size(string): 图片尺寸，支持: 正方形(256x256, 512x512, 1024x1024, 2048x2048), 横版(1152x896, 2048x1536, 2048x1360, 1024x576, 2048x1152), 竖版(768x1024, 1536x2048, 1360x2048, 576x1024, 1152x2048)。非标准尺寸会自动映射到最接近的支持尺寸
+            resolution(string): 分辨率快捷方式，可选 "1K"(1024x1024)、"2K"(2048x2048)
         """
         return await self._handle_image_generation(event, prompt, size or None, resolution or None)
 

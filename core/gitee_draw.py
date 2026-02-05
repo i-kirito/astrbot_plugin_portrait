@@ -48,20 +48,74 @@ def _is_private_ip(host: str) -> bool:
             return False
 
 
+# Gitee AI 支持的所有尺寸
+GITEE_SUPPORTED_SIZES = {
+    # 正方形
+    (256, 256), (512, 512), (1024, 1024), (2048, 2048),
+    # 横版
+    (1152, 896), (2048, 1536), (2048, 1360), (1024, 576), (2048, 1152),
+    # 竖版
+    (768, 1024), (1536, 2048), (1360, 2048), (576, 1024), (1152, 2048),
+}
+
+
+def _find_closest_size(width: int, height: int) -> str:
+    """找到最接近的支持尺寸"""
+    target_ratio = width / height
+    target_area = width * height
+
+    best_size = None
+    best_score = float('inf')
+
+    for w, h in GITEE_SUPPORTED_SIZES:
+        # 计算比例差异（权重更高）和面积差异
+        ratio = w / h
+        ratio_diff = abs(ratio - target_ratio)
+        area_diff = abs(w * h - target_area) / target_area  # 归一化
+
+        # 综合评分：比例差异权重 2，面积差异权重 1
+        score = ratio_diff * 2 + area_diff
+
+        if score < best_score:
+            best_score = score
+            best_size = (w, h)
+
+    return f"{best_size[0]}x{best_size[1]}" if best_size else "1024x1024"
+
+
 def resolution_to_size(resolution: str) -> str | None:
-    """将分辨率字符串转换为尺寸"""
+    """将分辨率字符串转换为 Gitee 支持的尺寸
+
+    Gitee AI 支持的尺寸:
+    - 正方形: 256x256, 512x512, 1024x1024, 2048x2048
+    - 横版: 1152x896, 2048x1536, 2048x1360, 1024x576, 2048x1152
+    - 竖版: 768x1024, 1536x2048, 1360x2048, 576x1024, 1152x2048
+
+    非标准尺寸会自动映射到最接近的支持尺寸
+    """
     r = (resolution or "").strip().upper()
     if not r or r == "AUTO":
         return None
+
+    # 标准分辨率关键词
     if r in {"1K", "1024"}:
         return "1024x1024"
     if r in {"2K", "2048"}:
         return "2048x2048"
     if r in {"4K", "4096"}:
         return "4096x4096"
-    # 检查是否是 WxH 格式
-    if "X" in r and r.replace("X", "").replace("x", "").isdigit():
-        return r.lower()
+
+    # 处理 WxH 格式
+    if "X" in r:
+        parts = r.split("X")
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            w, h = int(parts[0]), int(parts[1])
+            # 检查是否是支持的尺寸
+            if (w, h) in GITEE_SUPPORTED_SIZES:
+                return f"{w}x{h}"
+            # 不支持则映射到最接近的尺寸
+            return _find_closest_size(w, h)
+
     return None
 
 
@@ -203,8 +257,11 @@ class GiteeDrawService:
         client = self._get_client(key)
 
         final_model = model or self.model
+        # size 和 resolution 都需要经过标准化处理
         final_size = (
-            size or resolution_to_size(resolution or "") or self.default_size
+            resolution_to_size(size or "")
+            or resolution_to_size(resolution or "")
+            or self.default_size
         )
         final_steps = num_inference_steps or self.num_inference_steps
         final_negative = negative_prompt or self.negative_prompt
