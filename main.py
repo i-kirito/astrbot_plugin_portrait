@@ -807,6 +807,7 @@ class PortraitPlugin(Star):
         return prompt
 
     # === v2.9.4: 发送图片并记录消息ID映射 ===
+    # === v2.9.6: 使用 base64 发送图片，兼容 Docker 版 NapCat ===
     async def _send_image_and_record(self, event: AstrMessageEvent, image_path: Path) -> str | None:
         """发送图片并尝试记录消息ID映射
 
@@ -817,17 +818,32 @@ class PortraitPlugin(Star):
         Returns:
             消息ID（如果能获取到）
         """
+        import base64
+
         message_id = None
+
+        # 读取图片并转为 base64
+        try:
+            image_bytes = image_path.read_bytes()
+            image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+            # 检测图片格式
+            suffix = image_path.suffix.lower().lstrip('.')
+            if suffix == 'jpg':
+                suffix = 'jpeg'
+            base64_uri = f"base64://{image_base64}"
+        except Exception as e:
+            logger.error(f"[Portrait] 读取图片文件失败: {e}")
+            # 回退到文件路径方式
+            await event.send(
+                event.chain_result([Comp.Image.fromFileSystem(str(image_path))])
+            )
+            return None
 
         # 尝试直接使用 bot.call_action 发送以获取消息ID
         if hasattr(event, 'bot') and event.bot:
             try:
-                # 使用 file:// 协议发送本地文件，让 NapCat 处理上传
-                # 这样生成的 URL 在被引用时更容易下载
-                file_uri = f"file://{image_path.resolve()}"
-
                 is_group = bool(event.get_group_id())
-                message = [{"type": "image", "data": {"file": file_uri}}]
+                message = [{"type": "image", "data": {"file": base64_uri}}]
 
                 if is_group:
                     result = await event.bot.send_group_msg(
@@ -848,14 +864,14 @@ class PortraitPlugin(Star):
 
             except Exception as e:
                 logger.warning(f"[Portrait] 使用 bot API 发送失败，回退到 event.send: {e}")
-                # 回退到标准方式
+                # 回退到标准方式（使用 base64）
                 await event.send(
-                    event.chain_result([Comp.Image.fromFileSystem(str(image_path))])
+                    event.chain_result([Comp.Image.fromBase64(image_base64)])
                 )
         else:
-            # 没有 bot 对象，使用标准方式
+            # 没有 bot 对象，使用标准方式（使用 base64）
             await event.send(
-                event.chain_result([Comp.Image.fromFileSystem(str(image_path))])
+                event.chain_result([Comp.Image.fromBase64(image_base64)])
             )
 
         return message_id
