@@ -1,43 +1,34 @@
-"""默认配置常量"""
+"""默认配置常量 - 仅供参考的示例配置"""
 
-# 默认角色外貌描述
-DEF_CHAR_IDENTITY = """> **The subject is a young 18-year-old Asian girl with fair skin and delicate features. She has dusty rose pink hair featuring essential wispy air bangs. Her large, round, doll-like eyes are deep-set and natural dark brown. She possesses a slender hourglass figure with a tiny waist and a full bust, emphasizing a natural soft tissue silhouette.**"""
+# 默认角色外貌描述（示例）
+# 用户应在 WebUI 配置页面或 config.yaml 中自定义
+DEF_CHAR_IDENTITY = """> **A young person with distinct features. Customize this in the plugin configuration.**"""
 
-# 默认环境场景配置
+# 默认环境场景配置（示例）
 DEFAULT_ENVIRONMENTS = [
     {
-        "name": "默认/卧室",
+        "name": "默认室内",
         "keywords": ["default"],
-        "prompt": "(indoors, cute girl's bedroom aesthetic:1.3), (kawaii style:1.2), (natural window light mixed with warm indoor lamps:1.3), (realistic light and shadow:1.2), (pastel pink and warm tones:1.1), cozy atmosphere"
+        "prompt": "(indoors:1.2), (natural lighting:1.2), (realistic:1.2), cozy atmosphere"
     },
     {
-        "name": "更衣室",
-        "keywords": ["穿搭", "全身", "OOTD", "look"],
-        "prompt": "(indoors, pink aesthetic dressing room:1.4), (bright sunlight streaming through sheer curtains:1.4), (white vanity table), (pink fluffy stool), (pink clothing rack), (pastel pink and white tones:1.2), cozy, kawaii aesthetic"
-    },
-    {
-        "name": "户外/自定义",
-        "keywords": ["户外", "外面", "公园", "街"],
-        "prompt": "根据用户指定地点生成场景。必须添加: (blurred background), (bokeh), (natural lighting)"
+        "name": "户外",
+        "keywords": ["户外", "outdoor", "outside"],
+        "prompt": "(outdoors:1.3), (natural daylight:1.3), (blurred background:1.2), (bokeh:1.1)"
     }
 ]
 
-# 默认摄影模式配置
+# 默认摄影模式配置（示例）
 DEFAULT_CAMERAS = [
-    {
-        "name": "自拍模式",
-        "keywords": ["自拍", "selfie", "对镜"],
-        "prompt": "(mirror selfie style:1.2), holding phone, looking at phone screen or mirror, (realistic screen light reflection on face), cute pose, close-up POV shot"
-    },
-    {
-        "name": "全身/远景",
-        "keywords": ["全身", "full body", "穿搭", "OOTD"],
-        "prompt": "full body shot, head to toe visible, wide angle, far shot, (relaxed fashion pose:1.3), casual stance, legs and shoes visible"
-    },
     {
         "name": "半身/默认",
         "keywords": ["default"],
-        "prompt": "upper body shot, medium close-up portrait, looking at camera, (dynamic random pose:1.2), (playful gestures:1.1), candid portrait"
+        "prompt": "upper body shot, medium close-up portrait, looking at camera"
+    },
+    {
+        "name": "全身",
+        "keywords": ["全身", "full body"],
+        "prompt": "full body shot, head to toe visible, wide angle"
     }
 ]
 

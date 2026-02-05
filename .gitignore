@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 个人配置文件（包含用户自定义的 bot 形象）
+personal_config.yaml
+dynamic_config.json
+
+# 用户数据（图片、参考照等）
+generated_images/
+thumbnails/
+selfie_refs/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+
+# 元数据
+image_metadata.json
+favorites.json
+
+# 开发文件
+.DS_Store
+.vscode/
+.idea/
+*.log
