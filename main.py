@@ -466,6 +466,21 @@ class PortraitPlugin(Star):
             logger.debug("[Portrait] 检测到工具调用响应，跳过注入防止循环")
             return
 
+        # === v2.9.6: 排除插件指令，避免干扰 ===
+        user_msg_stripped = user_message.strip()
+
+        # 排除以 / 或 . 开头的指令
+        if user_msg_stripped.startswith('/') or user_msg_stripped.startswith('.'):
+            logger.debug(f"[Portrait] 检测到插件指令，跳过注入")
+            return
+
+        # 动态获取 banana_sign 预设词（避免硬编码）
+        banana_prefixes = self._get_banana_sign_prefixes()
+        cmd = user_msg_stripped.split()[0] if user_msg_stripped else ""
+        if cmd in banana_prefixes:
+            logger.debug(f"[Portrait] 检测到 banana_sign 命令 '{cmd}'，跳过注入")
+            return
+
         # 正则匹配检测绘图意图
         if not user_message or not self.trigger_regex.search(user_message):
             logger.debug(f"[Portrait] 未检测到绘图意图，跳过注入")
@@ -567,6 +582,46 @@ class PortraitPlugin(Star):
                 req.prompt = cleaned
                 logger.debug("[Portrait] 已从 prompt 清理注入内容")
 
+    def _get_banana_sign_prefixes(self) -> set[str]:
+        """动态获取 banana_sign 插件的预设词列表"""
+        prefixes = set()
+
+        # 固定的命令（不在配置文件中的）
+        fixed_commands = {
+            'cp生图', 'cp改图', '画图', '生图', 'cp画图', '改图',
+        }
+        prefixes.update(fixed_commands)
+
+        # 尝试读取 banana_sign 配置文件获取预设词
+        try:
+            config_path = self.data_dir.parent.parent / "config" / "astrbot_plugin_banana_sign_config.json"
+            if config_path.exists():
+                import json
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                prompt_list = config.get("prompt", [])
+                for prompt in prompt_list:
+                    if not prompt:
+                        continue
+                    # 提取触发词（第一个单词或 [触发词1,触发词2] 格式）
+                    prompt = prompt.strip()
+                    if prompt.startswith('['):
+                        # [触发词1,触发词2] 格式
+                        end = prompt.find(']')
+                        if end > 0:
+                            triggers = prompt[1:end].split(',')
+                            for t in triggers:
+                                prefixes.add(t.strip())
+                    else:
+                        # 普通格式：第一个空格前的内容
+                        first_word = prompt.split()[0] if prompt.split() else ""
+                        if first_word:
+                            prefixes.add(first_word)
+        except Exception as e:
+            logger.debug(f"[Portrait] 读取 banana_sign 配置失败: {e}")
+
+        return prefixes
+
     def _is_global_admin(self, event: AstrMessageEvent) -> bool:
         """检查发送者是否为全局管理员"""
         admin_ids = self.context.get_config().get("admins_id", [])
@@ -649,9 +704,12 @@ class PortraitPlugin(Star):
             '在画室', '在卧室', '在厨房', '在客厅', '在浴室', '在阳台',
             '在书房', '在办公室', '在学校', '在教室', '在公园', '在海边',
             '在床上', '在沙发', '在窗边', '在镜子前', '在家', '在房间',
+            '在茶水间', '在走廊', '在楼梯', '在天台', '在餐厅', '在咖啡厅',
             # 中文 - 角色姿态/动作
             '坐着', '站着', '躺着', '蹲着', '跪着', '趴着',
-            '吃饭', '睡觉', '看书', '玩手机', '做饭', '喝水', '喝咖啡',
+            '吃饭', '睡觉', '看书', '玩手机', '做饭', '喝水', '喝咖啡', '喝茶',
+            # 中文 - 再来一张类（暗示继续上一个角色相关请求）
+            '再来', '再拍', '再画', '再发', '再给', '换一张', '换个', '重新',
         ]
 
         # 只有明确匹配角色关键词才注入
@@ -807,7 +865,7 @@ class PortraitPlugin(Star):
         return prompt
 
     # === v2.9.4: 发送图片并记录消息ID映射 ===
-    # === v2.9.6: 使用 base64 发送图片，兼容 Docker 版 NapCat ===
+    # === v2.9.7: 使用 file:// 发送图片（需要 Docker 卷映射）===
     async def _send_image_and_record(self, event: AstrMessageEvent, image_path: Path) -> str | None:
         """发送图片并尝试记录消息ID映射
 
@@ -818,32 +876,16 @@ class PortraitPlugin(Star):
         Returns:
             消息ID（如果能获取到）
         """
-        import base64
-
         message_id = None
 
-        # 读取图片并转为 base64
-        try:
-            image_bytes = image_path.read_bytes()
-            image_base64 = base64.b64encode(image_bytes).decode('utf-8')
-            # 检测图片格式
-            suffix = image_path.suffix.lower().lstrip('.')
-            if suffix == 'jpg':
-                suffix = 'jpeg'
-            base64_uri = f"base64://{image_base64}"
-        except Exception as e:
-            logger.error(f"[Portrait] 读取图片文件失败: {e}")
-            # 回退到文件路径方式
-            await event.send(
-                event.chain_result([Comp.Image.fromFileSystem(str(image_path))])
-            )
-            return None
+        # 使用 file:// 协议发送图片
+        file_uri = f"file://{image_path.resolve()}"
 
         # 尝试直接使用 bot.call_action 发送以获取消息ID
         if hasattr(event, 'bot') and event.bot:
             try:
                 is_group = bool(event.get_group_id())
-                message = [{"type": "image", "data": {"file": base64_uri}}]
+                message = [{"type": "image", "data": {"file": file_uri}}]
 
                 if is_group:
                     result = await event.bot.send_group_msg(
