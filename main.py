@@ -550,25 +550,31 @@ class PortraitPlugin(Star):
         """
         # 非角色相关的明确排除关键词(物品、其他角色、场景等)
         exclude_keywords = [
+            # 变形金刚/机甲系列
+            'optimus', 'prime', 'megatron', 'bumblebee', 'transformers',
+            'mecha', 'robot', 'gundam', 'mech',
+            '擎天柱', '威震天', '大黄蜂', '机甲', '机器人', '高达',
             # 其他角色/IP
             'batman', 'superman', 'ironman', 'spiderman', 'hulk',
-            'pikachu', 'naruto', 'goku', 'luffy',
+            'pikachu', 'naruto', 'goku', 'luffy', 'sailor moon',
+            '蝙蝠侠', '超人', '钢铁侠', '蜘蛛侠', '绿巨人',
+            '皮卡丘', '火影', '鸣人', '悟空', '路飞', '美少女战士',
             # 动物
-            'cat', 'dog', 'bird', 'dragon', 'unicorn', 'horse',
-            '猫', '狗', '鸟', '龙', '马',
-            # 物品/场景
-            'car', 'building', 'landscape', 'scenery', 'architecture',
-            '汽车', '建筑', '风景', '景色',
-            # 机甲/机器人
-            'mecha', 'robot', 'gundam',
-            '机甲', '机器人', '高达',
+            'cat', 'dog', 'bird', 'dragon', 'unicorn', 'horse', 'wolf', 'fox',
+            '猫', '狗', '鸟', '龙', '马', '狼', '狐狸',
+            # 物品
+            'car', 'vehicle', 'automobile', 'motorcycle', 'bike',
+            '汽车', '车辆', '摩托车', '自行车',
+            # 建筑/场景
+            'building', 'landscape', 'scenery', 'architecture', 'cityscape',
+            '建筑', '风景', '景色', '城市',
         ]
 
         # 如果包含排除关键词,则不使用参考图
         prompt_lower = prompt.lower()
         for keyword in exclude_keywords:
             if keyword in prompt_lower:
-                logger.info(f"[Portrait] 检测到非角色内容关键词 '{keyword}',跳过参考图")
+                logger.info(f"[Portrait] 检测到非角色内容关键词 '{keyword}',跳过参考图和外貌注入")
                 return False
 
         # 角色相关的明确关键词
@@ -590,16 +596,16 @@ class PortraitPlugin(Star):
         # 如果包含角色相关关键词,则使用参考图
         for keyword in character_keywords:
             if keyword in prompt_lower:
-                logger.info(f"[Portrait] 检测到角色相关关键词 '{keyword}',使用参考图")
+                logger.info(f"[Portrait] 检测到角色相关关键词 '{keyword}',使用参考图和外貌注入")
                 return True
 
         # 默认策略:如果 prompt 很短(少于 30 字符)且没有明确排除词,可能是简单的人物请求
         if len(prompt) < 30 and not any(kw in prompt_lower for kw in exclude_keywords):
-            logger.info(f"[Portrait] Prompt 较短且未检测到排除词,使用参考图")
+            logger.info(f"[Portrait] Prompt 较短且未检测到排除词,使用参考图和外貌注入")
             return True
 
         # 其他情况不使用参考图
-        logger.info(f"[Portrait] 未匹配角色相关特征,跳过参考图")
+        logger.info(f"[Portrait] 未匹配角色相关特征,跳过参考图和外貌注入")
         return False
 
     # === v2.4.0: 统一图片生成方法（支持主备切换） ===
@@ -693,9 +699,19 @@ class PortraitPlugin(Star):
             raise ValueError("图片生成失败，备用提供商也未配置")
 
     def _build_final_prompt(self, prompt: str) -> str:
-        """构建最终 prompt（自动添加角色外貌）"""
+        """构建最终 prompt（自动添加角色外貌）
+
+        === v2.9.1: 与智能参考图逻辑保持一致 ===
+        仅在角色相关请求时自动添加角色外貌描述
+        """
         if not self.auto_prepend_identity or not self.char_identity:
             return prompt
+
+        # === v2.9.1: 使用智能判断逻辑，非角色相关请求不添加外貌 ===
+        if not self._is_character_related_prompt(prompt):
+            logger.debug("[Portrait] 非角色相关请求，跳过自动添加角色外貌")
+            return prompt
+
         # 检查 prompt 是否已包含核心特征关键词
         identity_keywords = ["asian girl", "pink hair", "rose pink", "dusty rose", "air bangs"]
         has_identity = any(kw.lower() in prompt.lower() for kw in identity_keywords)
