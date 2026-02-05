@@ -90,6 +90,12 @@ class PortraitPlugin(Star):
         # 会话过期时间（秒），默认 1 小时
         self.session_ttl = 3600
 
+        # === v2.9.4: 消息ID与图片路径映射（用于删图命令）===
+        # {message_id: image_path}
+        self.sent_images: dict[str, Path] = {}
+        # 最大记录数，防止内存无限增长
+        self.max_sent_images = 100
+
         # === v2.0.0: Gitee AI 文生图服务 ===
         gitee_conf = self.config.get("gitee_config", {}) or {}
         cache_conf = self.config.get("cache_config", {}) or {}
@@ -555,36 +561,9 @@ class PortraitPlugin(Star):
         1. 注入判断：检查用户消息是否需要注入 Visual Context
         2. 生成判断：检查 prompt 是否需要使用参考图和角色外貌
 
-        只有明确与角色相关的请求才注入/使用参考图，避免污染非角色内容
+        策略：只有明确匹配角色关键词才注入，默认不注入
         """
-        # 排除关键词：非角色内容（其他IP角色、动物、物品、场景等）
-        exclude_keywords = [
-            # 机甲/其他角色
-            'optimus', 'prime', 'megatron', 'bumblebee', 'transformers',
-            'mecha', 'robot', 'gundam', 'mech',
-            'batman', 'superman', 'ironman', 'spiderman', 'hulk',
-            'pikachu', 'naruto', 'goku', 'luffy', 'sailor moon',
-            '擎天柱', '威震天', '大黄蜂', '机甲', '机器人', '高达',
-            '蝙蝠侠', '超人', '钢铁侠', '蜘蛛侠', '绿巨人',
-            '皮卡丘', '火影', '鸣人', '悟空', '路飞', '美少女战士',
-            # 动物
-            'cat', 'dog', 'bird', 'dragon', 'unicorn', 'horse', 'wolf', 'fox',
-            '猫', '狗', '鸟', '龙', '马', '狼', '狐狸', '兔子', '老虎', '狮子',
-            '猫咪', '小猫', '小狗', '宠物',
-            # 物品/载具
-            'car', 'vehicle', 'automobile', 'motorcycle', 'bike',
-            '汽车', '车辆', '摩托车', '自行车', '飞机', '火车',
-            # 场景/风景
-            'building', 'landscape', 'scenery', 'architecture', 'cityscape',
-            '建筑', '风景', '景色', '城市', '山', '海', '森林', '花',
-        ]
-
-        # 如果包含排除关键词，不注入/不使用参考图
         text_lower = text.lower()
-        for keyword in exclude_keywords:
-            if keyword in text_lower:
-                logger.info(f"[Portrait] 检测到非角色内容 '{keyword}'，跳过注入")
-                return False
 
         # 角色相关关键词：人物特征、自拍、身体部位、常见用户表达等
         character_keywords = [
@@ -604,21 +583,23 @@ class PortraitPlugin(Star):
             '你', '自己', '本人', '真人', '样子', '长什么样', '什么样子',
             '看看你', '给我看', '让我看', '康康', '瞧瞧', '瞅瞅',
             '全身', 'ootd', '今日穿搭',
+            # 中文 - 角色日常场景（地点暗示角色活动）
+            '在画室', '在卧室', '在厨房', '在客厅', '在浴室', '在阳台',
+            '在书房', '在办公室', '在学校', '在教室', '在公园', '在海边',
+            '在床上', '在沙发', '在窗边', '在镜子前', '在家', '在房间',
+            # 中文 - 角色姿态/动作
+            '坐着', '站着', '躺着', '蹲着', '跪着', '趴着',
+            '吃饭', '睡觉', '看书', '玩手机', '做饭', '喝水', '喝咖啡',
         ]
 
-        # 如果包含角色相关关键词，注入/使用参考图
+        # 只有明确匹配角色关键词才注入
         for keyword in character_keywords:
             if keyword in text_lower:
                 logger.info(f"[Portrait] 检测到角色相关 '{keyword}'，执行注入")
                 return True
 
-        # 默认策略：短文本（< 30 字符）且无排除词，视为简单人物请求
-        if len(text) < 30:
-            logger.info(f"[Portrait] 文本较短且无排除词，默认注入")
-            return True
-
-        # 其他情况不注入
-        logger.info(f"[Portrait] 未匹配角色特征，跳过注入")
+        # 默认不注入
+        logger.debug(f"[Portrait] 未匹配角色关键词，跳过注入")
         return False
 
     # === v2.4.0: 统一图片生成方法（支持主备切换） ===
@@ -763,6 +744,74 @@ class PortraitPlugin(Star):
             return f"{self.char_identity} {prompt}"
         return prompt
 
+    # === v2.9.4: 发送图片并记录消息ID映射 ===
+    async def _send_image_and_record(self, event: AstrMessageEvent, image_path: Path) -> str | None:
+        """发送图片并尝试记录消息ID映射
+
+        Args:
+            event: 消息事件
+            image_path: 图片文件路径
+
+        Returns:
+            消息ID（如果能获取到）
+        """
+        import base64
+
+        message_id = None
+
+        # 尝试直接使用 bot.call_action 发送以获取消息ID
+        if hasattr(event, 'bot') and event.bot:
+            try:
+                # 读取图片并转为 base64
+                image_bytes = image_path.read_bytes()
+                b64 = base64.b64encode(image_bytes).decode()
+
+                is_group = bool(event.get_group_id())
+                message = [{"type": "image", "data": {"file": f"base64://{b64}"}}]
+
+                if is_group:
+                    result = await event.bot.send_group_msg(
+                        group_id=int(event.get_group_id()),
+                        message=message
+                    )
+                else:
+                    result = await event.bot.send_private_msg(
+                        user_id=int(event.get_sender_id()),
+                        message=message
+                    )
+
+                # 获取返回的消息ID
+                if isinstance(result, dict) and 'message_id' in result:
+                    message_id = str(result['message_id'])
+                    # 记录映射
+                    self._record_sent_image(message_id, image_path)
+
+            except Exception as e:
+                logger.warning(f"[Portrait] 使用 bot API 发送失败，回退到 event.send: {e}")
+                # 回退到标准方式
+                await event.send(
+                    event.chain_result([Comp.Image.fromFileSystem(str(image_path))])
+                )
+        else:
+            # 没有 bot 对象，使用标准方式
+            await event.send(
+                event.chain_result([Comp.Image.fromFileSystem(str(image_path))])
+            )
+
+        return message_id
+
+    def _record_sent_image(self, message_id: str, image_path: Path):
+        """记录发送的图片映射"""
+        # 清理过多的记录
+        if len(self.sent_images) >= self.max_sent_images:
+            # 删除最早的一半记录
+            keys_to_delete = list(self.sent_images.keys())[:len(self.sent_images) // 2]
+            for key in keys_to_delete:
+                del self.sent_images[key]
+            logger.debug(f"[Portrait] 清理了 {len(keys_to_delete)} 条旧的图片映射记录")
+
+        self.sent_images[message_id] = image_path
+
     # === v2.0.0: LLM 工具调用 - 文生图 ===
     async def _handle_image_generation(
         self,
@@ -783,9 +832,12 @@ class PortraitPlugin(Star):
                 resolution=resolution,
                 is_character_related=is_character_related,
             )
-            await event.send(
-                event.chain_result([Comp.Image.fromFileSystem(str(image_path))])
-            )
+
+            # === v2.9.4: 发送图片并记录消息ID映射 ===
+            message_id = await self._send_image_and_record(event, image_path)
+            if message_id:
+                logger.debug(f"[Portrait] 已记录图片映射: msg_id={message_id}, path={image_path}")
+
             return "[SUCCESS] 图片已成功生成并发送给用户。任务完成，无需再次调用此工具。"
         except Exception as e:
             logger.error(f"[Portrait] 文生图失败: {e}")
@@ -982,19 +1034,32 @@ class PortraitPlugin(Star):
         # 尝试撤回消息
         recall_success = await self._recall_message(event, reply_msg_id)
 
-        # 尝试删除 WebUI 中的图片
+        # === v2.9.4: 优先从映射表获取图片路径，否则从 URL 提取 ===
         delete_success = False
-        if image_url:
+        image_path = None
+
+        # 方式1：从映射表查找
+        if reply_msg_id in self.sent_images:
+            image_path = self.sent_images[reply_msg_id]
+            logger.debug(f"[Portrait] 从映射表找到图片: {image_path}")
+            # 删除映射记录
+            del self.sent_images[reply_msg_id]
+
+        # 方式2：从 URL 提取文件名
+        if not image_path and image_url:
             filename = self._extract_image_filename_from_url(image_url)
             if filename:
                 image_path = self.data_dir / "generated_images" / filename
-                if image_path.exists():
-                    try:
-                        image_path.unlink()
-                        delete_success = True
-                        logger.info(f"[Portrait] 已删除图片文件: {filename}")
-                    except Exception as e:
-                        logger.error(f"[Portrait] 删除图片文件失败: {e}")
+                logger.debug(f"[Portrait] 从 URL 提取图片路径: {image_path}")
+
+        # 删除图片文件
+        if image_path and image_path.exists():
+            try:
+                image_path.unlink()
+                delete_success = True
+                logger.info(f"[Portrait] 已删除图片文件: {image_path.name}")
+            except Exception as e:
+                logger.error(f"[Portrait] 删除图片文件失败: {e}")
 
         # 返回结果
         if recall_success and delete_success:
