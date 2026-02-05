@@ -11,6 +11,13 @@
         "hint": "检测到绘图意图后，连续多少轮对话注入 Visual Context。设为 1 表示仅当前轮注入",
         "default": 1
     },
+    "cooldown_seconds": {
+        "type": "int",
+        "description": "画图冷却时间（秒）",
+        "hint": "每个用户两次画图之间的最小间隔时间，0 表示无冷却，管理员不受限制",
+        "default": 0,
+        "slider": { "min": 0, "max": 300, "step": 5 }
+    },
     "enable_env_injection": {
         "type": "bool",
         "description": "启用环境场景注入",

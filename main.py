@@ -103,6 +103,12 @@ class PortraitPlugin(Star):
         # 最大记录数，防止内存无限增长
         self.max_sent_images = 100
 
+        # === v2.9.5: 冷却时间控制 ===
+        # 冷却时间（秒），0 表示无冷却
+        self.cooldown_seconds = max(0, self.config.get("cooldown_seconds", 0))
+        # 用户最后使用时间 {user_id: timestamp}
+        self.user_last_use: dict[str, float] = {}
+
         # === v2.0.0: Gitee AI 文生图服务 ===
         gitee_conf = self.config.get("gitee_config", {}) or {}
         cache_conf = self.config.get("cache_config", {}) or {}
@@ -561,6 +567,55 @@ class PortraitPlugin(Star):
                 req.prompt = cleaned
                 logger.debug("[Portrait] 已从 prompt 清理注入内容")
 
+    def _is_global_admin(self, event: AstrMessageEvent) -> bool:
+        """检查发送者是否为全局管理员"""
+        admin_ids = self.context.get_config().get("admins_id", [])
+        sender_id = str(event.get_sender_id())
+        # 统一转为字符串比较，过滤空值
+        return sender_id in [str(aid) for aid in admin_ids if aid]
+
+    def _check_cooldown(self, event: AstrMessageEvent) -> tuple[bool, int]:
+        """检查用户是否在冷却中
+
+        Returns:
+            (is_allowed, remaining_seconds): 是否允许使用，剩余冷却秒数
+        """
+        # 无冷却时间限制
+        if self.cooldown_seconds <= 0:
+            return True, 0
+
+        # 管理员不受冷却限制
+        if self._is_global_admin(event):
+            return True, 0
+
+        import time
+        user_id = str(event.get_sender_id())
+        now = time.time()
+
+        # 检查用户上次使用时间
+        if user_id in self.user_last_use:
+            elapsed = now - self.user_last_use[user_id]
+            if elapsed < self.cooldown_seconds:
+                remaining = int(self.cooldown_seconds - elapsed)
+                return False, remaining
+
+        return True, 0
+
+    def _update_cooldown(self, event: AstrMessageEvent):
+        """更新用户的冷却时间"""
+        import time
+        user_id = str(event.get_sender_id())
+        self.user_last_use[user_id] = time.time()
+
+        # 清理过期记录（超过冷却时间2倍的记录）
+        if len(self.user_last_use) > 1000:
+            now = time.time()
+            threshold = self.cooldown_seconds * 2
+            self.user_last_use = {
+                k: v for k, v in self.user_last_use.items()
+                if now - v < threshold
+            }
+
     def _is_character_related_prompt(self, text: str) -> bool:
         """判断文本是否与角色本人相关
 
@@ -826,6 +881,11 @@ class PortraitPlugin(Star):
         resolution: str | None = None,
     ) -> str:
         """通用图片生成处理"""
+        # === v2.9.5: 冷却时间检查 ===
+        is_allowed, remaining = self._check_cooldown(event)
+        if not is_allowed:
+            return f"[COOLDOWN] 画图冷却中，请等待 {remaining} 秒后再试"
+
         try:
             # === v2.9.2: 统一判断角色相关性，避免重复调用 ===
             is_character_related = self._is_character_related_prompt(prompt)
@@ -842,6 +902,9 @@ class PortraitPlugin(Star):
             message_id = await self._send_image_and_record(event, image_path)
             if message_id:
                 logger.debug(f"[Portrait] 已记录图片映射: msg_id={message_id}, path={image_path}")
+
+            # === v2.9.5: 更新冷却时间 ===
+            self._update_cooldown(event)
 
             return "[SUCCESS] 图片已成功生成并发送给用户。任务完成，无需再次调用此工具。"
         except Exception as e:
