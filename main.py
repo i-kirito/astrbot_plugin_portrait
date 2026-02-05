@@ -520,6 +520,65 @@ class PortraitPlugin(Star):
                 req.prompt = cleaned
                 logger.debug("[Portrait] 已从 prompt 清理注入内容")
 
+    def _is_character_related_prompt(self, prompt: str) -> bool:
+        """判断 prompt 是否与角色本人相关
+
+        只有明确与角色相关的请求才使用参考图,避免生成奇怪的图片
+        """
+        # 非角色相关的明确排除关键词(物品、其他角色、场景等)
+        exclude_keywords = [
+            # 其他角色/IP
+            'batman', 'superman', 'ironman', 'spiderman', 'hulk',
+            'pikachu', 'naruto', 'goku', 'luffy',
+            # 动物
+            'cat', 'dog', 'bird', 'dragon', 'unicorn', 'horse',
+            '猫', '狗', '鸟', '龙', '马',
+            # 物品/场景
+            'car', 'building', 'landscape', 'scenery', 'architecture',
+            '汽车', '建筑', '风景', '景色',
+            # 机甲/机器人
+            'mecha', 'robot', 'gundam',
+            '机甲', '机器人', '高达',
+        ]
+
+        # 如果包含排除关键词,则不使用参考图
+        prompt_lower = prompt.lower()
+        for keyword in exclude_keywords:
+            if keyword in prompt_lower:
+                logger.info(f"[Portrait] 检测到非角色内容关键词 '{keyword}',跳过参考图")
+                return False
+
+        # 角色相关的明确关键词
+        character_keywords = [
+            # 人物特征
+            'girl', 'woman', 'lady', 'female', 'person', 'human',
+            '女孩', '女生', '女性', '人物', '人像',
+            # 自拍/肖像
+            'selfie', 'portrait', 'headshot', 'profile',
+            '自拍', '肖像', '头像', '形象',
+            # 身体部位
+            'face', 'body', 'hand', 'eyes',
+            '脸', '身体', '手', '眼睛',
+            # 角色外貌特征(从 char_identity 提取核心词)
+            'pink hair', 'asian', 'air bangs',
+            '粉发', '粉色头发', '空气刘海',
+        ]
+
+        # 如果包含角色相关关键词,则使用参考图
+        for keyword in character_keywords:
+            if keyword in prompt_lower:
+                logger.info(f"[Portrait] 检测到角色相关关键词 '{keyword}',使用参考图")
+                return True
+
+        # 默认策略:如果 prompt 很短(少于 30 字符)且没有明确排除词,可能是简单的人物请求
+        if len(prompt) < 30 and not any(kw in prompt_lower for kw in exclude_keywords):
+            logger.info(f"[Portrait] Prompt 较短且未检测到排除词,使用参考图")
+            return True
+
+        # 其他情况不使用参考图
+        logger.info(f"[Portrait] 未匹配角色相关特征,跳过参考图")
+        return False
+
     # === v2.4.0: 统一图片生成方法（支持主备切换） ===
     async def _generate_image(
         self,
@@ -539,8 +598,13 @@ class PortraitPlugin(Star):
         Returns:
             生成的图片路径
         """
-        # 加载自拍参考照（如果启用且使用 Gemini）
-        selfie_refs = await self._load_selfie_reference_images()
+        # === v2.9.0: 智能参考图加载 - 仅角色相关请求使用参考图 ===
+        selfie_refs = []
+        if self._is_character_related_prompt(prompt):
+            # 仅当 prompt 与角色相关时才加载参考照
+            selfie_refs = await self._load_selfie_reference_images()
+        elif self.selfie_enabled:
+            logger.info(f"[Portrait] 已跳过参考图加载(非角色相关请求)")
 
         # 合并参考图：自拍参考照在前，用户提供的图片在后
         all_images: list[bytes] | None = None
