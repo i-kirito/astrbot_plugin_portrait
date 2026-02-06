@@ -268,15 +268,7 @@ def _extract_video_url_from_response(
                     if url:
                         return url, None
                 if isinstance(part, dict):
-                    part_url = (
-                        part.get("url")
-                        or part.get("video_url")
-                        or (
-                            part.get("video_url", {})
-                            if isinstance(part.get("video_url"), dict)
-                            else None
-                        )
-                    )
+                    part_url = part.get("url") or part.get("video_url")
                     if isinstance(part_url, str) and _is_valid_video_url(part_url):
                         return part_url, None
                     if isinstance(part_url, dict):

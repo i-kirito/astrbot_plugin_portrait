@@ -1194,9 +1194,8 @@ class WebServer:
                 for file_path in self.images_dir.iterdir():
                     if file_path.is_file() and file_path.suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
                         stat = file_path.stat()
-                        # 检查是否收藏
-                        meta = self.imgr.get_metadata(file_path.name)
-                        is_favorite = meta.get("favorite", False) if meta else False
+                        # 使用 is_favorite 方法正确判断收藏状态
+                        is_favorite = self.imgr.is_favorite(file_path.name)
                         results.append({
                             "path": file_path,
                             "name": file_path.name,

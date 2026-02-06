@@ -314,10 +314,15 @@ class PortraitPlugin(Star):
         persist_fields = {
             "char_identity",
             "injection_rounds",
+            "cooldown_seconds",
+            "enable_env_injection",
+            "enable_camera_injection",
             "proxy",
+            "vision_model",
             "gitee_config",
             "gemini_config",
             "grok_config",
+            "cache_config",
             "draw_provider",
             "enable_fallback",
             "selfie_config",
@@ -1075,7 +1080,7 @@ class PortraitPlugin(Star):
         fallback_order = [k for k in fallback_order if k != primary_key]
 
         # 辅助函数：保存元数据
-        async def save_image_metadata(image_path: Path, provider_name: str, model_name: str) -> None:
+        async def save_image_metadata(image_path: Path, model_name: str) -> None:
             """保存图片元数据到 ImageManager"""
             try:
                 category = "character" if is_character_related else "other"
@@ -1098,7 +1103,7 @@ class PortraitPlugin(Star):
                     if all_images:
                         logger.warning(f"[Portrait] Gitee 不支持参考图，将忽略 {len(all_images)} 张参考图")
                     image_path = await primary.generate(prompt, size=size, resolution=resolution)
-                    await save_image_metadata(image_path, primary_name, primary.model)
+                    await save_image_metadata(image_path, primary.model)
                     return image_path
                 elif primary_name == "Grok":
                     # Grok 不支持自定义宽高比，使用 resolution 或默认尺寸
@@ -1107,14 +1112,14 @@ class PortraitPlugin(Star):
                         image_path = await primary.generate(prompt, images=all_images, resolution=resolution)
                     else:
                         image_path = await primary.generate(prompt, images=all_images, size=size, resolution=resolution)
-                    await save_image_metadata(image_path, primary_name, primary.model)
+                    await save_image_metadata(image_path, primary.model)
                     return image_path
                 else:  # Gemini
                     # Gemini 不支持自定义宽高比，使用 resolution 或默认尺寸
                     if is_custom_size:
                         logger.info(f"[Portrait] Gemini 不支持自定义宽高比，将使用默认正方形尺寸")
                     image_path = await primary.generate(prompt, all_images, resolution=resolution)
-                    await save_image_metadata(image_path, primary_name, primary.model)
+                    await save_image_metadata(image_path, primary.model)
                     return image_path
             except Exception as e:
                 logger.warning(f"[Portrait] {primary_name} 生成失败: {e}")
@@ -1136,15 +1141,15 @@ class PortraitPlugin(Star):
                             if all_images:
                                 logger.warning(f"[Portrait] Gitee 不支持参考图，将忽略 {len(all_images)} 张参考图")
                             image_path = await fallback.generate(prompt, size=size, resolution=resolution)
-                            await save_image_metadata(image_path, fallback_name, fallback.model)
+                            await save_image_metadata(image_path, fallback.model)
                             return image_path
                         elif fallback_name == "Grok":
                             image_path = await fallback.generate(prompt, images=all_images, size=size, resolution=resolution)
-                            await save_image_metadata(image_path, fallback_name, fallback.model)
+                            await save_image_metadata(image_path, fallback.model)
                             return image_path
                         else:  # Gemini
                             image_path = await fallback.generate(prompt, all_images, resolution=resolution)
-                            await save_image_metadata(image_path, fallback_name, fallback.model)
+                            await save_image_metadata(image_path, fallback.model)
                             return image_path
                     except Exception as e:
                         logger.warning(f"[Portrait] {fallback_name} 生成失败: {e}")
