@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import base64
 import time
 from pathlib import Path
@@ -57,6 +58,7 @@ class GeminiDrawService:
 
         # HTTP 会话（延迟初始化，复用连接）
         self._session: aiohttp.ClientSession | None = None
+        self._cleanup_task: asyncio.Task | None = None
 
     @staticmethod
     def _validate_base_url(url: str) -> str:
@@ -127,11 +129,8 @@ class GeminiDrawService:
         try:
             image_bytes = await self._generate_native(prompt, images, effective_size)
         except Exception as e:
-            if has_ref:
-                # 有参考图时不回退，因为 OpenAI 兼容接口不支持
-                raise
             logger.warning(f"[Gemini] 原生接口失败: {e}，尝试 OpenAI 兼容接口")
-            image_bytes = await self._generate_openai_compatible(prompt)
+            image_bytes = await self._generate_openai_compatible(prompt, images)
 
         elapsed = time.time() - start_time
         logger.info(f"[Gemini] 图片生成耗时: {elapsed:.2f}s")
@@ -140,10 +139,16 @@ class GeminiDrawService:
         path = await self.imgr.save_image_bytes(image_bytes, prompt=prompt)
         logger.info(f"[Gemini] 图片已保存: {path}")
 
-        # 后台清理，不阻塞返回
-        asyncio.create_task(self._cleanup_background())
+        # 后台清理，不阻塞返回（合并并发清理任务）
+        self._schedule_cleanup()
 
         return path
+
+    def _schedule_cleanup(self) -> None:
+        """调度后台清理任务，避免重复并发执行"""
+        if self._cleanup_task and not self._cleanup_task.done():
+            return
+        self._cleanup_task = asyncio.create_task(self._cleanup_background())
 
     async def _cleanup_background(self) -> None:
         """后台清理旧图片"""
@@ -219,8 +224,8 @@ class GeminiDrawService:
                 return all_images[-1]
         return await asyncio.to_thread(self._parse_native_response, data)
 
-    async def _generate_openai_compatible(self, prompt: str) -> bytes:
-        """使用 OpenAI 兼容接口生成图片（作为原生接口的回退）"""
+    async def _generate_openai_compatible(self, prompt: str, images: list[bytes] | None = None) -> bytes:
+        """使用 OpenAI 兼容接口生成图片（支持参考图，不支持自定义尺寸）"""
         url = f"{self.base_url}/v1/chat/completions"
 
         headers = {
@@ -228,21 +233,35 @@ class GeminiDrawService:
             "Authorization": f"Bearer {self.api_key}",
         }
 
+        # 构建消息内容
+        content: list[dict] = [{"type": "text", "text": prompt}]
+
+        # 添加参考图片
+        if images:
+            for img_bytes in images:
+                mime, _ = guess_image_mime_and_ext(img_bytes)
+                b64_data = await asyncio.to_thread(lambda data: base64.b64encode(data).decode(), img_bytes)
+                content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{mime};base64,{b64_data}"
+                    }
+                })
+
         # OpenAI 格式的请求体
         payload = {
             "model": self.model,
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt}
-                    ]
+                    "content": content
                 }
             ],
             "max_tokens": 4096,
         }
 
-        logger.debug(f"[Gemini OpenAI] URL: {url}")
+        has_ref = images and len(images) > 0
+        logger.debug(f"[Gemini OpenAI] URL: {url}, has_images={has_ref}")
 
         session = await self._get_session()
         try:
@@ -340,6 +359,12 @@ class GeminiDrawService:
 
     async def close(self):
         """关闭服务（释放资源）"""
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._cleanup_task
+        self._cleanup_task = None
+
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None

@@ -5,14 +5,46 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import ipaddress
 import json
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import aiohttp
 from astrbot.api import logger
 
 from .image_format import guess_image_mime_and_ext
+
+# 最大下载大小：20MB
+MAX_DOWNLOAD_SIZE = 20 * 1024 * 1024
+
+
+def _is_safe_url(url: str) -> bool:
+    """检查URL是否安全（防止SSRF）"""
+    try:
+        parsed = urlparse(url)
+        # 仅允许http/https
+        if parsed.scheme not in ('http', 'https'):
+            return False
+        host = parsed.hostname
+        if not host:
+            return False
+        # 检查是否为IP地址
+        try:
+            ip = ipaddress.ip_address(host)
+            # 阻止私有/保留/回环地址
+            if ip.is_private or ip.is_reserved or ip.is_loopback or ip.is_link_local:
+                return False
+        except ValueError:
+            # 不是IP，是域名，检查常见危险域名
+            host_lower = host.lower()
+            dangerous_hosts = ['localhost', '127.0.0.1', '0.0.0.0', '::1']
+            if host_lower in dangerous_hosts or host_lower.endswith('.local'):
+                return False
+        return True
+    except Exception:
+        return False
 
 
 class ImageManager:
@@ -59,7 +91,8 @@ class ImageManager:
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
+            timeout = aiohttp.ClientTimeout(total=60, connect=10)
+            self._session = aiohttp.ClientSession(timeout=timeout)
         return self._session
 
     def _load_metadata(self) -> dict:
@@ -139,17 +172,36 @@ class ImageManager:
                 self._metadata_mtime = current_mtime
             return self._metadata.get(filename)
 
-    def set_metadata(self, filename: str, prompt: str) -> None:
+    def set_metadata(
+        self,
+        filename: str,
+        prompt: str,
+        *,
+        model: str = "",
+        category: str = "",
+        size: str = "",
+    ) -> None:
         """设置图片元数据"""
         self._ensure_metadata_loaded()
         self._metadata[filename] = {
             "prompt": prompt,
             "created_at": int(time.time()),
+            "model": model,
+            "category": category,
+            "size": size,
         }
         self._save_metadata()
         self._metadata_mtime = self._get_metadata_mtime()
 
-    async def set_metadata_async(self, filename: str, prompt: str) -> None:
+    async def set_metadata_async(
+        self,
+        filename: str,
+        prompt: str,
+        *,
+        model: str = "",
+        category: str = "",
+        size: str = "",
+    ) -> None:
         """设置图片元数据（异步版本，带锁，非阻塞 I/O）"""
         async with self._metadata_lock:
             if not self._metadata_loaded:
@@ -159,6 +211,9 @@ class ImageManager:
             self._metadata[filename] = {
                 "prompt": prompt,
                 "created_at": int(time.time()),
+                "model": model,
+                "category": category,
+                "size": size,
             }
             await asyncio.to_thread(self._save_metadata_sync)
             self._metadata_mtime = self._get_metadata_mtime()
@@ -226,13 +281,39 @@ class ImageManager:
             await self._session.close()
             self._session = None
 
-    async def download_image(self, url: str, prompt: str = "") -> Path:
+    async def download_image(
+        self,
+        url: str,
+        prompt: str = "",
+        *,
+        model: str = "",
+        category: str = "",
+        size: str = "",
+    ) -> Path:
         """下载图片并保存到本地"""
+        # SSRF防护：验证URL安全性
+        if not _is_safe_url(url):
+            raise ValueError(f"不安全的URL: {url}")
+
         session = await self._get_session()
         try:
-            async with session.get(url, proxy=self.proxy, timeout=60) as resp:
+            async with session.get(url, proxy=self.proxy) as resp:
                 resp.raise_for_status()
-                data = await resp.read()
+                # 检查Content-Length（如果有）
+                content_length = resp.headers.get('Content-Length')
+                if content_length and int(content_length) > MAX_DOWNLOAD_SIZE:
+                    raise ValueError(f"文件过大: {int(content_length) / 1024 / 1024:.1f}MB > {MAX_DOWNLOAD_SIZE / 1024 / 1024:.0f}MB")
+                # 流式读取并限制大小（使用 bytearray 降低内存峰值）
+                data = bytearray()
+                total_size = 0
+                async for chunk in resp.content.iter_chunked(8192):
+                    total_size += len(chunk)
+                    if total_size > MAX_DOWNLOAD_SIZE:
+                        raise ValueError(f"文件过大: 超过{MAX_DOWNLOAD_SIZE / 1024 / 1024:.0f}MB限制")
+                    data.extend(chunk)
+                data = bytes(data)
+        except ValueError:
+            raise
         except Exception as e:
             logger.error(f"[ImageManager] 下载图片失败: {e}")
             raise
@@ -244,21 +325,41 @@ class ImageManager:
         path = self.images_dir / filename
 
         await asyncio.to_thread(path.write_bytes, data)
-        if prompt:
-            await self.set_metadata_async(filename, prompt)
+        if prompt or model or category or size:
+            await self.set_metadata_async(
+                filename, prompt, model=model, category=category, size=size
+            )
         logger.debug(f"[ImageManager] 图片已保存: {path}")
         return path
 
-    async def save_base64_image(self, b64_data: str, prompt: str = "") -> Path:
+    async def save_base64_image(
+        self,
+        b64_data: str,
+        prompt: str = "",
+        *,
+        model: str = "",
+        category: str = "",
+        size: str = "",
+    ) -> Path:
         """保存 base64 编码的图片"""
         # 处理 data URL 格式
         if "," in b64_data:
             b64_data = b64_data.split(",", 1)[1]
 
         data = base64.b64decode(b64_data)
-        return await self.save_image_bytes(data, prompt)
+        return await self.save_image_bytes(
+            data, prompt, model=model, category=category, size=size
+        )
 
-    async def save_image_bytes(self, data: bytes, prompt: str = "") -> Path:
+    async def save_image_bytes(
+        self,
+        data: bytes,
+        prompt: str = "",
+        *,
+        model: str = "",
+        category: str = "",
+        size: str = "",
+    ) -> Path:
         """保存字节数据的图片"""
         _, ext = guess_image_mime_and_ext(data)
         # 将 MD5 计算移至线程池避免阻塞
@@ -267,8 +368,10 @@ class ImageManager:
         path = self.images_dir / filename
 
         await asyncio.to_thread(path.write_bytes, data)
-        if prompt:
-            await self.set_metadata_async(filename, prompt)
+        if prompt or model or category or size:
+            await self.set_metadata_async(
+                filename, prompt, model=model, category=category, size=size
+            )
         logger.debug(f"[ImageManager] 图片已保存: {path}")
         return path
 

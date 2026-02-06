@@ -429,6 +429,10 @@
                 flex: 1;
             }
         }
+        /* 去掉 el-divider 文字的白色背景 */
+        .el-divider__text {
+            background-color: transparent !important;
+        }
     </style>
 </head>
 <body>
@@ -518,6 +522,10 @@
                         <div class="text-xs text-gray-400 mb-2">每行 {{ galleryColumns }} 张</div>
                         <el-slider v-model="galleryColumns" :min="2" :max="10" :step="1" :show-tooltip="false" size="small" @change="saveGalleryColumns" style="width: 180px;" />
                     </div>
+                    <div class="nav-item" :class="{ active: activeTab === 'videos' }" @click="activeTab = 'videos'; mobileMenuOpen = false" @keyup.enter="activeTab = 'videos'" tabindex="0" role="button" aria-pressed="activeTab === 'videos'">
+                        <span class="icon">&#127916;</span>
+                        <span>视频画廊</span>
+                    </div>
                 </nav>
                 <div class="p-4 border-t border-pink-200/30">
                     <p class="text-xs text-pink-300 text-center">v2.5.0</p>
@@ -559,6 +567,33 @@
                                     <span class="text-sm text-gray-500">检测到绘图意图后，连续多少轮对话注入视觉上下文</span>
                                 </div>
                             </el-form-item>
+                            <el-form-item label="画图冷却时间（秒）">
+                                <div class="flex items-center gap-4">
+                                    <el-slider v-model="config.cooldown_seconds" :min="0" :max="300" :step="5" style="width: 200px;" />
+                                    <span class="text-sm text-gray-500">{{ config.cooldown_seconds }}秒，0 表示无冷却</span>
+                                </div>
+                            </el-form-item>
+                            <el-row :gutter="24">
+                                <el-col :span="8">
+                                    <el-form-item label="启用环境场景注入">
+                                        <el-switch v-model="config.enable_env_injection" />
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="8">
+                                    <el-form-item label="启用摄影模式注入">
+                                        <el-switch v-model="config.enable_camera_injection" />
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="8">
+                                    <el-form-item label="HTTP 代理">
+                                        <el-input v-model="config.proxy" placeholder="http://127.0.0.1:7890" />
+                                    </el-form-item>
+                                </el-col>
+                            </el-row>
+                            <el-form-item label="视觉分类模型">
+                                <el-input v-model="config.vision_model" placeholder="留空使用主LLM模型" />
+                                <p class="text-xs text-pink-400 mt-1">用于图片分类（人物/其他）的视觉模型名称</p>
+                            </el-form-item>
                         </el-form>
                     </el-card>
 
@@ -585,6 +620,9 @@
                                     </template>
                                 </el-input>
                             </el-form-item>
+                            <el-form-item label="Base URL">
+                                <el-input v-model="giteeConfig.base_url" placeholder="https://ai.gitee.com/v1" />
+                            </el-form-item>
                             <el-row :gutter="24">
                                 <el-col :span="12">
                                     <el-form-item label="模型名称">
@@ -606,16 +644,22 @@
                                 </el-col>
                             </el-row>
                             <el-row :gutter="24">
-                                <el-col :span="12">
+                                <el-col :span="8">
                                     <el-form-item label="推理步数">
                                         <el-input-number v-model="giteeConfig.num_inference_steps" :min="1" :max="20" style="width: 100%" />
-                                        <p class="text-xs text-pink-400 mt-1">值越大质量越高，速度越慢</p>
                                     </el-form-item>
                                 </el-col>
-                                <el-col :span="12">
+                                <el-col :span="8">
                                     <el-form-item label="超时时间（秒）">
                                         <el-input-number v-model="giteeConfig.timeout" :min="30" :max="600" style="width: 100%" />
                                     </el-form-item>
+                                </el-col>
+                                <el-col :span="8">
+                                    <el-form-item label="最大重试次数">
+                                        <el-input-number v-model="giteeConfig.max_retries" :min="0" :max="5" style="width: 100%" />
+                                    </el-form-item>
+                                </el-col>
+                            </el-row>
                                 </el-col>
                             </el-row>
                             <el-form-item label="负面提示词">
@@ -684,6 +728,90 @@
                         </el-form>
                     </el-card>
 
+                    <!-- Grok AI 配置卡片 -->
+                    <el-card class="mb-6">
+                        <template #header>
+                            <div class="card-title">
+                                <span class="icon">&#129430;</span>
+                                <span>Grok AI（图片+视频）</span>
+                            </div>
+                        </template>
+                        <el-form label-position="top">
+                            <el-row :gutter="24">
+                                <el-col :span="12">
+                                    <el-form-item label="API 密钥">
+                                        <el-input
+                                            v-model="grokConfig.api_key"
+                                            :type="showGrokKey ? 'text' : 'password'"
+                                            placeholder="从 x.ai 获取 API Key"
+                                        >
+                                            <template #suffix>
+                                                <span @click="showGrokKey = !showGrokKey" style="cursor: pointer; font-size: 1.1rem;">
+                                                    {{ showGrokKey ? '&#128065;' : '&#128586;' }}
+                                                </span>
+                                            </template>
+                                        </el-input>
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="12">
+                                    <el-form-item label="服务地址">
+                                        <el-input v-model="grokConfig.base_url" placeholder="https://api.x.ai" />
+                                    </el-form-item>
+                                </el-col>
+                            </el-row>
+                            <el-row :gutter="24">
+                                <el-col :span="8">
+                                    <el-form-item label="图片模型">
+                                        <el-input v-model="grokConfig.image_model" placeholder="grok-2-image" />
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="8">
+                                    <el-form-item label="视频模型">
+                                        <el-input v-model="grokConfig.video_model" placeholder="grok-imagine-1.0-video" />
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="8">
+                                    <el-form-item label="默认图片尺寸">
+                                        <el-select v-model="grokConfig.size" style="width: 100%">
+                                            <el-option value="1024x1024" label="1024x1024" />
+                                            <el-option value="2048x2048" label="2048x2048" />
+                                            <el-option value="4096x4096" label="4096x4096" />
+                                        </el-select>
+                                    </el-form-item>
+                                </el-col>
+                            </el-row>
+                            <el-row :gutter="24">
+                                <el-col :span="6">
+                                    <el-form-item label="超时(秒)">
+                                        <el-input-number v-model="grokConfig.timeout" :min="30" :max="600" style="width: 100%" />
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="6">
+                                    <el-form-item label="最大重试">
+                                        <el-input-number v-model="grokConfig.max_retries" :min="0" :max="5" style="width: 100%" />
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="6">
+                                    <el-form-item label="启用视频功能">
+                                        <el-switch v-model="grokConfig.video_enabled" />
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="6">
+                                    <el-form-item label="最大缓存视频数">
+                                        <el-input-number v-model="grokConfig.max_cached_videos" :min="0" :max="500" style="width: 100%" />
+                                    </el-form-item>
+                                </el-col>
+                            </el-row>
+                            <el-form-item label="视频发送模式">
+                                <el-select v-model="grokConfig.video_send_mode" style="width: 200px">
+                                    <el-option value="auto" label="自动（先URL再文件）" />
+                                    <el-option value="url" label="仅发送URL" />
+                                    <el-option value="file" label="下载后发送文件" />
+                                </el-select>
+                            </el-form-item>
+                        </el-form>
+                    </el-card>
+
                     <!-- 提供商切换卡片 -->
                     <el-card class="mb-6">
                         <template #header>
@@ -699,6 +827,7 @@
                                         <el-select v-model="providerConfig.draw_provider" style="width: 100%">
                                             <el-option value="gitee" label="Gitee AI（推荐）" />
                                             <el-option value="gemini" label="Gemini AI" />
+                                            <el-option value="grok" label="Grok AI" />
                                         </el-select>
                                     </el-form-item>
                                 </el-col>
@@ -709,6 +838,57 @@
                                     </el-form-item>
                                 </el-col>
                             </el-row>
+                        </el-form>
+                    </el-card>
+
+                    <!-- 缓存清理配置卡片 -->
+                    <el-card class="mb-6">
+                        <template #header>
+                            <div class="card-title">
+                                <span class="icon">&#128451;</span>
+                                <span>缓存清理</span>
+                            </div>
+                        </template>
+                        <el-alert
+                            title="清理规则说明"
+                            type="info"
+                            :closable="false"
+                            style="margin-bottom: 1rem;"
+                        >
+                            <template #default>
+                                <ul style="margin: 0; padding-left: 1.2rem; line-height: 1.8;">
+                                    <li><strong>收藏保护</strong>：已收藏的图片永远不会被清理</li>
+                                    <li><strong>优先清理旧图</strong>：按修改时间从旧到新依次清理</li>
+                                    <li><strong>数量限制</strong>：当图片总数超过限制时，清理最旧的非收藏图片</li>
+                                    <li><strong>空间限制</strong>：当总大小超过限制时，清理最旧的非收藏图片直到符合限制</li>
+                                    <li><strong>双重检查</strong>：同时满足数量和空间两个限制条件</li>
+                                </ul>
+                            </template>
+                        </el-alert>
+                        <el-form label-position="top">
+                            <el-row :gutter="24">
+                                <el-col :span="12">
+                                    <el-form-item label="最大存储空间 (MB)">
+                                        <el-slider v-model="cacheConfig.max_storage_mb" :min="0" :max="2000" :step="50" show-input style="width: 100%" />
+                                        <p class="text-xs text-pink-400 mt-1">超过此大小时清理旧图片，0 表示不限制</p>
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="12">
+                                    <el-form-item label="最大图片数量">
+                                        <el-slider v-model="cacheConfig.max_count" :min="0" :max="500" :step="10" show-input style="width: 100%" />
+                                        <p class="text-xs text-pink-400 mt-1">超过此数量时清理旧图片，0 表示不限制</p>
+                                    </el-form-item>
+                                </el-col>
+                            </el-row>
+                            <el-divider />
+                            <el-form-item>
+                                <div style="display: flex; align-items: center; gap: 16px;">
+                                    <el-button type="danger" @click="cleanupCache" :loading="cleaningCache">
+                                        <span style="margin-right: 8px;">&#128465;</span> 立即清理缓存
+                                    </el-button>
+                                    <span class="text-sm text-gray-500">根据上方限制条件清理旧图片</span>
+                                </div>
+                            </el-form-item>
                         </el-form>
                     </el-card>
                 </div>
@@ -948,6 +1128,25 @@
                         </div>
                     </div>
 
+                    <!-- 筛选栏 -->
+                    <div class="filter-bar mb-4 p-3 rounded-lg" style="background: rgba(255, 182, 193, 0.1); border: 1px solid rgba(255, 182, 193, 0.2);">
+                        <div class="flex flex-wrap gap-3 items-center">
+                            <span class="text-sm text-gray-500">筛选:</span>
+                            <el-select v-model="filterModel" placeholder="生成模型" clearable size="small" style="width: 150px;" @change="applyFilters">
+                                <el-option v-for="m in availableFilters.models" :key="m" :label="m" :value="m" />
+                            </el-select>
+                            <el-select v-model="filterSize" placeholder="尺寸" clearable size="small" style="width: 100px;" @change="applyFilters">
+                                <el-option v-for="s in availableFilters.sizes" :key="s" :label="s" :value="s" />
+                            </el-select>
+                            <el-select v-model="filterCategory" placeholder="分类" clearable size="small" style="width: 120px;" @change="applyFilters">
+                                <el-option v-for="c in availableFilters.categories" :key="c" :label="c === 'character' ? '人物' : (c === 'other' ? '其他' : c)" :value="c" />
+                            </el-select>
+                            <el-button v-if="filterModel || filterSize || filterCategory" type="info" size="small" @click="clearFilters">
+                                清除筛选
+                            </el-button>
+                        </div>
+                    </div>
+
                     <!-- 空状态 -->
                     <div v-if="images.length === 0" class="empty-state">
                         <div class="icon">&#128444;</div>
@@ -992,6 +1191,64 @@
                         />
                     </div>
                 </div>
+
+                <!-- 视频画廊页面 -->
+                <div v-if="activeTab === 'videos'" class="fade-in">
+                    <div class="page-header">
+                        <h2 class="page-title">视频画廊</h2>
+                        <el-button @click="loadVideos" :loading="loadingVideos">
+                            <span style="margin-right: 8px;">&#128260;</span> 刷新
+                        </el-button>
+                    </div>
+
+                    <!-- 视频统计 -->
+                    <div class="stats-bar" v-if="totalVideos > 0">
+                        <div class="stat-item">
+                            <div class="stat-value">{{ totalVideos }}</div>
+                            <div class="stat-label">总视频数</div>
+                        </div>
+                    </div>
+
+                    <!-- 视频空状态 -->
+                    <div v-if="videos.length === 0 && !loadingVideos" class="empty-state">
+                        <div class="icon">&#127916;</div>
+                        <p>暂无生成的视频</p>
+                        <p class="text-sm text-gray-400 mt-2">生成视频后将在此显示</p>
+                    </div>
+
+                    <!-- 视频网格 -->
+                    <div v-else class="grid gap-6" style="grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));">
+                        <div v-for="video in videos" :key="video.id" class="image-card" style="background: rgba(255,255,255,0.9); border-radius: 16px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08);">
+                            <video :src="video.url" controls preload="metadata" style="width: 100%; max-height: 240px; object-fit: contain; background: #000;"></video>
+                            <div style="padding: 1rem;">
+                                <p class="text-sm text-gray-600 truncate mb-3" :title="video.prompt || '无描述'">{{ video.prompt || '无描述' }}</p>
+                                <div class="flex justify-between items-center">
+                                    <span class="text-xs text-gray-400">{{ formatDate(video.created_at) }}</span>
+                                    <div class="flex gap-2">
+                                        <el-button type="primary" size="small" @click="openVideoUrl(video)">
+                                            <span style="margin-right: 4px;">&#128279;</span> 打开
+                                        </el-button>
+                                        <el-button type="danger" size="small" @click="deleteVideo(video)">
+                                            <span style="margin-right: 4px;">&#10005;</span> 删除
+                                        </el-button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 视频分页 -->
+                    <div v-if="totalVideos > videoPageSize" class="mt-8 flex justify-center">
+                        <el-pagination
+                            v-model:current-page="videoCurrentPage"
+                            :page-size="videoPageSize"
+                            :total="totalVideos"
+                            layout="prev, pager, next"
+                            @current-change="loadVideos"
+                            background
+                        />
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1027,6 +1284,8 @@
                             <p><span class="text-gray-500">大小:</span> {{ formatSize(detailImage?.size) }}</p>
                             <p><span class="text-gray-500">尺寸:</span> {{ detailImageDimensions }}</p>
                             <p><span class="text-gray-500">创建时间:</span> {{ formatDate(detailImage?.ctime) }}</p>
+                            <p v-if="detailImage?.model"><span class="text-gray-500">生成模型:</span> <el-tag size="small" type="info">{{ detailImage?.model }}</el-tag></p>
+                            <p v-if="detailImage?.category"><span class="text-gray-500">分类:</span> <el-tag size="small" :type="detailImage?.category === 'character' ? 'success' : 'warning'">{{ detailImage?.category === 'character' ? '人物' : detailImage?.category }}</el-tag></p>
                         </div>
                     </el-card>
                     <!-- Prompt 信息 -->
@@ -1066,7 +1325,9 @@
                 const loginError = ref('');
                 const loggingIn = ref(false);
 
-                const activeTab = ref('gallery');
+                // 从 localStorage 恢复上次的 tab，默认 gallery
+                const savedTab = localStorage.getItem('portrait_active_tab') || 'gallery';
+                const activeTab = ref(savedTab);
                 const mobileMenuOpen = ref(false);
                 const saving = ref(false);
                 const savingDynamic = ref(false);
@@ -1074,11 +1335,16 @@
                 const config = reactive({
                     char_identity: '',
                     injection_rounds: 1,
+                    cooldown_seconds: 0,
+                    enable_env_injection: true,
+                    enable_camera_injection: true,
                     proxy: '',
+                    vision_model: '',
                 });
 
                 const giteeConfig = reactive({
                     api_keys: [],
+                    base_url: 'https://ai.gitee.com/v1',
                     model: 'z-image-turbo',
                     size: '1024x1024',
                     num_inference_steps: 9,
@@ -1118,6 +1384,28 @@
                     timeout: 120,
                 });
 
+                // Grok 配置
+                const grokConfig = reactive({
+                    api_key: '',
+                    base_url: 'https://api.x.ai',
+                    image_model: 'grok-2-image',
+                    video_model: 'grok-imagine-1.0-video',
+                    size: '1024x1024',
+                    timeout: 180,
+                    max_retries: 2,
+                    video_enabled: false,
+                    video_send_mode: 'auto',
+                    max_cached_videos: 20,
+                });
+                const showGrokKey = ref(false);
+
+                // 缓存配置
+                const cacheConfig = reactive({
+                    max_storage_mb: 500,
+                    max_count: 100,
+                });
+                const cleaningCache = ref(false);
+
                 // 提供商配置
                 const providerConfig = reactive({
                     draw_provider: 'gitee',
@@ -1147,6 +1435,23 @@
                 const favoriteCount = ref(0);
                 const galleryColumns = ref(parseInt(localStorage.getItem('portrait_gallery_columns')) || 6);
 
+                // 画廊筛选
+                const filterModel = ref('');
+                const filterSize = ref('');
+                const filterCategory = ref('');
+                const availableFilters = reactive({
+                    models: [],
+                    sizes: ['1K', '2K', '4K'],
+                    categories: ['character', 'other'],
+                });
+
+                // 视频画廊
+                const videos = ref([]);
+                const totalVideos = ref(0);
+                const videoCurrentPage = ref(1);
+                const videoPageSize = ref(20);
+                const loadingVideos = ref(false);
+
                 const detailVisible = ref(false);
                 const detailImage = ref(null);
                 const detailImageDimensions = ref('加载中...');
@@ -1172,6 +1477,7 @@
                             isAuthenticated.value = true;
                             await loadConfig();
                             await loadImages();
+                            await loadVideos();
                             nextTick(() => initSortable());
                             return;
                         }
@@ -1197,6 +1503,7 @@
                                 isAuthenticated.value = true;
                                 await loadConfig();
                                 await loadImages();
+                                await loadVideos();
                                 nextTick(() => initSortable());
                             }
                         } catch {}
@@ -1228,6 +1535,7 @@
                             // 加载数据
                             await loadConfig();
                             await loadImages();
+                            await loadVideos();
                             nextTick(() => initSortable());
                         } else {
                             loginError.value = data.error || '访问令牌无效';
@@ -1239,10 +1547,20 @@
                     }
                 }
 
-                // 监听 tab 切换，重新初始化拖拽
-                watch(activeTab, () => {
+                // 监听 tab 切换，保存到 localStorage 并刷新对应页面数据
+                watch(activeTab, (newTab) => {
+                    // 保存当前 tab 到 localStorage
+                    localStorage.setItem('portrait_active_tab', newTab);
                     nextTick(() => {
                         initSortable();
+                        // 根据当前页面刷新数据
+                        if (newTab === 'gallery') {
+                            loadImages();
+                        } else if (newTab === 'videos') {
+                            loadVideos();
+                        } else if (newTab === 'settings') {
+                            loadConfig();
+                        }
                     });
                 });
 
@@ -1285,6 +1603,14 @@
                             // 加载 Gemini 配置
                             if (data.config.gemini_config) {
                                 Object.assign(geminiConfig, data.config.gemini_config);
+                            }
+                            // 加载 Grok 配置
+                            if (data.config.grok_config) {
+                                Object.assign(grokConfig, data.config.grok_config);
+                            }
+                            // 加载缓存配置
+                            if (data.config.cache_config) {
+                                Object.assign(cacheConfig, data.config.cache_config);
                             }
                             // 加载提供商配置
                             if (data.config.draw_provider) {
@@ -1341,6 +1667,8 @@
                                 cameras: camData,
                                 gitee_config: { ...giteeConfig },
                                 gemini_config: { ...geminiConfig },
+                                grok_config: { ...grokConfig },
+                                cache_config: { ...cacheConfig },
                                 draw_provider: providerConfig.draw_provider,
                                 enable_fallback: providerConfig.enable_fallback,
                             }
@@ -1360,6 +1688,38 @@
                         ElementPlus.ElMessage.error('保存失败: ' + e.message);
                     } finally {
                         saving.value = false;
+                    }
+                }
+
+                async function cleanupCache() {
+                    try {
+                        await ElementPlus.ElMessageBox.confirm(
+                            '确定要清理缓存吗？收藏的图片不会被删除。',
+                            '确认清理',
+                            { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' }
+                        );
+                        cleaningCache.value = true;
+                        const res = await fetch('/api/cache/cleanup', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                max_storage_mb: cacheConfig.max_storage_mb,
+                                max_count: cacheConfig.max_count,
+                            })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            ElementPlus.ElMessage.success(`清理完成！删除了 ${data.deleted_count || 0} 张图片，释放了 ${formatSize(data.freed_bytes || 0)}`);
+                            await loadImages();
+                        } else {
+                            ElementPlus.ElMessage.error(data.error || '清理失败');
+                        }
+                    } catch (e) {
+                        if (e !== 'cancel') {
+                            ElementPlus.ElMessage.error('清理失败: ' + e.message);
+                        }
+                    } finally {
+                        cleaningCache.value = false;
                     }
                 }
 
@@ -1446,14 +1806,29 @@
                         if (showFavoritesOnly.value) {
                             params.append('favorites', 'true');
                         }
+                        if (filterModel.value) {
+                            params.append('model', filterModel.value);
+                        }
+                        if (filterSize.value) {
+                            params.append('filter_size', filterSize.value);
+                        }
+                        if (filterCategory.value) {
+                            params.append('category', filterCategory.value);
+                        }
                         const res = await fetch(`/api/images?${params}`);
                         const data = await res.json();
                         if (data.success) {
                             // Cookie 认证，不再需要在 URL 中添加 token
                             images.value = data.images;
                             totalImages.value = data.total;
-                            // 计算收藏数量
-                            favoriteCount.value = data.images.filter(img => img.favorite).length;
+                            // 使用后端返回的总收藏数量
+                            favoriteCount.value = data.favorite_count || 0;
+                            // 更新可用筛选选项
+                            if (data.filters) {
+                                availableFilters.models = data.filters.models || [];
+                                availableFilters.sizes = data.filters.sizes || ['1K', '2K', '4K'];
+                                availableFilters.categories = data.filters.categories || ['character', 'other'];
+                            }
                         }
                     } catch (e) {
                         ElementPlus.ElMessage.error('加载图片失败: ' + e.message);
@@ -1472,6 +1847,19 @@
                     localStorage.setItem('portrait_gallery_columns', val);
                 }
 
+                function clearFilters() {
+                    filterModel.value = '';
+                    filterSize.value = '';
+                    filterCategory.value = '';
+                    currentPage.value = 1;
+                    loadImages();
+                }
+
+                function applyFilters() {
+                    currentPage.value = 1;
+                    loadImages();
+                }
+
                 async function toggleFavorite(img) {
                     if (!img) return;
                     try {
@@ -1481,8 +1869,8 @@
                         const data = await res.json();
                         if (data.success) {
                             img.favorite = data.favorite;
-                            // 更新收藏计数
-                            favoriteCount.value = images.value.filter(i => i.favorite).length;
+                            // 更新收藏计数（增减1）
+                            favoriteCount.value += data.favorite ? 1 : -1;
                             ElementPlus.ElMessage.success(data.favorite ? '已添加收藏' : '已取消收藏');
                         } else {
                             ElementPlus.ElMessage.error(data.error || '操作失败');
@@ -1708,6 +2096,52 @@
                     }
                 }
 
+                // ========== 视频画廊 ==========
+                async function loadVideos() {
+                    loadingVideos.value = true;
+                    try {
+                        const params = new URLSearchParams();
+                        params.append('page', videoCurrentPage.value);
+                        params.append('page_size', videoPageSize.value);
+                        const res = await fetch(`/api/videos?${params}`);
+                        const data = await res.json();
+                        if (data.success) {
+                            videos.value = data.videos;
+                            totalVideos.value = data.total;
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('加载视频失败: ' + e.message);
+                    } finally {
+                        loadingVideos.value = false;
+                    }
+                }
+
+                async function deleteVideo(video) {
+                    try {
+                        await ElementPlus.ElMessageBox.confirm(
+                            `确定要删除此视频吗？`,
+                            '确认删除',
+                            { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+                        );
+                        const res = await fetch(`/api/videos/${encodeURIComponent(video.id)}`, { method: 'DELETE' });
+                        const data = await res.json();
+                        if (data.success) {
+                            ElementPlus.ElMessage.success('视频已删除');
+                            await loadVideos();
+                        } else {
+                            ElementPlus.ElMessage.error(data.error || '删除失败');
+                        }
+                    } catch (e) {
+                        if (e !== 'cancel') {
+                            ElementPlus.ElMessage.error('删除失败: ' + e.message);
+                        }
+                    }
+                }
+
+                function openVideoUrl(video) {
+                    window.open(video.url, '_blank');
+                }
+
                 return {
                     // 登录相关
                     isAuthenticated,
@@ -1728,6 +2162,11 @@
                     showGeminiKey,
                     sizeOptions,
                     geminiConfig,
+                    grokConfig,
+                    showGrokKey,
+                    cacheConfig,
+                    cleaningCache,
+                    cleanupCache,
                     providerConfig,
                     environments,
                     cameras,
@@ -1741,6 +2180,12 @@
                     favoriteCount,
                     galleryColumns,
                     saveGalleryColumns,
+                    filterModel,
+                    filterSize,
+                    filterCategory,
+                    availableFilters,
+                    clearFilters,
+                    applyFilters,
                     detailVisible,
                     detailImage,
                     detailImageDimensions,
@@ -1777,6 +2222,15 @@
                     deleteSelfieRef,
                     deleteAllSelfieRefs,
                     saveSelfieConfig,
+                    // 视频画廊
+                    videos,
+                    totalVideos,
+                    videoCurrentPage,
+                    videoPageSize,
+                    loadingVideos,
+                    loadVideos,
+                    deleteVideo,
+                    openVideoUrl,
                 };
             }
         });

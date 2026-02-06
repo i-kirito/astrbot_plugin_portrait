@@ -44,6 +44,12 @@ class WebServer:
         # ImageManager 实例（延迟初始化）
         self._imgr: ImageManager | None = None
 
+        # 缓存
+        self._index_cache: str | None = None
+        self._images_cache: dict | None = None
+        self._images_cache_time: float = 0
+        self._images_cache_ttl: float = 5.0  # 5秒缓存
+
         self._setup_routes()
 
     @web.middleware
@@ -98,6 +104,14 @@ class WebServer:
         self.app.router.add_post("/api/selfie-refs", self.handle_upload_selfie_ref)
         self.app.router.add_delete("/api/selfie-refs/{name}", self.handle_delete_selfie_ref)
 
+        # 视频画廊 API
+        self.app.router.add_get("/api/videos", self.handle_list_videos)
+        self.app.router.add_delete("/api/videos/{name}", self.handle_delete_video)
+        self.app.router.add_get("/api/videos/{name}/download", self.handle_download_video)
+
+        # 缓存清理 API
+        self.app.router.add_post("/api/cache/cleanup", self.handle_cache_cleanup)
+
         # 前端页面
         self.app.router.add_get("/", self.handle_index)
         self.app.router.add_get("/index.html", self.handle_index)
@@ -106,14 +120,17 @@ class WebServer:
         if self.static_dir.exists():
             self.app.router.add_static("/web", self.static_dir, show_index=False)
 
-        # 图片/缩略图/参考照使用动态路由（需要认证）
+        # 图片/缩略图/参考照/视频使用动态路由（需要认证）
         self.images_dir.mkdir(parents=True, exist_ok=True)
         self.thumbnails_dir.mkdir(parents=True, exist_ok=True)
         self.selfie_refs_dir.mkdir(parents=True, exist_ok=True)
+        self.videos_dir = self.plugin.data_dir / "videos"
+        self.videos_dir.mkdir(parents=True, exist_ok=True)
 
         self.app.router.add_get("/images/{name}", self.handle_serve_image)
         self.app.router.add_get("/thumbnails/{name}", self.handle_serve_thumbnail)
         self.app.router.add_get("/selfie-refs/{name}", self.handle_serve_selfie_ref)
+        self.app.router.add_get("/videos/{name}", self.handle_serve_video)
 
     @property
     def imgr(self) -> ImageManager:
@@ -175,6 +192,9 @@ class WebServer:
 
     async def handle_index(self, request: web.Request) -> web.Response:
         """返回首页"""
+        if self._index_cache:
+            return web.Response(text=self._index_cache, content_type="text/html")
+
         index_file = self.static_dir / "index.html"
         if not index_file.exists():
             return web.Response(
@@ -184,6 +204,7 @@ class WebServer:
             )
         try:
             content = await asyncio.to_thread(index_file.read_text, encoding="utf-8")
+            self._index_cache = content
             return web.Response(text=content, content_type="text/html")
         except Exception as e:
             logger.error(f"[Portrait WebUI] 读取 index.html 失败: {e}")
@@ -233,7 +254,11 @@ class WebServer:
             editable_fields = [
                 "char_identity",
                 "injection_rounds",
+                "cooldown_seconds",
+                "enable_env_injection",
+                "enable_camera_injection",
                 "proxy",
+                "vision_model",
                 "draw_provider",
                 "enable_fallback",
             ]
@@ -268,6 +293,28 @@ class WebServer:
                 "timeout": gemini_conf.get("timeout", 120),
             }
 
+            # grok_config 单独处理
+            grok_conf = self.plugin.config.get("grok_config", {}) or {}
+            config["grok_config"] = {
+                "api_key": grok_conf.get("api_key", "") or "",
+                "base_url": grok_conf.get("base_url", "https://api.x.ai"),
+                "image_model": grok_conf.get("image_model", "grok-2-image"),
+                "video_model": grok_conf.get("video_model", "grok-imagine-1.0-video"),
+                "size": grok_conf.get("size", "1024x1024"),
+                "timeout": grok_conf.get("timeout", 180),
+                "max_retries": grok_conf.get("max_retries", 2),
+                "video_enabled": grok_conf.get("video_enabled", False),
+                "video_send_mode": grok_conf.get("video_send_mode", "auto"),
+                "max_cached_videos": grok_conf.get("max_cached_videos", 20),
+            }
+
+            # cache_config 单独处理
+            cache_conf = self.plugin.config.get("cache_config", {}) or {}
+            config["cache_config"] = {
+                "max_storage_mb": cache_conf.get("max_storage_mb", 500),
+                "max_count": cache_conf.get("max_count", 100),
+            }
+
             # 添加动态配置（从独立文件加载）
             dynamic = self.plugin.get_dynamic_config()
             config["environments"] = dynamic.get("environments", [])
@@ -300,9 +347,15 @@ class WebServer:
             editable_fields = {
                 "char_identity",
                 "injection_rounds",
+                "cooldown_seconds",
+                "enable_env_injection",
+                "enable_camera_injection",
                 "proxy",
+                "vision_model",
                 "gitee_config",
                 "gemini_config",
+                "grok_config",
+                "cache_config",
                 "draw_provider",
                 "enable_fallback",
                 "environments",
@@ -444,76 +497,172 @@ class WebServer:
         """列出生成的图片"""
         try:
             if not self.images_dir.exists():
-                return web.json_response({"success": True, "images": [], "total": 0})
+                return web.json_response({
+                    "success": True, "images": [], "total": 0,
+                    "filters": {"models": [], "sizes": [], "categories": []}
+                })
 
             page = int(request.query.get("page", 1))
             page_size = int(request.query.get("size", 50))
             filter_favorites = request.query.get("favorites", "").lower() == "true"
+            filter_model = request.query.get("model", "").strip()
+            filter_size = request.query.get("filter_size", "").strip()  # 1K/2K/4K
+            filter_category = request.query.get("category", "").strip()
 
-            allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+            # 辅助函数：获取图片尺寸分类
+            def get_size_class_from_dimensions(width: int, height: int) -> str:
+                """根据图片像素尺寸返回分类"""
+                max_dim = max(width, height)
+                if max_dim >= 3840:
+                    return "4K"
+                elif max_dim >= 1920:
+                    return "2K"
+                else:
+                    return "1K"
 
-            # 将目录扫描移至线程池避免阻塞
-            def scan_images():
-                results = []
-                for file_path in self.images_dir.iterdir():
-                    if file_path.is_file() and file_path.suffix.lower() in allowed_exts:
-                        stat = file_path.stat()
-                        results.append((file_path, stat))
-                return results
+            # Check cache
+            import time
+            current_time = time.time()
+            if self._images_cache and (current_time - self._images_cache_time < self._images_cache_ttl):
+                images = self._images_cache
+            else:
+                allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
-            file_stats = await asyncio.to_thread(scan_images)
+                # 尝试导入 PIL 用于读取图片尺寸
+                try:
+                    from PIL import Image
+                    has_pil = True
+                except ImportError:
+                    has_pil = False
 
-            # 一次性加载元数据（避免循环中重复读取文件）
-            await self.imgr.get_metadata_async("")  # 触发元数据重载
+                # 将目录扫描移至线程池避免阻塞
+                def scan_images():
+                    results = []
+                    for file_path in self.images_dir.iterdir():
+                        if file_path.is_file() and file_path.suffix.lower() in allowed_exts:
+                            stat = file_path.stat()
+                            # 读取图片尺寸
+                            img_width, img_height = 0, 0
+                            if has_pil:
+                                try:
+                                    with Image.open(file_path) as img:
+                                        img_width, img_height = img.size
+                                except Exception:
+                                    pass
+                            results.append((file_path, stat, img_width, img_height))
+                    return results
 
-            images = []
-            for file_path, stat in file_stats:
-                filename = file_path.name
+                file_stats = await asyncio.to_thread(scan_images)
 
-                # 从内存缓存获取元数据（不再触发文件 I/O）
-                metadata = self.imgr._metadata.get(filename)
-                is_favorite = self.imgr.is_favorite(filename)
+                # 一次性加载元数据（避免循环中重复读取文件）
+                await self.imgr.get_metadata_async("")  # 触发元数据重载
 
-                # 如果筛选收藏，跳过非收藏
-                if filter_favorites and not is_favorite:
-                    continue
+                images = []
+                for file_path, stat, img_width, img_height in file_stats:
+                    filename = file_path.name
 
-                # 生成缩略图路径
-                thumb_path = self.thumbnails_dir / filename
-                thumb_url = f"/thumbnails/{filename}" if thumb_path.exists() else f"/images/{filename}"
+                    # 从内存缓存获取元数据（不再触发文件 I/O）
+                    metadata = self.imgr._metadata.get(filename)
+                    is_favorite = self.imgr.is_favorite(filename)
 
-                # 如果缩略图不存在，尝试生成
-                if not thumb_path.exists():
-                    await self._generate_thumbnail(file_path, thumb_path)
-                    if thumb_path.exists():
-                        thumb_url = f"/thumbnails/{filename}"
+                    # 生成缩略图路径
+                    thumb_path = self.thumbnails_dir / filename
+                    thumb_url = f"/thumbnails/{filename}" if thumb_path.exists() else f"/images/{filename}"
 
-                images.append({
-                    "name": filename,
-                    "url": f"/images/{filename}",
-                    "thumbnail": thumb_url,
-                    "size": stat.st_size,
-                    "ctime": int(stat.st_ctime),
-                    "mtime": int(stat.st_mtime),
-                    "prompt": metadata.get("prompt", "") if metadata else "",
-                    "favorite": is_favorite,
-                })
+                    # 获取 category，如果没有则根据 prompt 推断
+                    category = ""
+                    if metadata:
+                        category = metadata.get("category", "")
+                        if not category and metadata.get("prompt"):
+                            # 旧图片没有 category，根据 prompt 内容推断
+                            prompt_lower = metadata.get("prompt", "").lower()
+                            char_keywords = [
+                                "girl", "woman", "lady", "person", "human", "selfie", "portrait",
+                                "女孩", "女生", "女性", "人物", "美女", "自拍", "肖像",
+                                "face", "body", "eyes", "hair", "dress", "outfit",
+                                "脸", "眼睛", "头发", "衣服", "裙子",
+                            ]
+                            if any(kw in prompt_lower for kw in char_keywords):
+                                category = "character"
+                            else:
+                                category = "other"
 
-            # 按修改时间倒序
-            images.sort(key=lambda x: x["mtime"], reverse=True)
+                    # 计算尺寸分类
+                    size_class = ""
+                    if img_width > 0 and img_height > 0:
+                        size_class = get_size_class_from_dimensions(img_width, img_height)
 
-            # 分页
-            total = len(images)
+                    images.append({
+                        "name": filename,
+                        "url": f"/images/{filename}",
+                        "thumbnail": thumb_url,
+                        "size": stat.st_size,
+                        "ctime": int(stat.st_ctime),
+                        "mtime": int(stat.st_mtime),
+                        "prompt": metadata.get("prompt", "") if metadata else "",
+                        "model": metadata.get("model", "") if metadata else "",
+                        "category": category,
+                        "image_size": f"{img_width}x{img_height}" if img_width > 0 else "",
+                        "size_class": size_class,
+                        "favorite": is_favorite,
+                    })
+
+                # 按修改时间倒序
+                images.sort(key=lambda x: x["mtime"], reverse=True)
+
+                # Update cache
+                self._images_cache = images
+                self._images_cache_time = current_time
+
+            # 收集可用的筛选选项
+            all_models = sorted(set(img["model"] for img in images if img["model"]))
+            all_categories = sorted(set(img["category"] for img in images if img["category"]))
+            all_size_classes = sorted(set(img["size_class"] for img in images if img["size_class"]),
+                                       key=lambda x: ["1K", "2K", "4K"].index(x) if x in ["1K", "2K", "4K"] else 99)
+
+            # Filter and paginate from cached full list
+            filtered_images = images
+
+            if filter_favorites:
+                filtered_images = [img for img in filtered_images if img["favorite"]]
+
+            if filter_model:
+                filtered_images = [img for img in filtered_images if img["model"] == filter_model]
+
+            if filter_size:
+                filtered_images = [img for img in filtered_images if img["size_class"] == filter_size]
+
+            if filter_category:
+                filtered_images = [img for img in filtered_images if img["category"] == filter_category]
+
+            total = len(filtered_images)
+            # 计算总收藏数（从全部图片中统计）
+            total_favorite_count = sum(1 for img in images if img["favorite"])
             start = (page - 1) * page_size
             end = start + page_size
-            paged_images = images[start:end]
+            paged_images = filtered_images[start:end]
+
+            # Generate thumbnails for current page if needed
+            for img in paged_images:
+                 thumb_path = self.thumbnails_dir / img["name"]
+                 if not thumb_path.exists():
+                     file_path = self.images_dir / img["name"]
+                     await self._generate_thumbnail(file_path, thumb_path)
+                     if thumb_path.exists():
+                        img["thumbnail"] = f"/thumbnails/{img['name']}"
 
             return web.json_response({
                 "success": True,
                 "images": paged_images,
                 "total": total,
+                "favorite_count": total_favorite_count,
                 "page": page,
                 "page_size": page_size,
+                "filters": {
+                    "models": all_models,
+                    "sizes": all_size_classes if all_size_classes else ["1K", "2K", "4K"],
+                    "categories": all_categories if all_categories else ["character", "other"],
+                },
             })
 
         except Exception as e:
@@ -887,4 +1036,237 @@ class WebServer:
         """服务参考照（需要认证）"""
         name = request.match_info.get("name", "")
         return await self._serve_file(self.selfie_refs_dir, name)
+
+    # === 视频画廊 API ===
+
+    async def handle_list_videos(self, request: web.Request) -> web.Response:
+        """列出生成的视频（在线URL）"""
+        try:
+            page = int(request.query.get("page", 1))
+            page_size = int(request.query.get("page_size", 20))
+
+            # 从 VideoManager 获取视频列表
+            all_videos = self.plugin.video_manager.get_video_list()
+
+            videos = []
+            for v in all_videos:
+                videos.append({
+                    "id": v["id"],
+                    "url": v["url"],  # 在线URL
+                    "prompt": v.get("prompt", ""),
+                    "created_at": v.get("created_at", 0),
+                })
+
+            total = len(videos)
+            start = (page - 1) * page_size
+            end = start + page_size
+            paged_videos = videos[start:end]
+
+            return web.json_response({
+                "success": True,
+                "videos": paged_videos,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+            })
+
+        except Exception as e:
+            logger.error(f"[Portrait WebUI] 获取视频列表失败: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_delete_video(self, request: web.Request) -> web.Response:
+        """删除视频（从元数据中删除）"""
+        try:
+            video_id = request.match_info.get("name", "")
+            if not video_id:
+                return web.json_response(
+                    {"success": False, "error": "视频ID为空"}, status=400
+                )
+
+            # 从 VideoManager 删除
+            if self.plugin.video_manager.delete_video(video_id):
+                logger.info(f"[Portrait WebUI] 已删除视频: {video_id}")
+                return web.json_response({"success": True, "deleted": video_id})
+            else:
+                return web.json_response(
+                    {"success": False, "error": "视频不存在"}, status=404
+                )
+
+        except Exception as e:
+            logger.error(f"[Portrait WebUI] 删除视频失败: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_download_video(self, request: web.Request) -> web.Response:
+        """下载视频（带 Content-Disposition 头）"""
+        try:
+            name = request.match_info.get("name", "")
+            if not name:
+                return web.json_response(
+                    {"success": False, "error": "文件名为空"}, status=400
+                )
+
+            # 安全检查：防止路径遍历
+            if "/" in name or "\\" in name or ".." in name:
+                return web.json_response(
+                    {"success": False, "error": "非法文件名"}, status=400
+                )
+
+            file_path = self.videos_dir / name
+            if not file_path.exists():
+                return web.json_response(
+                    {"success": False, "error": "文件不存在"}, status=404
+                )
+
+            # 确保文件在 videos_dir 内
+            try:
+                file_path.relative_to(self.videos_dir)
+            except ValueError:
+                return web.json_response(
+                    {"success": False, "error": "非法路径"}, status=400
+                )
+
+            # 非阻塞读取文件
+            content = await asyncio.to_thread(file_path.read_bytes)
+
+            # 返回带下载头的响应
+            return web.Response(
+                body=content,
+                content_type="video/mp4",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{name}"',
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"[Portrait WebUI] 下载视频失败: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_serve_video(self, request: web.Request) -> web.Response:
+        """服务视频文件（需要认证）"""
+        name = request.match_info.get("name", "")
+        if not name:
+            raise web.HTTPBadRequest(reason="文件名为空")
+
+        # 安全检查：防止路径遍历
+        if "/" in name or "\\" in name or ".." in name:
+            raise web.HTTPBadRequest(reason="非法文件名")
+
+        file_path = self.videos_dir / name
+        if not file_path.exists():
+            raise web.HTTPNotFound(reason="文件不存在")
+
+        # 确保文件在目标目录内
+        try:
+            file_path.relative_to(self.videos_dir)
+        except ValueError:
+            raise web.HTTPBadRequest(reason="非法路径")
+
+        # 非阻塞读取文件
+        content = await asyncio.to_thread(file_path.read_bytes)
+
+        # 推断 Content-Type
+        suffix = file_path.suffix.lower()
+        content_types = {
+            ".mp4": "video/mp4",
+            ".webm": "video/webm",
+            ".mov": "video/quicktime",
+            ".avi": "video/x-msvideo",
+        }
+        content_type = content_types.get(suffix, "video/mp4")
+
+        return web.Response(body=content, content_type=content_type)
+
+    # === 缓存清理 API ===
+
+    async def handle_cache_cleanup(self, request: web.Request) -> web.Response:
+        """手动清理缓存"""
+        try:
+            data = await request.json()
+            max_storage_mb = data.get("max_storage_mb", 500)
+            max_count = data.get("max_count", 100)
+
+            deleted_count = 0
+            freed_bytes = 0
+
+            # 获取所有图片文件及其信息
+            def scan_images():
+                results = []
+                for file_path in self.images_dir.iterdir():
+                    if file_path.is_file() and file_path.suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
+                        stat = file_path.stat()
+                        # 检查是否收藏
+                        meta = self.imgr.get_metadata(file_path.name)
+                        is_favorite = meta.get("favorite", False) if meta else False
+                        results.append({
+                            "path": file_path,
+                            "name": file_path.name,
+                            "size": stat.st_size,
+                            "mtime": stat.st_mtime,
+                            "favorite": is_favorite,
+                        })
+                return results
+
+            all_images = await asyncio.to_thread(scan_images)
+
+            # 按修改时间排序（旧的在前）
+            all_images.sort(key=lambda x: x["mtime"])
+
+            # 筛选出非收藏的图片
+            non_favorite = [img for img in all_images if not img["favorite"]]
+            total_size = sum(img["size"] for img in all_images)
+            total_count = len(all_images)
+
+            to_delete = []
+
+            # 按数量限制
+            if max_count > 0 and total_count > max_count:
+                excess_count = total_count - max_count
+                for img in non_favorite:
+                    if excess_count <= 0:
+                        break
+                    to_delete.append(img)
+                    excess_count -= 1
+
+            # 按存储限制
+            if max_storage_mb > 0:
+                max_bytes = max_storage_mb * 1024 * 1024
+                current_size = total_size - sum(img["size"] for img in to_delete)
+                for img in non_favorite:
+                    if img in to_delete:
+                        continue
+                    if current_size <= max_bytes:
+                        break
+                    to_delete.append(img)
+                    current_size -= img["size"]
+
+            # 执行删除
+            def do_delete():
+                nonlocal deleted_count, freed_bytes
+                for img in to_delete:
+                    try:
+                        img["path"].unlink()
+                        # 删除缩略图
+                        thumb_path = self.thumbnails_dir / img["name"]
+                        if thumb_path.exists():
+                            thumb_path.unlink()
+                        # 删除元数据
+                        self.imgr.remove_metadata(img["name"])
+                        deleted_count += 1
+                        freed_bytes += img["size"]
+                    except Exception:
+                        pass
+                # 保存元数据
+                self.imgr._save_metadata()
+
+            await asyncio.to_thread(do_delete)
+
+            return web.json_response({
+                "success": True,
+                "deleted_count": deleted_count,
+                "freed_bytes": freed_bytes,
+            })
+
+        except Exception as e:
+            logger.error(f"[Portrait WebUI] 缓存清理失败: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
 
