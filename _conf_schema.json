@@ -40,7 +40,7 @@
         "type": "string",
         "description": "主图片生成提供商",
         "hint": "选择主要使用的图片生成服务，备用提供商将在主提供商失败时自动切换",
-        "options": ["gitee", "gemini"],
+        "options": ["gitee", "gemini", "grok"],
         "default": "gitee"
     },
     "enable_fallback": {
@@ -48,6 +48,12 @@
         "description": "启用备用提供商",
         "hint": "启用后，当主提供商失败时自动切换到备用提供商",
         "default": true
+    },
+    "vision_model": {
+        "type": "string",
+        "description": "视觉分类模型",
+        "hint": "用于图片分类（人物/其他）的视觉模型名称，留空则使用主LLM模型",
+        "default": ""
     },
     "gitee_config": {
         "description": "Gitee AI 文生图配置",
@@ -154,6 +160,81 @@
                 "type": "int",
                 "default": 120,
                 "slider": { "min": 30, "max": 300, "step": 10 }
+            }
+        }
+    },
+    "grok_config": {
+        "description": "Grok AI 配置（图片+视频）",
+        "type": "object",
+        "hint": "配置 Grok (x.ai) 图片和视频生成服务，共用 API Key 和服务地址",
+        "items": {
+            "api_key": {
+                "description": "API 密钥",
+                "type": "string",
+                "default": "",
+                "hint": "从 x.ai 获取的 API Key，或兼容网关的密钥（图片和视频共用）"
+            },
+            "base_url": {
+                "description": "服务地址",
+                "type": "string",
+                "default": "https://api.x.ai",
+                "hint": "OpenAI 兼容服务根地址（图片和视频共用）"
+            },
+            "image_model": {
+                "description": "图片模型",
+                "type": "string",
+                "default": "grok-2-image",
+                "hint": "图片生成使用的模型，默认 grok-2-image"
+            },
+            "video_model": {
+                "description": "视频模型",
+                "type": "string",
+                "default": "grok-imagine-1.0-video",
+                "hint": "视频生成使用的模型，默认 grok-imagine-1.0-video"
+            },
+            "size": {
+                "description": "默认图片尺寸",
+                "type": "string",
+                "options": ["1024x1024", "2048x2048", "4096x4096"],
+                "default": "1024x1024"
+            },
+            "timeout": {
+                "description": "超时(秒)",
+                "type": "int",
+                "default": 180,
+                "slider": { "min": 30, "max": 600, "step": 10 },
+                "hint": "图片和视频生成的超时时间"
+            },
+            "max_retries": {
+                "description": "最大重试次数",
+                "type": "int",
+                "default": 2,
+                "slider": { "min": 0, "max": 5, "step": 1 }
+            },
+            "video_enabled": {
+                "description": "启用视频功能",
+                "type": "bool",
+                "default": false,
+                "hint": "启用后可使用 /视频 命令生成视频"
+            },
+            "video_presets": {
+                "description": "视频预设词",
+                "type": "list",
+                "default": [],
+                "hint": "格式: 预设名:提示词，例如 cinematic:cinematic camera movement"
+            },
+            "video_send_mode": {
+                "description": "视频发送模式",
+                "type": "string",
+                "options": ["auto", "url", "file"],
+                "default": "auto",
+                "hint": "auto=先 URL 再文件兜底，url=仅发链接视频，file=下载后本地发送"
+            },
+            "max_cached_videos": {
+                "description": "最大缓存视频数",
+                "type": "int",
+                "default": 20,
+                "slider": { "min": 0, "max": 500, "step": 10 }
             }
         }
     },

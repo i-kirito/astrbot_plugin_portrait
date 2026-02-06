@@ -3,14 +3,20 @@ from astrbot.api.star import Context, Star, StarTools
 from astrbot.api import logger
 from astrbot.core.provider.entities import ProviderRequest
 import astrbot.api.message_components as Comp
+from astrbot.api.message_components import Video
 import re
 import asyncio
+import base64
 import json
 from datetime import datetime
 from pathlib import Path
 
 from .core.gitee_draw import GiteeDrawService
 from .core.gemini_draw import GeminiDrawService
+from .core.grok_draw import GrokDrawService
+from .core.grok_video_service import GrokVideoService
+from .core.video_manager import VideoManager
+from .core.image_manager import ImageManager
 from .core.defaults import (
     DEF_CHAR_IDENTITY,
     DEFAULT_ENVIRONMENTS,
@@ -72,6 +78,59 @@ class PortraitPlugin(Star):
         ]
         self.trigger_regex = re.compile(f"({'|'.join(trigger_keywords)})", re.IGNORECASE)
 
+        # === 预编译角色相关关键词正则（性能优化）===
+        # 英文关键词（需要词边界避免误匹配）
+        english_keywords = [
+            'girl', 'woman', 'lady', 'female', 'person', 'human',
+            'selfie', 'portrait', 'headshot', 'profile', 'cosplay',
+            'face', 'body', 'eyes', 'ootd',
+        ]
+        # 中文关键词（直接匹配）
+        chinese_keywords = [
+            # 中文 - 人物
+            '女孩', '女生', '女性', '人物', '人像', '美女', '小姐姐',
+            # 中文 - 自拍/照片相关
+            '自拍', '肖像', '头像', '形象', '写真', '爆照',
+            # 中文 - 身体部位（更精确）
+            '脸蛋', '眼睛', '腿部', '身材',
+            # 中文 - 穿搭/外貌/服装
+            '衣服', '裙子', '裤子', '发型', '头发', '妆容',
+            '女仆装', '女仆', '旗袍', 'JK', 'jk', '制服', '泳装', '比基尼',
+            '睡衣', '内衣', '婚纱', '晚礼服', '汉服', 'lolita', '洛丽塔',
+            '丝袜', '黑丝', '白丝', '过膝袜', '短裙', '长裙', '连衣裙',
+            '校服', '护士装', '和服', '旗袍', '猫耳', '兔耳', '女仆',
+            # 中文 - 常见用户表达
+            '本人', '真人', '长什么样', '什么样子',
+            '看看你', '给我看', '让我看', '康康', '瞧瞧', '瞅瞅',
+            '全身', '今日穿搭',
+            # 中文 - 角色日常场景
+            '在画室', '在卧室', '在厨房', '在客厅', '在浴室', '在阳台',
+            '在书房', '在办公室', '在学校', '在教室', '在公园', '在海边',
+            '在床上', '在沙发', '在窗边', '在镜子前', '在房间',
+            '在茶水间', '在走廊', '在楼梯', '在天台', '在餐厅', '在咖啡厅',
+            # 中文 - 角色姿态/动作
+            '坐着', '站着', '躺着', '蹲着', '跪着', '趴着',
+        ]
+        # 模糊匹配模式（需要后接特定词）
+        pattern_keywords = [
+            r'再来一[张个]',  # 再来一张、再来一个
+            r'再[拍画发给]一',  # 再拍一、再画一
+            r'换[一]?张',  # 换张、换一张
+            r'重新[画拍]',  # 重新画、重新拍
+            r'发[一]?张',  # 发一张、发张
+            r'来[一]?张',  # 来一张、来张
+            r'给[一]?张',  # 给一张、给张
+            r'要[一]?张',  # 要一张、要张
+        ]
+        # 合并为单个正则：英文用词边界，中文直接匹配
+        english_patterns = [rf'\b{re.escape(kw)}\b' for kw in english_keywords]
+        chinese_patterns = [re.escape(kw) for kw in chinese_keywords]
+        all_patterns = english_patterns + chinese_patterns + pattern_keywords
+        self._char_keyword_regex = re.compile(
+            '|'.join(all_patterns),
+            re.IGNORECASE
+        )
+
         # 读取用户配置
         p_char_id = self.config.get("char_identity") or DEF_CHAR_IDENTITY
         # 存储角色外貌配置，用于在画图时自动添加
@@ -109,9 +168,41 @@ class PortraitPlugin(Star):
         # 用户最后使用时间 {user_id: timestamp}
         self.user_last_use: dict[str, float] = {}
 
+        # === v3.0.0: Grok AI 配置（图片+视频共用）===
+        grok_conf = self.config.get("grok_config", {}) or {}
+        cache_conf = self.config.get("cache_config", {}) or {}
+
+        # Grok 图片生成服务
+        self.grok_draw = GrokDrawService(
+            data_dir=self.data_dir,
+            api_key=grok_conf.get("api_key", "") or "",
+            base_url=grok_conf.get("base_url", "https://api.x.ai") or "https://api.x.ai",
+            model=grok_conf.get("image_model", "") or grok_conf.get("model", "grok-2-image") or "grok-2-image",
+            default_size=grok_conf.get("size", "1024x1024") or "1024x1024",
+            timeout=grok_conf.get("timeout", 180) or 180,
+            max_retries=grok_conf.get("max_retries", 2) or 2,
+            proxy=self.config.get("proxy", "") or None,
+            max_storage_mb=cache_conf.get("max_storage_mb", 500) or 500,
+            max_count=cache_conf.get("max_count", 100) or 100,
+        )
+
+        # Grok 视频生成服务（共用 API Key 和 Base URL）
+        video_settings = {
+            "api_key": grok_conf.get("api_key", "") or "",
+            "server_url": grok_conf.get("base_url", "https://api.x.ai") or "https://api.x.ai",
+            "model": grok_conf.get("video_model", "") or grok_conf.get("model", "grok-imagine-1.0-video") or "grok-imagine-1.0-video",
+            "timeout_seconds": grok_conf.get("timeout", 180) or 180,
+            "max_retries": grok_conf.get("max_retries", 2) or 2,
+            "presets": grok_conf.get("video_presets", []) or [],
+        }
+        self.grok_config = grok_conf  # 保存原始配置
+        self.video_service = GrokVideoService(settings=video_settings)
+        self.video_manager = VideoManager(video_settings, self.data_dir)
+        self._video_lock = asyncio.Lock()
+        self._video_in_progress: set[str] = set()
+
         # === v2.0.0: Gitee AI 文生图服务 ===
         gitee_conf = self.config.get("gitee_config", {}) or {}
-        cache_conf = self.config.get("cache_config", {}) or {}
         self.gitee_draw = GiteeDrawService(
             data_dir=self.data_dir,
             api_keys=gitee_conf.get("api_keys", []) or [],
@@ -141,9 +232,18 @@ class PortraitPlugin(Star):
             max_count=cache_conf.get("max_count", 100) or 100,
         )
 
+
         # 主备切换配置
         self.draw_provider = self.config.get("draw_provider", "gitee") or "gitee"
         self.enable_fallback = self.config.get("enable_fallback", True)
+
+        # === v3.1.0: 图片管理器（用于元数据存储）===
+        self.image_manager = ImageManager(
+            self.data_dir,
+            proxy=self.config.get("proxy", "") or None,
+            max_storage_mb=cache_conf.get("max_storage_mb", 500) or 500,
+            max_count=cache_conf.get("max_count", 100) or 100,
+        )
 
         # === v2.6.0: 人像参考配置 ===
         selfie_conf = self.config.get("selfie_config", {}) or {}
@@ -217,6 +317,7 @@ class PortraitPlugin(Star):
             "proxy",
             "gitee_config",
             "gemini_config",
+            "grok_config",
             "draw_provider",
             "enable_fallback",
             "selfie_config",
@@ -487,7 +588,9 @@ class PortraitPlugin(Star):
             return
 
         # === v2.9.2: 前置角色相关性判断，非角色内容不注入 ===
-        if not self._is_character_related_prompt(user_message):
+        # === v2.9.8: 传入上下文消息用于回应性对话检测 ===
+        context_messages = list(req.messages) if hasattr(req, 'messages') and req.messages else None
+        if not self._is_character_related_prompt(user_message, context_messages):
             logger.info(f"[Portrait] 用户消息非角色相关，跳过注入: {user_message[:50]}...")
             return
 
@@ -671,55 +774,225 @@ class PortraitPlugin(Star):
                 if now - v < threshold
             }
 
-    def _is_character_related_prompt(self, text: str) -> bool:
+    async def _extract_first_image_bytes_from_event(self, event: AstrMessageEvent) -> bytes | None:
+        """从消息或引用消息中提取第一张图片并转换为 bytes。"""
+        for seg in event.get_messages():
+            if isinstance(seg, Comp.Reply) and getattr(seg, "chain", None):
+                for quote_seg in seg.chain:
+                    if isinstance(quote_seg, Comp.Image):
+                        try:
+                            b64 = await quote_seg.convert_to_base64()
+                            return base64.b64decode(b64)
+                        except Exception as e:
+                            logger.warning(f"[Portrait][视频] 引用图片转换失败: {e}")
+
+        for seg in event.get_messages():
+            if isinstance(seg, Comp.Image):
+                try:
+                    b64 = await seg.convert_to_base64()
+                    return base64.b64decode(b64)
+                except Exception as e:
+                    logger.warning(f"[Portrait][视频] 当前消息图片转换失败: {e}")
+
+        return None
+
+    async def _video_begin(self, user_id: str) -> bool:
+        """单用户并发保护：成功占用返回 True，否则 False。"""
+        uid = str(user_id or "")
+        async with self._video_lock:
+            if uid in self._video_in_progress:
+                return False
+            self._video_in_progress.add(uid)
+            return True
+
+    async def _video_end(self, user_id: str) -> None:
+        uid = str(user_id or "")
+        async with self._video_lock:
+            self._video_in_progress.discard(uid)
+
+    def _parse_video_args(self, text: str) -> tuple[str | None, str]:
+        """解析 /视频 参数，返回 (preset, prompt)。"""
+        message = (text or "").strip()
+        if not message:
+            return None, ""
+
+        first, _, rest = message.partition(" ")
+        presets = self.video_service.get_preset_names()
+        if first and first in presets:
+            return first, rest.strip()
+        return None, message
+
+    async def _send_video_result(self, event: AstrMessageEvent, video_url: str, prompt: str = "") -> None:
+        """发送视频结果：URL / 本地文件 / 文本链接兜底。同时保存URL到画廊。"""
+        mode = str(self.grok_config.get("video_send_mode", "auto")).strip().lower()
+        if mode not in {"auto", "url", "file"}:
+            mode = "auto"
+
+        # 保存视频URL到元数据（用于画廊在线播放）
+        try:
+            self.video_manager.save_video_url(video_url, prompt=prompt)
+        except Exception as e:
+            logger.warning(f"[Portrait][视频] 保存视频URL失败: {e}")
+
+        if mode in {"auto", "url"}:
+            try:
+                await event.send(event.chain_result([Video.fromURL(video_url)]))
+                return
+            except Exception as e:
+                if mode == "url":
+                    raise
+                logger.warning(f"[Portrait][视频] URL 发送失败，尝试文件发送: {e}")
+
+        if mode in {"auto", "file"}:
+            try:
+                timeout_seconds = int(self.grok_config.get("timeout", 180) or 180)
+                video_path = await self.video_manager.download_video(
+                    video_url,
+                    timeout_seconds=timeout_seconds,
+                )
+                await event.send(event.chain_result([Video.fromFileSystem(str(video_path))]))
+                return
+            except Exception as e:
+                if mode == "file":
+                    raise
+                logger.warning(f"[Portrait][视频] 文件发送失败，回退文本链接: {e}")
+
+        await event.send(event.plain_result(f"视频生成成功：{video_url}"))
+
+    @filter.command("视频")
+    async def generate_video_command(self, event: AstrMessageEvent):
+        """参考图生视频：/视频 <提示词> 或 /视频 <预设名> [额外提示词]"""
+        event.should_call_llm(True)
+
+        if not bool(self.grok_config.get("video_enabled", False)):
+            yield event.plain_result("视频功能未启用，请在 grok_config.video_enabled 中开启")
+            return
+
+        # 冷却时间检查
+        is_allowed, remaining = self._check_cooldown(event)
+        if not is_allowed:
+            yield event.plain_result(f"操作太频繁，请 {remaining} 秒后再试")
+            return
+
+        arg = (event.message_str or "").strip()
+        if arg.startswith("/"):
+            parts = arg.split(maxsplit=1)
+            arg = parts[1].strip() if len(parts) > 1 else ""
+        if not arg:
+            yield event.plain_result("用法: /视频 <提示词> 或 /视频 <预设名> [额外提示词]\n请附带图片或引用一张图片")
+            return
+
+        preset, prompt = self._parse_video_args(arg)
+        final_prompt = self.video_service.build_prompt(prompt, preset=preset)
+        if not final_prompt:
+            yield event.plain_result("提示词不能为空")
+            return
+
+        user_id = str(event.get_sender_id() or "")
+        if not await self._video_begin(user_id):
+            yield event.plain_result("你已有一个视频任务正在进行中，请稍后再试")
+            return
+
+        try:
+            image_bytes = await self._extract_first_image_bytes_from_event(event)
+            if not image_bytes:
+                yield event.plain_result("请附带一张图片，或引用包含图片的消息后再使用 /视频")
+                return
+
+            yield event.plain_result("🎬 正在生成视频，请稍候...")
+
+            video_url = await self.video_service.generate_video_url(
+                prompt=prompt,
+                image_bytes=image_bytes,
+                preset=preset,
+            )
+            await self._send_video_result(event, video_url, prompt=final_prompt)
+
+            # 更新冷却时间
+            self._update_cooldown(event)
+        except Exception as e:
+            logger.error(f"[Portrait][视频] 生成失败: {e}", exc_info=True)
+            yield event.plain_result(f"视频生成失败: {e}")
+        finally:
+            await self._video_end(user_id)
+
+    @filter.command("视频预设列表")
+    async def list_video_presets(self, event: AstrMessageEvent):
+        """列出所有可用视频预设。"""
+        event.should_call_llm(True)
+        names = self.video_service.get_preset_names()
+        if not names:
+            yield event.plain_result("📋 视频预设列表\n暂无预设（请在 grok_config.video_presets 中添加）")
+            return
+
+        message = "📋 视频预设列表\n"
+        for name in names:
+            message += f"- {name}\n"
+        message += "\n用法: /视频 <预设名> [额外提示词]"
+        yield event.plain_result(message)
+
+    def _is_character_related_prompt(self, text: str, context_messages: list | None = None) -> bool:
         """判断文本是否与角色本人相关
 
         用于两个场景：
         1. 注入判断：检查用户消息是否需要注入 Visual Context
         2. 生成判断：检查 prompt 是否需要使用参考图和角色外貌
 
-        策略：只有明确匹配角色关键词才注入，默认不注入
+        策略：
+        1. 当前消息明确匹配角色关键词 -> 注入
+        2. 当前消息含对话回应词 + 上下文有角色内容 -> 注入
+        3. 默认不注入
         """
-        text_lower = text.lower()
+        # 使用预编译正则匹配（性能优化）
+        match = self._char_keyword_regex.search(text)
+        if match:
+            logger.info(f"[Portrait] 检测到角色相关 '{match.group()}'，执行注入")
+            return True
 
-        # 角色相关关键词：人物特征、自拍、身体部位、常见用户表达等
-        character_keywords = [
-            # 英文
-            'girl', 'woman', 'lady', 'female', 'person', 'human',
-            'selfie', 'portrait', 'headshot', 'profile', 'cos',
-            'face', 'body', 'hand', 'eyes',
-            # 中文 - 人物
-            '女孩', '女生', '女性', '人物', '人像', '美女', '小姐姐',
-            # 中文 - 自拍/照片相关
-            '自拍', '肖像', '头像', '形象', '照片', '写真', '爆照',
-            # 中文 - 身体部位
-            '脸', '身体', '手', '眼睛', '腿', '脚',
-            # 中文 - 穿搭/外貌
-            '穿', '衣服', '裙子', '裤子', '鞋', '发型', '头发', '妆',
-            # 中文 - 常见用户表达（隐式角色请求）
-            '你', '自己', '本人', '真人', '样子', '长什么样', '什么样子',
-            '看看你', '给我看', '让我看', '康康', '瞧瞧', '瞅瞅',
-            '全身', 'ootd', '今日穿搭',
-            # 中文 - 角色日常场景（地点暗示角色活动）
-            '在画室', '在卧室', '在厨房', '在客厅', '在浴室', '在阳台',
-            '在书房', '在办公室', '在学校', '在教室', '在公园', '在海边',
-            '在床上', '在沙发', '在窗边', '在镜子前', '在家', '在房间',
-            '在茶水间', '在走廊', '在楼梯', '在天台', '在餐厅', '在咖啡厅',
-            # 中文 - 角色姿态/动作
-            '坐着', '站着', '躺着', '蹲着', '跪着', '趴着',
-            '吃饭', '睡觉', '看书', '玩手机', '做饭', '喝水', '喝咖啡', '喝茶',
-            # 中文 - 再来一张类（暗示继续上一个角色相关请求）
-            '再来', '再拍', '再画', '再发', '再给', '换一张', '换个', '重新',
+        # === 上下文检测：当前消息是回应性对话时，检查上下文是否与角色相关 ===
+        # 回应性词汇（表明用户在回应角色的消息）
+        response_patterns = [
+            r'吃饱', r'吃完', r'好吃', r'好喝', r'好看', r'真棒', r'辛苦',
+            r'早安', r'晚安', r'午安', r'早上好', r'晚上好', r'下午好',
+            r'起床', r'睡觉', r'睡了', r'醒了', r'累了', r'困了',
+            r'开心', r'高兴', r'难过', r'伤心', r'生气',
+            r'干嘛呢', r'在干嘛', r'做什么呢', r'忙什么',
+            r'怎么了', r'怎么样', r'还好吗', r'好点没',
+            r'宝宝', r'宝贝', r'亲爱的', r'老婆', r'老公', r'媳妇',
+            r'乖', r'棒', r'厉害', r'可爱', r'漂亮', r'好美',
+            r'想你', r'爱你', r'喜欢你', r'抱抱', r'亲亲', r'摸摸',
+            r'然后呢', r'接下来', r'后来呢', r'继续',
         ]
+        response_regex = re.compile('|'.join(response_patterns), re.IGNORECASE)
 
-        # 只有明确匹配角色关键词才注入
-        for keyword in character_keywords:
-            if keyword in text_lower:
-                logger.info(f"[Portrait] 检测到角色相关 '{keyword}'，执行注入")
-                return True
+        if response_regex.search(text) and context_messages:
+            # 检查上下文中最近的助手消息是否包含角色活动
+            context_keywords = [
+                r'吃', r'喝', r'做饭', r'下厨', r'烹饪',
+                r'穿', r'换衣', r'打扮',
+                r'睡', r'躺', r'起床', r'休息',
+                r'洗', r'刷', r'泡澡', r'洗澡',
+                r'看', r'读', r'玩', r'听',
+                r'画', r'写', r'工作', r'学习',
+                r'拍', r'照', r'自拍',
+                r'发', r'给你', r'送你',
+            ]
+            context_regex = re.compile('|'.join(context_keywords))
+
+            # 检查最近 3 条助手消息
+            assistant_messages = [
+                msg for msg in context_messages[-6:]
+                if hasattr(msg, 'role') and msg.role == 'assistant'
+            ][-3:]
+
+            for msg in reversed(assistant_messages):
+                content = getattr(msg, 'content', '') or ''
+                if isinstance(content, str) and context_regex.search(content):
+                    logger.info(f"[Portrait] 上下文检测：用户回应 + 角色活动上下文，执行注入")
+                    return True
 
         # 默认不注入
-        logger.debug(f"[Portrait] 未匹配角色关键词，跳过注入")
+        logger.debug("[Portrait] 未匹配角色关键词，跳过注入")
         return False
 
     # === v2.4.0: 统一图片生成方法（支持主备切换） ===
@@ -765,8 +1038,8 @@ class PortraitPlugin(Star):
                 all_images.extend(images)
 
         # === v2.9.3: 检测是否需要自定义尺寸（非正方形）===
-        # Gemini 不支持自定义宽高比，有自定义尺寸时强制使用 Gitee
-        needs_custom_size = False
+        # 非正方形尺寸时，Gemini/Grok 会自动使用默认正方形尺寸
+        is_custom_size = False
         if size:
             size_upper = size.upper()
             if "X" in size_upper:
@@ -774,69 +1047,115 @@ class PortraitPlugin(Star):
                 if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
                     w, h = int(parts[0]), int(parts[1])
                     if w != h:  # 非正方形
-                        needs_custom_size = True
-                        logger.info(f"[Portrait] 检测到非正方形尺寸 {size}，将使用 Gitee")
+                        is_custom_size = True
 
-        # 有参考图时，优先使用 Gemini，失败则降级到 Gitee（不带参考图）
-        if all_images and not needs_custom_size:
-            logger.info(f"[Portrait] 准备使用 {len(all_images)} 张参考图生成图片")
-            if self.gemini_draw.enabled:
-                try:
-                    return await self.gemini_draw.generate(prompt, all_images, resolution=resolution)
-                except Exception as e:
-                    logger.error(f"[Portrait] Gemini 生成失败: {e}", exc_info=True)
-                    if self.enable_fallback and self.gitee_draw.enabled:
-                        logger.info("[Portrait] 切换到备用提供商 Gitee（不带参考图）")
-                        return await self.gitee_draw.generate(prompt, size=size, resolution=resolution)
-                    raise
-            elif self.gitee_draw.enabled:
-                logger.warning("[Portrait] Gemini 未配置，降级到 Gitee（不带参考图）")
-                return await self.gitee_draw.generate(prompt, size=size, resolution=resolution)
-            else:
-                raise ValueError("参考图功能需要配置 Gemini API Key")
+        # === v3.0.0: 支持 Grok 作为第三个提供商，统一 provider 选择逻辑 ===
+        providers = {
+            "gitee": (self.gitee_draw, "Gitee"),
+            "gemini": (self.gemini_draw, "Gemini"),
+            "grok": (self.grok_draw, "Grok"),
+        }
 
-        # 确定主备提供商
-        # === v2.9.3: 非正方形尺寸时强制使用 Gitee ===
-        if needs_custom_size:
-            if self.gitee_draw.enabled:
-                return await self.gitee_draw.generate(prompt, size=size, resolution=resolution)
-            else:
-                raise ValueError("自定义尺寸需要配置 Gitee AI API Key（Gemini 不支持自定义宽高比）")
+        # 确定主提供商
+        primary_key = self.draw_provider if self.draw_provider in providers else "gitee"
+        primary, primary_name = providers[primary_key]
 
-        if self.draw_provider == "gemini":
-            primary, fallback = self.gemini_draw, self.gitee_draw
-            primary_name, fallback_name = "Gemini", "Gitee"
+        # 调试日志
+        logger.info(
+            f"[Portrait] 生图配置: provider={self.draw_provider}, primary={primary_name}, "
+            f"enabled={primary.enabled}, fallback={self.enable_fallback}, ref_images={len(all_images) if all_images else 0}, custom_size={is_custom_size}"
+        )
+
+        # 确定备用提供商顺序（支持参考图的优先）
+        if all_images:
+            # 有参考图时，Gemini 和 Grok 优先（都支持参考图），Gitee 最后（不支持参考图）
+            fallback_order = ["gemini", "grok", "gitee"]
         else:
-            primary, fallback = self.gitee_draw, self.gemini_draw
-            primary_name, fallback_name = "Gitee", "Gemini"
+            fallback_order = ["gemini", "gitee", "grok"]
+        fallback_order = [k for k in fallback_order if k != primary_key]
+
+        # 辅助函数：保存元数据
+        async def save_image_metadata(image_path: Path, provider_name: str, model_name: str) -> None:
+            """保存图片元数据到 ImageManager"""
+            try:
+                category = "character" if is_character_related else "other"
+                await self.image_manager.set_metadata_async(
+                    image_path.name,
+                    prompt,
+                    model=model_name,
+                    category=category,
+                    size=size or resolution or "",
+                )
+                logger.debug(f"[Portrait] 已保存图片元数据: {image_path.name}, model={model_name}, category={category}")
+            except Exception as e:
+                logger.warning(f"[Portrait] 保存图片元数据失败: {e}")
 
         # 尝试主提供商
         if primary.enabled:
             try:
                 if primary_name == "Gitee":
-                    return await primary.generate(prompt, size=size, resolution=resolution)
-                else:
-                    return await primary.generate(prompt, resolution=resolution)
+                    # Gitee 不支持参考图
+                    if all_images:
+                        logger.warning(f"[Portrait] Gitee 不支持参考图，将忽略 {len(all_images)} 张参考图")
+                    image_path = await primary.generate(prompt, size=size, resolution=resolution)
+                    await save_image_metadata(image_path, primary_name, primary.model)
+                    return image_path
+                elif primary_name == "Grok":
+                    # Grok 不支持自定义宽高比，使用 resolution 或默认尺寸
+                    if is_custom_size:
+                        logger.info(f"[Portrait] Grok 不支持自定义宽高比，将使用默认正方形尺寸")
+                        image_path = await primary.generate(prompt, images=all_images, resolution=resolution)
+                    else:
+                        image_path = await primary.generate(prompt, images=all_images, size=size, resolution=resolution)
+                    await save_image_metadata(image_path, primary_name, primary.model)
+                    return image_path
+                else:  # Gemini
+                    # Gemini 不支持自定义宽高比，使用 resolution 或默认尺寸
+                    if is_custom_size:
+                        logger.info(f"[Portrait] Gemini 不支持自定义宽高比，将使用默认正方形尺寸")
+                    image_path = await primary.generate(prompt, all_images, resolution=resolution)
+                    await save_image_metadata(image_path, primary_name, primary.model)
+                    return image_path
             except Exception as e:
                 logger.warning(f"[Portrait] {primary_name} 生成失败: {e}")
                 if not self.enable_fallback:
                     raise
+        else:
+            # 主提供商未启用
+            if not self.enable_fallback:
+                raise ValueError(f"主提供商 {primary_name} 未启用（未配置 API Key），且备用功能已禁用")
 
         # 尝试备用提供商
-        if self.enable_fallback and fallback.enabled:
-            logger.info(f"[Portrait] 切换到备用提供商 {fallback_name}")
-            if fallback_name == "Gitee":
-                return await fallback.generate(prompt, size=size, resolution=resolution)
-            else:
-                return await fallback.generate(prompt, resolution=resolution)
+        if self.enable_fallback:
+            for fallback_key in fallback_order:
+                fallback, fallback_name = providers[fallback_key]
+                if fallback.enabled:
+                    logger.info(f"[Portrait] 切换到备用提供商 {fallback_name}")
+                    try:
+                        if fallback_name == "Gitee":
+                            if all_images:
+                                logger.warning(f"[Portrait] Gitee 不支持参考图，将忽略 {len(all_images)} 张参考图")
+                            image_path = await fallback.generate(prompt, size=size, resolution=resolution)
+                            await save_image_metadata(image_path, fallback_name, fallback.model)
+                            return image_path
+                        elif fallback_name == "Grok":
+                            image_path = await fallback.generate(prompt, images=all_images, size=size, resolution=resolution)
+                            await save_image_metadata(image_path, fallback_name, fallback.model)
+                            return image_path
+                        else:  # Gemini
+                            image_path = await fallback.generate(prompt, all_images, resolution=resolution)
+                            await save_image_metadata(image_path, fallback_name, fallback.model)
+                            return image_path
+                    except Exception as e:
+                        logger.warning(f"[Portrait] {fallback_name} 生成失败: {e}")
+                        continue
 
         # 都不可用
-        if not primary.enabled and not fallback.enabled:
-            raise ValueError("未配置任何图片生成服务，请在插件配置中填写 Gitee AI 或 Gemini API Key")
-        elif not primary.enabled:
-            raise ValueError(f"{primary_name} 未配置 API Key")
+        enabled_providers = [name for _, name in providers.values() if _.enabled]
+        if not enabled_providers:
+            raise ValueError("未配置任何图片生成服务，请在插件配置中填写 Gitee AI、Gemini 或 Grok API Key")
         else:
-            raise ValueError("图片生成失败，备用提供商也未配置")
+            raise ValueError("图片生成失败，所有提供商都已尝试")
 
     def _build_final_prompt(self, prompt: str, is_character_related: bool | None = None) -> str:
         """构建最终 prompt（自动添加角色外貌）
@@ -942,7 +1261,9 @@ class PortraitPlugin(Star):
         # === v2.9.5: 冷却时间检查 ===
         is_allowed, remaining = self._check_cooldown(event)
         if not is_allowed:
-            return f"[COOLDOWN] 画图冷却中，请等待 {remaining} 秒后再试"
+            # 静默忽略冷却期间的请求，返回成功让 LLM 不再回复
+            logger.debug(f"[Portrait] 用户 {event.get_sender_id()} 画图冷却中，静默忽略请求")
+            return "[SUCCESS] 图片已处理。"
 
         try:
             # === v2.9.2: 统一判断角色相关性，避免重复调用 ===
