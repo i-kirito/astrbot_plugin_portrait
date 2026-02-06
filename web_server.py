@@ -778,24 +778,9 @@ class WebServer:
                     {"success": False, "error": "非法路径"}, status=400
                 )
 
-            # 非阻塞读取文件
-            content = await asyncio.to_thread(file_path.read_bytes)
-
-            # 推断 Content-Type
-            suffix = file_path.suffix.lower()
-            content_types = {
-                ".png": "image/png",
-                ".jpg": "image/jpeg",
-                ".jpeg": "image/jpeg",
-                ".gif": "image/gif",
-                ".webp": "image/webp",
-            }
-            content_type = content_types.get(suffix, "application/octet-stream")
-
-            # 返回带下载头的响应
-            return web.Response(
-                body=content,
-                content_type=content_type,
+            # 使用 FileResponse 流式传输文件
+            return web.FileResponse(
+                file_path,
                 headers={
                     "Content-Disposition": f'attachment; filename="{name}"',
                 },
@@ -1006,21 +991,8 @@ class WebServer:
         except ValueError:
             raise web.HTTPBadRequest(reason="非法路径")
 
-        # 非阻塞读取文件
-        content = await asyncio.to_thread(file_path.read_bytes)
-
-        # 推断 Content-Type
-        suffix = file_path.suffix.lower()
-        content_types = {
-            ".png": "image/png",
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".gif": "image/gif",
-            ".webp": "image/webp",
-        }
-        content_type = content_types.get(suffix, "application/octet-stream")
-
-        return web.Response(body=content, content_type=content_type)
+        # 使用 FileResponse 流式传输文件
+        return web.FileResponse(file_path)
 
     async def handle_serve_image(self, request: web.Request) -> web.Response:
         """服务生成的图片（需要认证）"""
@@ -1125,13 +1097,9 @@ class WebServer:
                     {"success": False, "error": "非法路径"}, status=400
                 )
 
-            # 非阻塞读取文件
-            content = await asyncio.to_thread(file_path.read_bytes)
-
-            # 返回带下载头的响应
-            return web.Response(
-                body=content,
-                content_type="video/mp4",
+            # 使用 FileResponse 流式传输文件
+            return web.FileResponse(
+                file_path,
                 headers={
                     "Content-Disposition": f'attachment; filename="{name}"',
                 },
@@ -1161,20 +1129,8 @@ class WebServer:
         except ValueError:
             raise web.HTTPBadRequest(reason="非法路径")
 
-        # 非阻塞读取文件
-        content = await asyncio.to_thread(file_path.read_bytes)
-
-        # 推断 Content-Type
-        suffix = file_path.suffix.lower()
-        content_types = {
-            ".mp4": "video/mp4",
-            ".webm": "video/webm",
-            ".mov": "video/quicktime",
-            ".avi": "video/x-msvideo",
-        }
-        content_type = content_types.get(suffix, "video/mp4")
-
-        return web.Response(body=content, content_type=content_type)
+        # 使用 FileResponse 流式传输文件
+        return web.FileResponse(file_path)
 
     # === 缓存清理 API ===
 

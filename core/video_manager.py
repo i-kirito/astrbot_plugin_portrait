@@ -72,9 +72,11 @@ class VideoManager:
     def save_video_url(self, url: str, prompt: str = "") -> str:
         """保存视频URL到元数据，返回视频ID"""
         video_id = f"{int(time.time())}_{uuid.uuid4().hex[:8]}"
+        # 过滤掉"视频"关键词
+        clean_prompt = prompt.replace("视频", "").strip() if prompt else ""
         self._metadata[video_id] = {
             "url": url,
-            "prompt": prompt,
+            "prompt": clean_prompt,
             "created_at": int(time.time()),
         }
         self._save_metadata()

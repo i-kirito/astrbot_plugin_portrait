@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>人物形象 - AstrBot</title>
     <meta name="referrer" content="no-referrer">
+    <!-- Preconnect for faster resource loading -->
+    <link rel="preconnect" href="https://cdn.tailwindcss.com">
+    <link rel="preconnect" href="https://unpkg.com">
+    <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
+    <link rel="dns-prefetch" href="https://unpkg.com">
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Element Plus -->
@@ -1081,7 +1086,7 @@
                         </div>
                         <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                             <div v-for="ref in selfieRefs" :key="ref.name" class="image-card">
-                                <img :src="ref.url" :alt="ref.name" style="height: 180px;" />
+                                <img :src="ref.url" :alt="ref.name" loading="lazy" decoding="async" style="height: 180px;" />
                                 <div class="actions">
                                     <el-button type="danger" circle @click="deleteSelfieRef(ref)" title="删除" aria-label="删除参考照">
                                         <span>&#128465;</span>
@@ -1159,7 +1164,7 @@
                         <div v-for="img in images" :key="img.name" class="image-card">
                             <!-- 收藏标记 -->
                             <div v-if="img.favorite" class="absolute top-2 right-2 z-10 text-pink-500" style="font-size: 1.2rem; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">&#9829;</div>
-                            <img :src="img.thumbnail || img.url" :alt="img.name" @click="openImageDetail(img)" @keyup.enter="openImageDetail(img)" class="cursor-pointer" loading="lazy" tabindex="0" role="button" />
+                            <img :src="img.thumbnail || img.url" :alt="img.name" @click="openImageDetail(img)" @keyup.enter="openImageDetail(img)" class="cursor-pointer" loading="lazy" decoding="async" tabindex="0" role="button" />
                             <div class="actions">
                                 <div class="flex gap-2">
                                     <el-button :type="img.favorite ? 'warning' : 'default'" circle @click.stop="toggleFavorite(img)" :title="img.favorite ? '取消收藏' : '添加收藏'" :aria-label="img.favorite ? '取消收藏' : '添加收藏'">
@@ -1452,6 +1457,13 @@
                 const videoPageSize = ref(20);
                 const loadingVideos = ref(false);
 
+                // 缓存标志：避免重复加载
+                const dataLoaded = reactive({
+                    gallery: false,
+                    videos: false,
+                    settings: false,
+                });
+
                 const detailVisible = ref(false);
                 const detailImage = ref(null);
                 const detailImageDimensions = ref('加载中...');
@@ -1475,9 +1487,7 @@
                         if (res.ok) {
                             // 不需要认证，直接进入
                             isAuthenticated.value = true;
-                            await loadConfig();
-                            await loadImages();
-                            await loadVideos();
+                            await Promise.all([loadConfig(), loadImages(), loadVideos()]);
                             nextTick(() => initSortable());
                             return;
                         }
@@ -1501,9 +1511,7 @@
                                 url.searchParams.delete('token');
                                 window.history.replaceState({}, '', url.pathname + url.search);
                                 isAuthenticated.value = true;
-                                await loadConfig();
-                                await loadImages();
-                                await loadVideos();
+                                await Promise.all([loadConfig(), loadImages(), loadVideos()]);
                                 nextTick(() => initSortable());
                             }
                         } catch {}
@@ -1533,9 +1541,7 @@
                             sessionStorage.removeItem('portrait_token');
                             isAuthenticated.value = true;
                             // 加载数据
-                            await loadConfig();
-                            await loadImages();
-                            await loadVideos();
+                            await Promise.all([loadConfig(), loadImages(), loadVideos()]);
                             nextTick(() => initSortable());
                         } else {
                             loginError.value = data.error || '访问令牌无效';
@@ -1547,18 +1553,18 @@
                     }
                 }
 
-                // 监听 tab 切换，保存到 localStorage 并刷新对应页面数据
+                // 监听 tab 切换，保存到 localStorage 并按需加载数据
                 watch(activeTab, (newTab) => {
                     // 保存当前 tab 到 localStorage
                     localStorage.setItem('portrait_active_tab', newTab);
                     nextTick(() => {
                         initSortable();
-                        // 根据当前页面刷新数据
-                        if (newTab === 'gallery') {
+                        // 仅在未缓存时加载数据
+                        if (newTab === 'gallery' && !dataLoaded.gallery) {
                             loadImages();
-                        } else if (newTab === 'videos') {
+                        } else if (newTab === 'videos' && !dataLoaded.videos) {
                             loadVideos();
-                        } else if (newTab === 'settings') {
+                        } else if (newTab === 'settings' && !dataLoaded.settings) {
                             loadConfig();
                         }
                     });
@@ -1640,6 +1646,7 @@
                         }
                         // 加载人像参考列表
                         await loadSelfieRefs();
+                        dataLoaded.settings = true;
                     } catch (e) {
                         ElementPlus.ElMessage.error('加载配置失败: ' + e.message);
                     }
@@ -1829,6 +1836,7 @@
                                 availableFilters.sizes = data.filters.sizes || ['1K', '2K', '4K'];
                                 availableFilters.categories = data.filters.categories || ['character', 'other'];
                             }
+                            dataLoaded.gallery = true;
                         }
                     } catch (e) {
                         ElementPlus.ElMessage.error('加载图片失败: ' + e.message);
@@ -2108,6 +2116,7 @@
                         if (data.success) {
                             videos.value = data.videos;
                             totalVideos.value = data.total;
+                            dataLoaded.videos = true;
                         }
                     } catch (e) {
                         ElementPlus.ElMessage.error('加载视频失败: ' + e.message);
