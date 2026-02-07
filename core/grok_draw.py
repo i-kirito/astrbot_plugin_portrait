@@ -8,7 +8,10 @@ Grok 图片生成服务（/v1/chat/completions）
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import contextlib
+import hashlib
 import json
 import re
 import time
@@ -273,9 +276,12 @@ class GrokDrawService:
         self.image_dir = self.data_dir / "generated_images"
         self.image_dir.mkdir(parents=True, exist_ok=True)
 
-        # 使用 chat completions 端点
+        # 使用 chat completions 端点（用于改图）
         self._endpoint = f"{self.base_url}/v1/chat/completions" if self.base_url else ""
+        # 使用 images generations 端点（用于纯文生图，支持自定义尺寸）
+        self._images_endpoint = f"{self.base_url}/v1/images/generations" if self.base_url else ""
         self._origin = _origin(self._endpoint)
+        self._cleanup_task: asyncio.Task | None = None
 
     @property
     def enabled(self) -> bool:
@@ -289,8 +295,12 @@ class GrokDrawService:
         }
 
     async def close(self) -> None:
-        """关闭服务（预留接口）"""
-        pass
+        """关闭服务并停止后台任务"""
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._cleanup_task
+        self._cleanup_task = None
 
     async def generate(
         self,
@@ -305,7 +315,7 @@ class GrokDrawService:
         Args:
             prompt: 提示词
             images: 参考图片列表（可选，用于改图）
-            size: 图片尺寸（Grok 通过 chat 不支持自定义尺寸，会忽略）
+            size: 图片尺寸（纯文生图时有效）
             resolution: 分辨率快捷方式（1K/2K/4K）
 
         Returns:
@@ -316,19 +326,102 @@ class GrokDrawService:
 
         final_prompt = (prompt or "").strip() or "a high quality image"
 
+        # 解析尺寸
+        final_size = size or self.default_size
+        if resolution:
+            size_map = {"1K": "1024x1024", "2K": "2048x2048", "4K": "4096x4096"}
+            final_size = size_map.get(resolution.upper(), final_size)
+
+        logger.info(f"[GrokDraw] 尺寸参数: size={size}, default_size={self.default_size}, resolution={resolution}, final_size={final_size}")
+
+        # 根据是否有参考图选择不同的 API
+        if images:
+            # 有参考图：使用 chat completions API（不支持自定义尺寸）
+            if final_size != "1024x1024":
+                logger.warning(f"[GrokDraw] 注意：有参考图时使用 chat API，不支持自定义尺寸 {final_size}，将使用 API 默认尺寸")
+            return await self._generate_with_chat(final_prompt, images)
+        else:
+            # 纯文生图：使用 images generations API（支持自定义尺寸）
+            return await self._generate_with_images_api(final_prompt, final_size)
+
+    async def _generate_with_images_api(self, prompt: str, size: str) -> Path:
+        """使用 /v1/images/generations API 生成图片（支持自定义尺寸）"""
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "n": 1,
+            "size": size,
+            "response_format": "url",
+        }
+
+        logger.info(f"[GrokDraw] 使用 Images API: endpoint={self._images_endpoint}, size={size}, model={self.model}")
+
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                t0 = time.perf_counter()
+                async with httpx.AsyncClient(
+                    timeout=float(self.timeout),
+                    follow_redirects=True,
+                    proxy=self.proxy,
+                ) as client:
+                    resp = await client.post(
+                        self._images_endpoint, headers=self._headers(), json=payload
+                    )
+
+                if resp.status_code != 200:
+                    raise RuntimeError(
+                        f"Grok Images API 失败 HTTP {resp.status_code}: {resp.text[:300]}"
+                    )
+
+                data = resp.json()
+                # 从 images/generations 响应中提取 URL
+                image_data = data.get("data", [])
+                if not image_data:
+                    raise RuntimeError("Grok Images API 未返回图片数据")
+
+                image_url = image_data[0].get("url")
+                if not image_url:
+                    # 尝试获取 b64_json
+                    b64_data = image_data[0].get("b64_json")
+                    if b64_data:
+                        return await self._save_b64(b64_data)
+                    raise RuntimeError("Grok Images API 未返回图片 URL")
+
+                logger.info(
+                    "[GrokDraw] Images API 生成成功, 尺寸: %s, 耗时: %.2fs",
+                    size,
+                    time.perf_counter() - t0,
+                )
+                return await self._save_ref(image_url)
+
+            except Exception as e:
+                last_error = e
+                if attempt < self.max_retries:
+                    logger.warning(
+                        "[GrokDraw] Images API 第 %d 次尝试失败: %s，重试中...",
+                        attempt + 1,
+                        e,
+                    )
+                    continue
+
+        raise RuntimeError(f"Grok 图片生成失败: {last_error}")
+
+    async def _generate_with_chat(self, prompt: str, images: list[bytes]) -> Path:
+        """使用 /v1/chat/completions API 生成图片（支持参考图改图）"""
+
         # 构建 chat completions 请求
         content: list[dict[str, Any]] = [
-            {"type": "text", "text": final_prompt},
+            {"type": "text", "text": prompt},
         ]
 
-        # 如果有参考图，添加到请求
-        if images:
-            for img_bytes in images[:4]:  # 最多 4 张参考图
-                image_data_url = _build_data_url(img_bytes)
-                content.append({
-                    "type": "image_url",
-                    "image_url": {"url": image_data_url},
-                })
+        # 添加参考图到请求
+        for img_bytes in images[:4]:  # 最多 4 张参考图
+            image_data_url = _build_data_url(img_bytes)
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": image_data_url},
+            })
 
         payload = {
             "model": self.model,
@@ -396,6 +489,11 @@ class GrokDrawService:
 
         raise RuntimeError(f"Grok 图片生成失败: {last_error}") from last_error
 
+    async def _save_b64(self, b64_data: str) -> Path:
+        """保存 base64 编码的图片到本地"""
+        image_bytes = base64.b64decode((b64_data or "").strip())
+        return await self._save_bytes(image_bytes)
+
     async def _save_ref(self, ref: str) -> Path:
         """保存图片引用（URL 或 base64）到本地"""
         ref = (ref or "").strip()
@@ -438,19 +536,30 @@ class GrokDrawService:
 
     async def _save_bytes(self, data: bytes) -> Path:
         """保存图片字节到文件"""
-        import hashlib
-
         mime = _guess_image_mime(data)
         ext = _guess_ext(mime)
         hash_part = hashlib.md5(data).hexdigest()[:8]
         filename = f"{int(time.time() * 1000)}_{hash_part}.{ext}"
         path = self.image_dir / filename
-        path.write_bytes(data)
+        await asyncio.to_thread(path.write_bytes, data)
 
-        # 清理旧图片
-        self._cleanup()
+        # 后台清理旧图片，避免阻塞主流程
+        self._schedule_cleanup()
 
         return path
+
+    def _schedule_cleanup(self) -> None:
+        """调度后台清理任务（去重，避免任务堆积）"""
+        if self._cleanup_task and not self._cleanup_task.done():
+            return
+        self._cleanup_task = asyncio.create_task(self._cleanup_background())
+
+    async def _cleanup_background(self) -> None:
+        """后台清理旧图片"""
+        try:
+            await asyncio.to_thread(self._cleanup)
+        except Exception as e:
+            logger.warning(f"[GrokDraw] 后台清理失败: {e}")
 
     def _cleanup(self) -> None:
         """清理超过限制的旧图片"""

@@ -49,12 +49,6 @@
         "hint": "启用后，当主提供商失败时自动切换到备用提供商",
         "default": true
     },
-    "vision_model": {
-        "type": "string",
-        "description": "视觉分类模型",
-        "hint": "用于图片分类（人物/其他）的视觉模型名称，留空则使用主LLM模型",
-        "default": ""
-    },
     "gitee_config": {
         "description": "Gitee AI 文生图配置",
         "type": "object",
@@ -218,10 +212,10 @@
                 "hint": "启用后可使用 /视频 命令生成视频"
             },
             "video_presets": {
-                "description": "视频预设词",
+                "description": "视频预设提示词",
                 "type": "list",
-                "default": [],
-                "hint": "格式: 预设名:提示词，例如 cinematic:cinematic camera movement"
+                "hint": "格式：预设名:提示词。例如：微笑:让人物微笑，表情自然",
+                "default": []
             },
             "video_send_mode": {
                 "description": "视频发送模式",

@@ -64,8 +64,9 @@
 | `injection_rounds` | 注入轮次（默认 1） |
 | `enable_env_injection` | 启用环境场景注入 |
 | `enable_camera_injection` | 启用摄影模式注入 |
-| `draw_provider` | 主图片生成提供商（gitee/gemini） |
+| `draw_provider` | 主图片生成提供商（gitee/gemini/grok） |
 | `enable_fallback` | 启用备用提供商自动切换 |
+| `fallback_models` | 备用模型顺序（默认 gemini, grok） |
 | `proxy` | HTTP 代理地址 |
 
 ### Gitee AI 配置 (gitee_config)
@@ -97,6 +98,7 @@
 | `image_model` | 图片模型（默认 grok-2-image） |
 | `video_model` | 视频模型（默认 grok-imagine-1.0-video） |
 | `video_enabled` | 启用视频生成功能 |
+| `video_presets` | 视频预设词（格式：预设名:提示词） |
 | `video_send_mode` | 视频发送模式（auto/url/file） |
 | `max_cached_videos` | 最大缓存视频数量 |
 
@@ -125,6 +127,18 @@
 | `max_count` | 最大图片数量（0 不限制） |
 
 ## 🛠️ 版本历史
+
+### v3.2.0 (2026-02-07)
+- [Perf] 后端性能优化：O(n²)→O(n) 图片去重、异步文件 I/O、后台清理任务去重
+- [Feat] 视频预设词页面：WebUI 新增独立导航，支持添加/删除/编辑预设
+- [Feat] 视频画廊列数滑块：支持拖动调整每行显示数量（2-8个）
+- [Feat] 备用模型选择器：支持自定义第一/第二备用模型顺序
+- [Feat] 新增触发关键词：查岗、在干嘛、在干什么、干嘛呢
+- [UI] CSS 变量统一主题色、增强卡片悬浮效果和玻璃拟态
+- [Fix] v-for key 优化：使用唯一 ID 替代 index，修复拖拽状态丢失
+- [Fix] SortableJS 初始化代码重构，减少冗余
+- [Refactor] 移除废弃配置项 vision_model、DEF_CHAR_IDENTITY
+- [Refactor] 人格外貌提示词默认为空，不填写则使用 AstrBot 默认人格
 
 ### v3.1.0 (2026-02-06)
 - [Feat] 视频画廊：独立导航页面，支持在线播放

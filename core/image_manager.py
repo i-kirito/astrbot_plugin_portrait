@@ -414,20 +414,23 @@ class ImageManager:
             max_size_bytes = self.max_storage_mb * 1024 * 1024
 
             to_delete: list[Path] = []
+            to_delete_set: set[Path] = set()
 
             # 按数量清理
             if self.max_count > 0 and total_count > self.max_count:
                 excess_count = total_count - self.max_count
                 for i in range(excess_count):
                     to_delete.append(images[i][0])
+                    to_delete_set.add(images[i][0])
                     total_size -= images[i][1]
 
             # 按大小清理
             if self.max_storage_mb > 0 and total_size > max_size_bytes:
                 idx = len(to_delete)
                 while total_size > max_size_bytes and idx < len(images):
-                    if images[idx][0] not in to_delete:
+                    if images[idx][0] not in to_delete_set:
                         to_delete.append(images[idx][0])
+                        to_delete_set.add(images[idx][0])
                         total_size -= images[idx][1]
                     idx += 1
 

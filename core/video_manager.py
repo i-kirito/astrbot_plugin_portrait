@@ -39,6 +39,7 @@ class VideoManager:
 
         self._metadata_path = data_dir / "video_metadata.json"
         self._metadata: dict = {}
+        self._metadata_mtime: float = 0.0
         self._load_metadata()
 
         self.max_cached_videos: int = _clamp_int(
@@ -55,9 +56,21 @@ class VideoManager:
         try:
             if self._metadata_path.exists():
                 self._metadata = json.loads(self._metadata_path.read_text(encoding="utf-8"))
+                self._metadata_mtime = self._metadata_path.stat().st_mtime
         except Exception as e:
             logger.warning(f"[VideoManager] 加载元数据失败: {e}")
             self._metadata = {}
+
+    def _reload_metadata_if_changed(self) -> None:
+        """如果文件已修改则重新加载元数据"""
+        try:
+            if self._metadata_path.exists():
+                current_mtime = self._metadata_path.stat().st_mtime
+                if current_mtime > self._metadata_mtime:
+                    self._metadata = json.loads(self._metadata_path.read_text(encoding="utf-8"))
+                    self._metadata_mtime = current_mtime
+        except Exception as e:
+            logger.warning(f"[VideoManager] 重新加载元数据失败: {e}")
 
     def _save_metadata(self) -> None:
         """保存视频元数据"""
@@ -86,6 +99,8 @@ class VideoManager:
 
     def get_video_list(self) -> list[dict]:
         """获取所有视频列表"""
+        # 检查文件是否被修改，按需重新加载
+        self._reload_metadata_if_changed()
         videos = []
         for video_id, meta in self._metadata.items():
             videos.append({

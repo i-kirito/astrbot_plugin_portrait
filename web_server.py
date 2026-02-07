@@ -109,6 +109,10 @@ class WebServer:
         self.app.router.add_delete("/api/videos/{name}", self.handle_delete_video)
         self.app.router.add_get("/api/videos/{name}/download", self.handle_download_video)
 
+        # 视频预设词 API
+        self.app.router.add_get("/api/video-presets", self.handle_get_video_presets)
+        self.app.router.add_post("/api/video-presets", self.handle_save_video_presets)
+
         # 缓存清理 API
         self.app.router.add_post("/api/cache/cleanup", self.handle_cache_cleanup)
 
@@ -258,9 +262,9 @@ class WebServer:
                 "enable_env_injection",
                 "enable_camera_injection",
                 "proxy",
-                "vision_model",
                 "draw_provider",
                 "enable_fallback",
+                "fallback_models",
             ]
 
             config = {}
@@ -351,13 +355,13 @@ class WebServer:
                 "enable_env_injection",
                 "enable_camera_injection",
                 "proxy",
-                "vision_model",
                 "gitee_config",
                 "gemini_config",
                 "grok_config",
                 "cache_config",
                 "draw_provider",
                 "enable_fallback",
+                "fallback_models",
                 "environments",
                 "cameras",
                 "selfie_config",
@@ -441,6 +445,9 @@ class WebServer:
     def _reload_plugin_resources(self):
         """热更新插件资源"""
         try:
+            # 清除 index.html 缓存，确保前端更新生效
+            self._index_cache = None
+
             config = self.plugin.config
 
             # 使用新的动态 Prompt 重建方法
@@ -476,11 +483,31 @@ class WebServer:
                         break
                 self.plugin.gemini_draw.base_url = base_url
 
+            # 更新 Grok 配置
+            grok_conf = config.get("grok_config", {}) or {}
+            if grok_conf and hasattr(self.plugin, "grok_draw"):
+                if grok_conf.get("api_key"):
+                    self.plugin.grok_draw.api_key = grok_conf.get("api_key", "").strip()
+                self.plugin.grok_draw.model = grok_conf.get("image_model", "") or grok_conf.get("model", "grok-2-image") or "grok-2-image"
+                self.plugin.grok_draw.default_size = grok_conf.get("size", "1024x1024") or "1024x1024"
+                self.plugin.grok_draw.timeout = grok_conf.get("timeout", 180) or 180
+                self.plugin.grok_draw.max_retries = grok_conf.get("max_retries", 2) or 2
+                # 更新端点
+                base_url = (grok_conf.get("base_url", "https://api.x.ai") or "https://api.x.ai").strip().rstrip("/")
+                if not base_url.startswith(("http://", "https://")):
+                    base_url = "https://" + base_url
+                self.plugin.grok_draw.base_url = base_url
+                self.plugin.grok_draw._endpoint = f"{base_url}/v1/chat/completions"
+                self.plugin.grok_draw._images_endpoint = f"{base_url}/v1/images/generations"
+                logger.info(f"[Portrait WebUI] Grok 配置已更新: size={self.plugin.grok_draw.default_size}, model={self.plugin.grok_draw.model}")
+
             # 更新提供商配置
             if "draw_provider" in config:
                 self.plugin.draw_provider = config.get("draw_provider", "gitee") or "gitee"
             if "enable_fallback" in config:
                 self.plugin.enable_fallback = config.get("enable_fallback", True)
+            if "fallback_models" in config:
+                self.plugin.fallback_models = config.get("fallback_models", ["gemini", "grok"]) or ["gemini", "grok"]
 
             # 更新人像参考配置
             selfie_conf = config.get("selfie_config", {}) or {}
@@ -647,7 +674,8 @@ class WebServer:
                  thumb_path = self.thumbnails_dir / img["name"]
                  if not thumb_path.exists():
                      file_path = self.images_dir / img["name"]
-                     await self._generate_thumbnail(file_path, thumb_path)
+                     if file_path.exists():
+                         await self._generate_thumbnail(file_path, thumb_path)
                      if thumb_path.exists():
                         img["thumbnail"] = f"/thumbnails/{img['name']}"
 
@@ -1107,6 +1135,78 @@ class WebServer:
 
         except Exception as e:
             logger.error(f"[Portrait WebUI] 下载视频失败: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_get_video_presets(self, request: web.Request) -> web.Response:
+        """获取视频预设词列表"""
+        try:
+            # 尝试从 AstrBot 配置文件读取最新值（确保同步）
+            import json
+            astrbot_config_path = self.plugin.data_dir.parent.parent / "config" / "astrbot_plugin_portrait_config.json"
+            if astrbot_config_path.exists():
+                try:
+                    with open(astrbot_config_path, "r", encoding="utf-8-sig") as f:
+                        astrbot_config = json.load(f)
+                    grok_config = astrbot_config.get("grok_config", {}) or {}
+                    presets = grok_config.get("video_presets", []) or []
+                    # 同步到内存
+                    if "grok_config" not in self.plugin.config:
+                        self.plugin.config["grok_config"] = {}
+                    self.plugin.config["grok_config"]["video_presets"] = presets
+                except Exception as e:
+                    logger.warning(f"[Portrait WebUI] 读取 AstrBot 配置失败: {e}")
+                    grok_config = self.plugin.config.get("grok_config", {}) or {}
+                    presets = grok_config.get("video_presets", []) or []
+            else:
+                grok_config = self.plugin.config.get("grok_config", {}) or {}
+                presets = grok_config.get("video_presets", []) or []
+
+            # 确保是字符串列表
+            presets = [p for p in presets if isinstance(p, str)]
+            return web.json_response({"success": True, "presets": presets})
+        except Exception as e:
+            logger.error(f"[Portrait WebUI] 获取视频预设词失败: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_save_video_presets(self, request: web.Request) -> web.Response:
+        """保存视频预设词列表"""
+        try:
+            import json
+            data = await request.json()
+            presets = data.get("presets", [])
+            # 过滤空字符串，保留有效格式
+            presets = [p.strip() for p in presets if isinstance(p, str) and p.strip() and ":" in p]
+
+            # 保存到内存中的 grok_config
+            if "grok_config" not in self.plugin.config:
+                self.plugin.config["grok_config"] = {}
+            self.plugin.config["grok_config"]["video_presets"] = presets
+
+            # 同时直接更新 AstrBot 配置文件
+            astrbot_config_path = self.plugin.data_dir.parent.parent / "config" / "astrbot_plugin_portrait_config.json"
+            if astrbot_config_path.exists():
+                try:
+                    with open(astrbot_config_path, "r", encoding="utf-8-sig") as f:
+                        astrbot_config = json.load(f)
+                    if "grok_config" not in astrbot_config:
+                        astrbot_config["grok_config"] = {}
+                    astrbot_config["grok_config"]["video_presets"] = presets
+                    with open(astrbot_config_path, "w", encoding="utf-8") as f:
+                        json.dump(astrbot_config, f, ensure_ascii=False, indent=2)
+                except Exception as e:
+                    logger.warning(f"[Portrait WebUI] 更新 AstrBot 配置失败: {e}")
+
+            # 保存到 webui_config.json
+            self.plugin.save_config_to_disk()
+
+            # 更新视频服务的预设词
+            self.plugin.video_service.presets = dict(
+                item.split(":", 1) for item in presets if ":" in item
+            )
+
+            return web.json_response({"success": True})
+        except Exception as e:
+            logger.error(f"[Portrait WebUI] 保存视频预设词失败: {e}")
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
     async def handle_serve_video(self, request: web.Request) -> web.Response:

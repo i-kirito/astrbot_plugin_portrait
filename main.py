@@ -2,6 +2,7 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.api import logger
 from astrbot.core.provider.entities import ProviderRequest
+from astrbot.api.provider import LLMResponse
 import astrbot.api.message_components as Comp
 from astrbot.api.message_components import Video
 import re
@@ -18,7 +19,6 @@ from .core.grok_video_service import GrokVideoService
 from .core.video_manager import VideoManager
 from .core.image_manager import ImageManager
 from .core.defaults import (
-    DEF_CHAR_IDENTITY,
     DEFAULT_ENVIRONMENTS,
     DEFAULT_CAMERAS,
     TPL_HEADER,
@@ -102,7 +102,7 @@ class PortraitPlugin(Star):
             # 中文 - 常见用户表达
             '本人', '真人', '长什么样', '什么样子',
             '看看你', '给我看', '让我看', '康康', '瞧瞧', '瞅瞅',
-            '全身', '今日穿搭',
+            '全身', '今日穿搭', '查岗', '在干嘛', '在干什么', '干嘛呢',
             # 中文 - 角色日常场景
             '在画室', '在卧室', '在厨房', '在客厅', '在浴室', '在阳台',
             '在书房', '在办公室', '在学校', '在教室', '在公园', '在海边',
@@ -131,8 +131,8 @@ class PortraitPlugin(Star):
             re.IGNORECASE
         )
 
-        # 读取用户配置
-        p_char_id = self.config.get("char_identity") or DEF_CHAR_IDENTITY
+        # 读取用户配置（留空则不注入，使用 AstrBot 默认人格）
+        p_char_id = self.config.get("char_identity", "") or ""
         # 存储角色外貌配置，用于在画图时自动添加
         self.char_identity = p_char_id.replace("> **", "").replace("**", "").strip()
 
@@ -187,13 +187,31 @@ class PortraitPlugin(Star):
         )
 
         # Grok 视频生成服务（共用 API Key 和 Base URL）
+        # 从 grok_config 读取预设词（字符串格式 "预设名:提示词"）
+        raw_video_presets = grok_conf.get("video_presets", []) or []
+        # 迁移旧格式：将对象格式转换为字符串格式
+        video_presets = []
+        needs_migration = False
+        for p in raw_video_presets:
+            if isinstance(p, str):
+                video_presets.append(p)
+            elif isinstance(p, dict):
+                # 旧格式 {keyword, prompt} -> "keyword:prompt"
+                keyword = (p.get("keyword") or "").strip()
+                prompt = (p.get("prompt") or "").strip()
+                if keyword and prompt:
+                    video_presets.append(f"{keyword}:{prompt}")
+                    needs_migration = True
+        if needs_migration:
+            grok_conf["video_presets"] = video_presets
+            self.config["grok_config"] = grok_conf
         video_settings = {
             "api_key": grok_conf.get("api_key", "") or "",
             "server_url": grok_conf.get("base_url", "https://api.x.ai") or "https://api.x.ai",
             "model": grok_conf.get("video_model", "") or grok_conf.get("model", "grok-imagine-1.0-video") or "grok-imagine-1.0-video",
             "timeout_seconds": grok_conf.get("timeout", 180) or 180,
             "max_retries": grok_conf.get("max_retries", 2) or 2,
-            "presets": grok_conf.get("video_presets", []) or [],
+            "presets": video_presets,
         }
         self.grok_config = grok_conf  # 保存原始配置
         self.video_service = GrokVideoService(settings=video_settings)
@@ -236,6 +254,8 @@ class PortraitPlugin(Star):
         # 主备切换配置
         self.draw_provider = self.config.get("draw_provider", "gitee") or "gitee"
         self.enable_fallback = self.config.get("enable_fallback", True)
+        # 备用模型顺序（用户自定义，不包含主模型）
+        self.fallback_models = self.config.get("fallback_models", ["gemini", "grok"]) or ["gemini", "grok"]
 
         # === v3.1.0: 图片管理器（用于元数据存储）===
         self.image_manager = ImageManager(
@@ -252,6 +272,10 @@ class PortraitPlugin(Star):
         if "reference_images" in selfie_conf:
             del selfie_conf["reference_images"]
             self.config["selfie_config"] = selfie_conf
+
+        # 清理废弃的顶级 video_presets 字段（已迁移到 grok_config 内）
+        if "video_presets" in self.config:
+            del self.config["video_presets"]
 
         # === v2.1.0: WebUI 服务器 ===
         self.web_server: WebServer | None = None
@@ -296,13 +320,16 @@ class PortraitPlugin(Star):
             logger.error(f"[Portrait] 保存动态配置失败: {e}")
 
     def _load_persisted_config(self):
-        """加载 WebUI 持久化的配置"""
+        """加载 WebUI 持久化的配置（优先级高于 AstrBot 配置）"""
         if self.config_persist_path.exists():
             try:
                 with open(self.config_persist_path, "r", encoding="utf-8") as f:
                     persisted = json.load(f)
-                # 合并到当前配置（持久化配置优先）
+                # 合并到当前配置（WebUI 持久化配置优先）
                 for key, value in persisted.items():
+                    # 跳过已废弃的字段
+                    if key == "vision_model":
+                        continue
                     self.config[key] = value
                 logger.debug(f"[Portrait] 已加载持久化配置: {list(persisted.keys())}")
             except Exception as e:
@@ -310,7 +337,7 @@ class PortraitPlugin(Star):
 
     def save_config_to_disk(self):
         """将当前配置持久化到磁盘"""
-        # 需要持久化的字段
+        # 需要持久化的字段（保存到 webui_config.json）
         persist_fields = {
             "char_identity",
             "injection_rounds",
@@ -318,19 +345,40 @@ class PortraitPlugin(Star):
             "enable_env_injection",
             "enable_camera_injection",
             "proxy",
-            "vision_model",
             "gitee_config",
             "gemini_config",
             "grok_config",
             "cache_config",
             "draw_provider",
             "enable_fallback",
+            "fallback_models",
             "selfie_config",
         }
+
         try:
             persist_data = {k: v for k, v in self.config.items() if k in persist_fields}
             with open(self.config_persist_path, "w", encoding="utf-8") as f:
                 json.dump(persist_data, f, ensure_ascii=False, indent=2)
+
+            # 同步到 AstrBot 配置文件
+            astrbot_config_path = Path(self.data_dir).parent.parent / "config" / "astrbot_plugin_portrait_config.json"
+            if astrbot_config_path.exists():
+                try:
+                    with open(astrbot_config_path, "r", encoding="utf-8-sig") as f:
+                        astrbot_config = json.load(f)
+                    # 更新需要同步的字段
+                    for key in persist_fields:
+                        if key in persist_data:
+                            astrbot_config[key] = persist_data[key]
+                    # 清理废弃的顶级 video_presets 字段
+                    if "video_presets" in astrbot_config:
+                        del astrbot_config["video_presets"]
+                    with open(astrbot_config_path, "w", encoding="utf-8") as f:
+                        json.dump(astrbot_config, f, ensure_ascii=False, indent=2)
+                    logger.debug(f"[Portrait] 已同步配置到 AstrBot")
+                except Exception as e:
+                    logger.warning(f"[Portrait] 同步 AstrBot 配置失败: {e}")
+
             logger.info(f"[Portrait] 配置已持久化到磁盘")
         except Exception as e:
             logger.error(f"[Portrait] 持久化配置失败: {e}")
@@ -390,7 +438,7 @@ class PortraitPlugin(Star):
 
     def rebuild_full_prompt(self):
         """重建完整 Prompt（热更新时调用）"""
-        p_char_id = self.config.get("char_identity") or DEF_CHAR_IDENTITY
+        p_char_id = self.config.get("char_identity", "") or ""
 
         # 环境列表（根据开关决定是否生成）
         if self.enable_env_injection:
@@ -644,6 +692,9 @@ class PortraitPlugin(Star):
         if not req.system_prompt:
             req.system_prompt = ""
 
+        # 先清理已存在的 portrait_status 块，防止重复注入
+        self._clean_portrait_injection(req)
+
         original_len = len(req.system_prompt)
         req.system_prompt += injection
 
@@ -879,10 +930,11 @@ class PortraitPlugin(Star):
             yield event.plain_result(f"操作太频繁，请 {remaining} 秒后再试")
             return
 
-        arg = (event.message_str or "").strip()
-        if arg.startswith("/"):
-            parts = arg.split(maxsplit=1)
-            arg = parts[1].strip() if len(parts) > 1 else ""
+        raw_msg = (event.message_str or "").strip()
+        # 直接匹配 "视频" 后面的提示词
+        import re
+        match = re.search(r'[./]?视频\s+(.+)', raw_msg, flags=re.DOTALL)
+        arg = match.group(1).strip() if match else ""
         if not arg:
             yield event.plain_result("用法: /视频 <提示词> 或 /视频 <预设名> [额外提示词]\n请附带图片或引用一张图片")
             return
@@ -927,7 +979,7 @@ class PortraitPlugin(Star):
         event.should_call_llm(True)
         names = self.video_service.get_preset_names()
         if not names:
-            yield event.plain_result("📋 视频预设列表\n暂无预设（请在 grok_config.video_presets 中添加）")
+            yield event.plain_result("📋 视频预设列表\n暂无预设（请在 WebUI 视频预设词页面添加）")
             return
 
         message = "📋 视频预设列表\n"
@@ -951,7 +1003,7 @@ class PortraitPlugin(Star):
         # 使用预编译正则匹配（性能优化）
         match = self._char_keyword_regex.search(text)
         if match:
-            logger.info(f"[Portrait] 检测到角色相关 '{match.group()}'，执行注入")
+            logger.debug(f"[Portrait] 检测到角色关键词 '{match.group()}'")
             return True
 
         # === 上下文检测：当前消息是回应性对话时，检查上下文是否与角色相关 ===
@@ -1068,16 +1120,12 @@ class PortraitPlugin(Star):
         # 调试日志
         logger.info(
             f"[Portrait] 生图配置: provider={self.draw_provider}, primary={primary_name}, "
-            f"enabled={primary.enabled}, fallback={self.enable_fallback}, ref_images={len(all_images) if all_images else 0}, custom_size={is_custom_size}"
+            f"enabled={primary.enabled}, fallback={self.enable_fallback}, fallback_models={self.fallback_models}, "
+            f"ref_images={len(all_images) if all_images else 0}, custom_size={is_custom_size}"
         )
 
-        # 确定备用提供商顺序（支持参考图的优先）
-        if all_images:
-            # 有参考图时，Gemini 和 Grok 优先（都支持参考图），Gitee 最后（不支持参考图）
-            fallback_order = ["gemini", "grok", "gitee"]
-        else:
-            fallback_order = ["gemini", "gitee", "grok"]
-        fallback_order = [k for k in fallback_order if k != primary_key]
+        # 确定备用提供商顺序：使用用户配置的顺序，过滤掉主模型
+        fallback_order = [k for k in self.fallback_models if k != primary_key and k in providers]
 
         # 辅助函数：保存元数据
         async def save_image_metadata(image_path: Path, model_name: str) -> None:
@@ -1107,6 +1155,7 @@ class PortraitPlugin(Star):
                     return image_path
                 elif primary_name == "Grok":
                     # Grok 不支持自定义宽高比，使用 resolution 或默认尺寸
+                    logger.info(f"[Portrait] Grok 调用参数: size={size}, resolution={resolution}, is_custom_size={is_custom_size}")
                     if is_custom_size:
                         logger.info(f"[Portrait] Grok 不支持自定义宽高比，将使用默认正方形尺寸")
                         image_path = await primary.generate(prompt, images=all_images, resolution=resolution)
@@ -1522,3 +1571,46 @@ class PortraitPlugin(Star):
             yield event.plain_result("已删除图片文件（消息撤回失败，可能已超时）")
         else:
             yield event.plain_result("操作失败：无法撤回消息或删除图片")
+
+    # === v3.1.1: 防止工具调用时重复回复 ===
+    @filter.on_llm_response(priority=100)  # 高优先级，尽早处理
+    async def on_llm_response(self, event: AstrMessageEvent, response: LLMResponse):
+        """当 LLM 响应同时包含 tool_calls 和 content 时，清空 content 防止重复回复"""
+        if self._is_terminated:
+            return
+
+        try:
+            # 检查是否有 tool_calls
+            tool_calls = getattr(response, 'tool_calls', None)
+            if not tool_calls:
+                return
+
+            # 检查是否调用了 portrait 相关的工具
+            portrait_tools = {'portrait_draw_image', 'portrait_generate_image'}
+            has_portrait_tool = False
+            for tc in tool_calls:
+                func_name = getattr(tc, 'function', {})
+                if hasattr(func_name, 'name'):
+                    func_name = func_name.name
+                elif isinstance(func_name, dict):
+                    func_name = func_name.get('name', '')
+                if func_name in portrait_tools:
+                    has_portrait_tool = True
+                    break
+
+            if not has_portrait_tool:
+                return
+
+            # 如果同时有 content，清空它
+            content = getattr(response, 'completion_text', None)
+            if content and content.strip():
+                logger.info(f"[Portrait] 检测到工具调用时附带 content，已清空防止重复回复")
+                response.completion_text = ""
+                # 同时清空 result_chain 中的文本
+                if hasattr(response, 'result_chain') and response.result_chain:
+                    response.result_chain = [
+                        comp for comp in response.result_chain
+                        if not isinstance(comp, Comp.Plain)
+                    ]
+        except Exception as e:
+            logger.debug(f"[Portrait] on_llm_response 处理异常: {e}")

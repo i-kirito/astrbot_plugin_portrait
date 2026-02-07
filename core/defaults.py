@@ -1,9 +1,5 @@
 """默认配置常量 - 仅供参考的示例配置"""
 
-# 默认角色外貌描述（示例）
-# 用户应在 WebUI 配置页面或 config.yaml 中自定义
-DEF_CHAR_IDENTITY = """> **A young person with distinct features. Customize this in the plugin configuration.**"""
-
 # 默认环境场景配置（示例）
 DEFAULT_ENVIRONMENTS = [
     {

@@ -20,15 +20,23 @@
     <!-- SortableJS for drag-drop -->
     <script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js"></script>
     <style>
+        :root {
+            --primary-pink: #FF69B4;
+            --soft-pink: #FFB6C1;
+            --light-pink: #FFF0F5;
+            --accent-lavender: #E6E6FA;
+            --text-primary: #4a4a4a;
+            --text-accent: #d8659f;
+        }
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
         body {
-            background: linear-gradient(135deg, #FFF0F5 0%, #FFE4E1 50%, #E6E6FA 100%);
+            background: linear-gradient(135deg, var(--light-pink) 0%, #FFE4E1 50%, var(--accent-lavender) 100%);
             background-attachment: fixed;
-            color: #4a4a4a;
+            color: var(--text-primary);
             font-family: 'PingFang SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, sans-serif;
             min-height: 100vh;
         }
@@ -36,15 +44,16 @@
         .el-card {
             --el-card-bg-color: rgba(255, 255, 255, 0.85);
             --el-card-border-color: rgba(255, 182, 193, 0.4);
-            backdrop-filter: blur(12px);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border-radius: 20px !important;
             box-shadow: 0 8px 32px rgba(255, 182, 193, 0.25);
-            transition: all 0.3s ease;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
             border: 1px solid rgba(255, 182, 193, 0.3) !important;
         }
         .el-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 12px 40px rgba(255, 105, 180, 0.2);
+            transform: translateY(-3px);
+            box-shadow: 0 16px 48px rgba(255, 105, 180, 0.25);
         }
         .el-card__header {
             border-bottom: 1px solid rgba(255, 182, 193, 0.4) !important;
@@ -68,23 +77,23 @@
             color: #4a4a4a !important;
         }
         .el-form-item__label {
-            color: #d8659f !important;
+            color: var(--text-accent) !important;
             font-weight: 600 !important;
         }
         .el-switch__label {
             color: #888 !important;
         }
         .el-button--primary {
-            background: linear-gradient(135deg, #FFB6C1 0%, #DDA0DD 100%) !important;
+            background: linear-gradient(135deg, var(--soft-pink) 0%, #DDA0DD 100%) !important;
             border: none !important;
             box-shadow: 0 4px 15px rgba(255, 182, 193, 0.5);
-            transition: all 0.3s ease;
+            transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
             color: #fff !important;
         }
         .el-button--primary:hover {
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(255, 105, 180, 0.5);
-            background: linear-gradient(135deg, #FF69B4 0%, #DA70D6 100%) !important;
+            background: linear-gradient(135deg, var(--primary-pink) 0%, #DA70D6 100%) !important;
         }
         .el-button--success {
             background: linear-gradient(135deg, #98D8C8 0%, #90EE90 100%) !important;
@@ -185,6 +194,9 @@
             opacity: 1;
         }
         .image-card .actions .flex {
+            pointer-events: auto;
+        }
+        .image-card .actions .el-button {
             pointer-events: auto;
         }
         .image-card .image-info {
@@ -471,7 +483,7 @@
                     </el-form-item>
                 </el-form>
                 <p v-if="loginError" class="text-red-400 text-sm text-center mt-4">{{ loginError }}</p>
-                <p class="text-gray-400 text-xs text-center mt-6">v2.5.0</p>
+                <p class="text-gray-400 text-xs text-center mt-6">v3.2.0</p>
             </div>
         </div>
 
@@ -531,9 +543,18 @@
                         <span class="icon">&#127916;</span>
                         <span>视频画廊</span>
                     </div>
+                    <!-- 视频画廊每行数量滑块 -->
+                    <div v-if="activeTab === 'videos'" class="py-3" style="padding-left: 30px;">
+                        <div class="text-xs text-gray-400 mb-2">每行 {{ videoColumns }} 个</div>
+                        <el-slider v-model="videoColumns" :min="2" :max="8" :step="1" :show-tooltip="false" size="small" @change="saveVideoColumns" style="width: 180px;" />
+                    </div>
+                    <div class="nav-item" :class="{ active: activeTab === 'videoPresets' }" @click="activeTab = 'videoPresets'; mobileMenuOpen = false" @keyup.enter="activeTab = 'videoPresets'" tabindex="0" role="button" aria-pressed="activeTab === 'videoPresets'">
+                        <span class="icon">&#128221;</span>
+                        <span>视频预设词</span>
+                    </div>
                 </nav>
                 <div class="p-4 border-t border-pink-200/30">
-                    <p class="text-xs text-pink-300 text-center">v2.5.0</p>
+                    <p class="text-xs text-pink-300 text-center">v3.2.0</p>
                 </div>
             </div>
 
@@ -595,10 +616,6 @@
                                     </el-form-item>
                                 </el-col>
                             </el-row>
-                            <el-form-item label="视觉分类模型">
-                                <el-input v-model="config.vision_model" placeholder="留空使用主LLM模型" />
-                                <p class="text-xs text-pink-400 mt-1">用于图片分类（人物/其他）的视觉模型名称</p>
-                            </el-form-item>
                         </el-form>
                     </el-card>
 
@@ -830,9 +847,12 @@
                                 <el-col :span="12">
                                     <el-form-item label="主图片生成提供商">
                                         <el-select v-model="providerConfig.draw_provider" style="width: 100%">
-                                            <el-option value="gitee" label="Gitee AI（推荐）" />
-                                            <el-option value="gemini" label="Gemini AI" />
-                                            <el-option value="grok" label="Grok AI" />
+                                            <el-option
+                                                v-for="p in availableProviders"
+                                                :key="`primary-${p.value}`"
+                                                :value="p.value"
+                                                :label="p.value === 'gitee' ? `${p.label}（推荐）` : p.label"
+                                            ></el-option>
                                         </el-select>
                                     </el-form-item>
                                 </el-col>
@@ -840,6 +860,22 @@
                                     <el-form-item label="启用备用提供商">
                                         <el-switch v-model="providerConfig.enable_fallback" />
                                         <p class="text-xs text-pink-400 mt-1">主提供商失败时自动切换</p>
+                                    </el-form-item>
+                                </el-col>
+                            </el-row>
+                            <el-row :gutter="24" v-if="providerConfig.enable_fallback">
+                                <el-col :span="12">
+                                    <el-form-item label="第一备用模型">
+                                        <el-select v-model="providerConfig.fallback_models[0]" style="width: 100%" @change="onFallbackChange(0)">
+                                            <el-option v-for="p in availableProviders.filter(x => x.value !== providerConfig.draw_provider)" :key="`fb0-${p.value}`" :value="p.value" :label="p.label"></el-option>
+                                        </el-select>
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="12">
+                                    <el-form-item label="第二备用模型">
+                                        <el-select v-model="providerConfig.fallback_models[1]" style="width: 100%" @change="onFallbackChange(1)">
+                                            <el-option v-for="p in availableProviders.filter(x => x.value !== providerConfig.draw_provider)" :key="`fb1-${p.value}`" :value="p.value" :label="p.label"></el-option>
+                                        </el-select>
                                     </el-form-item>
                                 </el-col>
                             </el-row>
@@ -914,7 +950,7 @@
                     <p class="text-sm text-gray-500 mb-6">配置不同的环境场景，模型将根据用户输入的关键词自动选择合适的场景。拖拽可调整顺序。</p>
 
                     <div ref="envListRef">
-                        <div v-for="(env, index) in environments" :key="index" class="list-item">
+                        <div v-for="(env, index) in environments" :key="env._id || index" class="list-item">
                             <div class="flex items-start gap-4">
                                 <div class="drag-handle pt-2" style="cursor: grab;">
                                     <span style="font-size: 1.2rem;">&#9776;</span>
@@ -966,7 +1002,7 @@
                     <p class="text-sm text-gray-500 mb-6">配置不同的镜头语言，模型将根据用户输入的关键词自动选择拍摄模式。拖拽可调整顺序。</p>
 
                     <div ref="camListRef">
-                        <div v-for="(cam, index) in cameras" :key="index" class="list-item">
+                        <div v-for="(cam, index) in cameras" :key="cam._id || index" class="list-item">
                             <div class="flex items-start gap-4">
                                 <div class="drag-handle pt-2" style="cursor: grab;">
                                     <span style="font-size: 1.2rem;">&#9776;</span>
@@ -1222,9 +1258,9 @@
                     </div>
 
                     <!-- 视频网格 -->
-                    <div v-else class="grid gap-6" style="grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));">
-                        <div v-for="video in videos" :key="video.id" class="image-card" style="background: rgba(255,255,255,0.9); border-radius: 16px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08);">
-                            <video :src="video.url" controls preload="metadata" style="width: 100%; max-height: 240px; object-fit: contain; background: #000;"></video>
+                    <div v-else class="grid gap-4" :style="{ gridTemplateColumns: `repeat(${videoColumns}, minmax(0, 1fr))` }">
+                        <div v-for="video in videos" :key="video.id" class="image-card" style="background: rgba(255,255,255,0.9); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08);">
+                            <video :src="video.url" controls preload="metadata" style="width: 100%; max-height: 160px; object-fit: contain; background: #000;"></video>
                             <div style="padding: 1rem;">
                                 <p class="text-sm text-gray-600 truncate mb-3" :title="video.prompt || '无描述'">{{ video.prompt || '无描述' }}</p>
                                 <div class="flex justify-between items-center">
@@ -1252,6 +1288,43 @@
                             @current-change="loadVideos"
                             background
                         />
+                    </div>
+                </div>
+
+                <!-- 视频预设词页面 -->
+                <div v-if="activeTab === 'videoPresets'" class="fade-in">
+                    <div class="page-header">
+                        <h2 class="page-title">视频预设词</h2>
+                        <el-button type="primary" @click="addVideoPreset">
+                            <span style="margin-right: 8px;">&#43;</span> 添加预设
+                        </el-button>
+                    </div>
+
+                    <!-- 使用说明 -->
+                    <el-alert type="info" :closable="false" style="margin-bottom: 1rem;">
+                        <template #title>
+                            <span>格式：预设名:提示词，用户发送"视频 预设名"时自动使用对应提示词</span>
+                        </template>
+                        <div class="text-sm mt-1" style="color: #666;">
+                            例如：微笑:让人物微笑，表情自然，眼睛有神
+                        </div>
+                    </el-alert>
+
+                    <!-- 预设列表 -->
+                    <div v-if="videoPresets.length === 0" class="empty-state">
+                        <p>暂无视频预设词</p>
+                        <p class="text-sm text-gray-400 mt-2">点击上方按钮添加预设词</p>
+                    </div>
+                    <div v-else class="flex flex-col gap-3">
+                        <div v-for="(preset, index) in videoPresets" :key="index" class="preset-card" style="background: rgba(255,255,255,0.9); border-radius: 12px; padding: 0.75rem 1rem; box-shadow: 0 4px 15px rgba(0,0,0,0.08);">
+                            <el-input v-model="videoPresets[index]" placeholder="预设名:提示词（如 微笑:让人物微笑）" @change="saveVideoPresets">
+                                <template #suffix>
+                                    <el-button type="danger" link @click="deleteVideoPreset(index)" style="font-size: 1rem; padding: 0 8px;">
+                                        &#10005;
+                                    </el-button>
+                                </template>
+                            </el-input>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1344,7 +1417,6 @@
                     enable_env_injection: true,
                     enable_camera_injection: true,
                     proxy: '',
-                    vision_model: '',
                 });
 
                 const giteeConfig = reactive({
@@ -1415,7 +1487,38 @@
                 const providerConfig = reactive({
                     draw_provider: 'gitee',
                     enable_fallback: true,
+                    fallback_models: ['gemini', 'grok'],
                 });
+
+                // 可选提供商列表
+                const availableProviders = [
+                    { value: 'gitee', label: 'Gitee AI' },
+                    { value: 'gemini', label: 'Gemini AI' },
+                    { value: 'grok', label: 'Grok AI' },
+                ];
+
+                // 监听主模型变化，自动调整备用模型
+                watch(() => providerConfig.draw_provider, (newPrimary) => {
+                    // 获取除主模型外的其他提供商
+                    const others = availableProviders.filter(p => p.value !== newPrimary).map(p => p.value);
+                    // 如果备用模型包含了新的主模型，重新分配
+                    if (providerConfig.fallback_models.includes(newPrimary)) {
+                        providerConfig.fallback_models = [...others];
+                    }
+                });
+
+                // 当备用模型变更时，确保不重复
+                function onFallbackChange(index) {
+                    const other = index === 0 ? 1 : 0;
+                    if (providerConfig.fallback_models[index] === providerConfig.fallback_models[other]) {
+                        // 自动选择另一个可用的
+                        const used = [providerConfig.draw_provider, providerConfig.fallback_models[index]];
+                        const available = availableProviders.find(p => !used.includes(p.value));
+                        if (available) {
+                            providerConfig.fallback_models[other] = available.value;
+                        }
+                    }
+                }
 
                 const giteeKeysText = computed({
                     get: () => giteeConfig.api_keys.join('\n'),
@@ -1439,6 +1542,7 @@
                 const showFavoritesOnly = ref(false);
                 const favoriteCount = ref(0);
                 const galleryColumns = ref(parseInt(localStorage.getItem('portrait_gallery_columns')) || 6);
+                const videoColumns = ref(parseInt(localStorage.getItem('portrait_video_columns')) || 5);
 
                 // 画廊筛选
                 const filterModel = ref('');
@@ -1456,6 +1560,9 @@
                 const videoCurrentPage = ref(1);
                 const videoPageSize = ref(20);
                 const loadingVideos = ref(false);
+
+                // 视频预设词
+                const videoPresets = ref([]);
 
                 // 缓存标志：避免重复加载
                 const dataLoaded = reactive({
@@ -1487,7 +1594,7 @@
                         if (res.ok) {
                             // 不需要认证，直接进入
                             isAuthenticated.value = true;
-                            await Promise.all([loadConfig(), loadImages(), loadVideos()]);
+                            await Promise.all([loadConfig(), loadImages(), loadVideos(), loadVideoPresets()]);
                             nextTick(() => initSortable());
                             return;
                         }
@@ -1511,7 +1618,7 @@
                                 url.searchParams.delete('token');
                                 window.history.replaceState({}, '', url.pathname + url.search);
                                 isAuthenticated.value = true;
-                                await Promise.all([loadConfig(), loadImages(), loadVideos()]);
+                                await Promise.all([loadConfig(), loadImages(), loadVideos(), loadVideoPresets()]);
                                 nextTick(() => initSortable());
                             }
                         } catch {}
@@ -1541,7 +1648,7 @@
                             sessionStorage.removeItem('portrait_token');
                             isAuthenticated.value = true;
                             // 加载数据
-                            await Promise.all([loadConfig(), loadImages(), loadVideos()]);
+                            await Promise.all([loadConfig(), loadImages(), loadVideos(), loadVideoPresets()]);
                             nextTick(() => initSortable());
                         } else {
                             loginError.value = data.error || '访问令牌无效';
@@ -1571,30 +1678,21 @@
                 });
 
                 function initSortable() {
-                    if (envListRef.value) {
-                        new Sortable(envListRef.value, {
+                    const setupSortable = (el, list) => {
+                        if (!el) return;
+                        new Sortable(el, {
                             animation: 150,
                             handle: '.drag-handle',
                             ghostClass: 'sortable-ghost',
                             dragClass: 'sortable-drag',
                             onEnd: (evt) => {
-                                const item = environments.value.splice(evt.oldIndex, 1)[0];
-                                environments.value.splice(evt.newIndex, 0, item);
+                                const item = list.value.splice(evt.oldIndex, 1)[0];
+                                list.value.splice(evt.newIndex, 0, item);
                             }
                         });
-                    }
-                    if (camListRef.value) {
-                        new Sortable(camListRef.value, {
-                            animation: 150,
-                            handle: '.drag-handle',
-                            ghostClass: 'sortable-ghost',
-                            dragClass: 'sortable-drag',
-                            onEnd: (evt) => {
-                                const item = cameras.value.splice(evt.oldIndex, 1)[0];
-                                cameras.value.splice(evt.newIndex, 0, item);
-                            }
-                        });
-                    }
+                    };
+                    setupSortable(envListRef.value, environments);
+                    setupSortable(camListRef.value, cameras);
                 }
 
                 async function loadConfig() {
@@ -1625,16 +1723,21 @@
                             if (data.config.enable_fallback !== undefined) {
                                 providerConfig.enable_fallback = data.config.enable_fallback;
                             }
+                            if (data.config.fallback_models && Array.isArray(data.config.fallback_models)) {
+                                providerConfig.fallback_models = data.config.fallback_models;
+                            }
                             // 加载动态配置
                             if (data.config.environments) {
                                 environments.value = data.config.environments.map(e => ({
                                     ...e,
+                                    _id: Math.random().toString(36).slice(2),
                                     keywordsStr: (e.keywords || []).join(', ')
                                 }));
                             }
                             if (data.config.cameras) {
                                 cameras.value = data.config.cameras.map(c => ({
                                     ...c,
+                                    _id: Math.random().toString(36).slice(2),
                                     keywordsStr: (c.keywords || []).join(', ')
                                 }));
                             }
@@ -1678,6 +1781,7 @@
                                 cache_config: { ...cacheConfig },
                                 draw_provider: providerConfig.draw_provider,
                                 enable_fallback: providerConfig.enable_fallback,
+                                fallback_models: providerConfig.fallback_models,
                             }
                         };
                         const res = await fetch('/api/config', {
@@ -1777,6 +1881,7 @@
 
                 function addEnvironment() {
                     environments.value.push({
+                        _id: Math.random().toString(36).slice(2),
                         name: '',
                         keywords: [],
                         keywordsStr: '',
@@ -1791,6 +1896,7 @@
 
                 function addCamera() {
                     cameras.value.push({
+                        _id: Math.random().toString(36).slice(2),
                         name: '',
                         keywords: [],
                         keywordsStr: '',
@@ -1853,6 +1959,10 @@
 
                 function saveGalleryColumns(val) {
                     localStorage.setItem('portrait_gallery_columns', val);
+                }
+
+                function saveVideoColumns(val) {
+                    localStorage.setItem('portrait_video_columns', val);
                 }
 
                 function clearFilters() {
@@ -1949,7 +2059,7 @@
                             '确认删除',
                             { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
                         );
-                        const res = await fetch(`/api/images/${encodeURIComponent(img.name)}`, { method: 'DELETE' });
+                        const res = await fetch(`/api/images/${encodeURIComponent(img.name)}`, { method: 'DELETE', credentials: 'same-origin' });
                         const data = await res.json();
                         if (data.success) {
                             ElementPlus.ElMessage.success('图片已删除');
@@ -2037,7 +2147,8 @@
                             { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
                         );
                         const res = await fetch(`/api/selfie-refs/${encodeURIComponent(ref.name)}`, {
-                            method: 'DELETE'
+                            method: 'DELETE',
+                            credentials: 'same-origin'
                         });
                         const data = await res.json();
                         if (data.success) {
@@ -2064,7 +2175,8 @@
                         // 逐个删除
                         for (const ref of [...selfieRefs.value]) {
                             await fetch(`/api/selfie-refs/${encodeURIComponent(ref.name)}`, {
-                                method: 'DELETE'
+                                method: 'DELETE',
+                                credentials: 'same-origin'
                             });
                         }
                         ElementPlus.ElMessage.success('已清空全部人像参考');
@@ -2132,7 +2244,7 @@
                             '确认删除',
                             { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
                         );
-                        const res = await fetch(`/api/videos/${encodeURIComponent(video.id)}`, { method: 'DELETE' });
+                        const res = await fetch(`/api/videos/${encodeURIComponent(video.id)}`, { method: 'DELETE', credentials: 'same-origin' });
                         const data = await res.json();
                         if (data.success) {
                             ElementPlus.ElMessage.success('视频已删除');
@@ -2149,6 +2261,47 @@
 
                 function openVideoUrl(video) {
                     window.open(video.url, '_blank');
+                }
+
+                // ========== 视频预设词 ==========
+                async function loadVideoPresets() {
+                    try {
+                        const res = await fetch('/api/video-presets', { credentials: 'same-origin' });
+                        const data = await res.json();
+                        if (data.success) {
+                            videoPresets.value = data.presets || [];
+                        }
+                    } catch (e) {
+                        console.error('加载视频预设词失败:', e);
+                    }
+                }
+
+                async function saveVideoPresets() {
+                    try {
+                        const res = await fetch('/api/video-presets', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'same-origin',
+                            body: JSON.stringify({ presets: videoPresets.value })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            ElementPlus.ElMessage.success('预设词已保存');
+                        } else {
+                            ElementPlus.ElMessage.error(data.error || '保存失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('保存失败: ' + e.message);
+                    }
+                }
+
+                function addVideoPreset() {
+                    videoPresets.value.push('');
+                }
+
+                function deleteVideoPreset(index) {
+                    videoPresets.value.splice(index, 1);
+                    saveVideoPresets();
                 }
 
                 return {
@@ -2177,6 +2330,8 @@
                     cleaningCache,
                     cleanupCache,
                     providerConfig,
+                    availableProviders,
+                    onFallbackChange,
                     environments,
                     cameras,
                     envListRef,
@@ -2189,6 +2344,8 @@
                     favoriteCount,
                     galleryColumns,
                     saveGalleryColumns,
+                    videoColumns,
+                    saveVideoColumns,
                     filterModel,
                     filterSize,
                     filterCategory,
@@ -2240,6 +2397,12 @@
                     loadVideos,
                     deleteVideo,
                     openVideoUrl,
+                    // 视频预设词
+                    videoPresets,
+                    loadVideoPresets,
+                    saveVideoPresets,
+                    addVideoPreset,
+                    deleteVideoPreset,
                 };
             }
         });

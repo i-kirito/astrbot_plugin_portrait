@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import ipaddress
 import socket
 import time
@@ -153,6 +154,7 @@ class GiteeDrawService:
 
         self._key_index = 0
         self._clients: dict[str, AsyncOpenAI] = {}
+        self._cleanup_task: asyncio.Task | None = None
         self.imgr = ImageManager(
             data_dir,
             proxy=proxy,
@@ -200,6 +202,12 @@ class GiteeDrawService:
 
     async def close(self) -> None:
         """关闭资源"""
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._cleanup_task
+        self._cleanup_task = None
+
         for client in self._clients.values():
             try:
                 await client.close()
@@ -303,10 +311,16 @@ class GiteeDrawService:
         else:
             raise RuntimeError("Gitee AI 返回数据不包含图片")
 
-        # 后台清理，不阻塞返回
-        asyncio.create_task(self._cleanup_background())
+        # 后台清理，不阻塞返回（去重，避免任务堆积）
+        self._schedule_cleanup()
 
         return path
+
+    def _schedule_cleanup(self) -> None:
+        """调度后台清理任务（去重，避免任务堆积）"""
+        if self._cleanup_task and not self._cleanup_task.done():
+            return
+        self._cleanup_task = asyncio.create_task(self._cleanup_background())
 
     async def _cleanup_background(self) -> None:
         """后台清理旧图片"""
