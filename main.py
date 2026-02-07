@@ -839,7 +839,7 @@ class PortraitPlugin(Star):
         now = datetime.now()
         current_minutes = now.hour * 60 + now.minute
 
-        # 找到最近过去的时间点
+        # 找到最近的时间点（可以是过去或即将到来的，优先匹配最近的）
         best_entry = None
         best_diff = float('inf')
 
@@ -850,9 +850,9 @@ class PortraitPlugin(Star):
                 entry_minute = int(parts[1])
                 entry_minutes = entry_hour * 60 + entry_minute
 
-                # 计算时间差（只匹配已过去的时间点）
-                diff = current_minutes - entry_minutes
-                if diff >= 0 and diff < best_diff:
+                # 计算时间差的绝对值（匹配最近的时间点，无论过去还是未来）
+                diff = abs(current_minutes - entry_minutes)
+                if diff < best_diff:
                     best_diff = diff
                     best_entry = {
                         'time': time_str,
@@ -862,12 +862,12 @@ class PortraitPlugin(Star):
             except (ValueError, IndexError):
                 continue
 
-        # 如果没有找到过去的时间点，取最后一个条目（跨天情况）
+        # 兜底：如果没有匹配到任何条目，取第一个条目
         if best_entry is None and entries:
-            last_time, last_content = entries[-1]
+            first_time, first_content = entries[0]
             best_entry = {
-                'time': last_time,
-                'content': last_content.strip(),
+                'time': first_time,
+                'content': first_content.strip(),
                 'outfit': outfit,
             }
 
