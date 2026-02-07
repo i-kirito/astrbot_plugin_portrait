@@ -546,7 +546,7 @@
                     <!-- 视频画廊每行数量滑块 -->
                     <div v-if="activeTab === 'videos'" class="py-3" style="padding-left: 30px;">
                         <div class="text-xs text-gray-400 mb-2">每行 {{ videoColumns }} 个</div>
-                        <el-slider v-model="videoColumns" :min="2" :max="8" :step="1" :show-tooltip="false" size="small" @change="saveVideoColumns" style="width: 180px;" />
+                        <el-slider v-model="videoColumns" :min="4" :max="6" :step="1" :show-tooltip="false" size="small" @change="saveVideoColumns" style="width: 180px;" />
                     </div>
                     <div class="nav-item" :class="{ active: activeTab === 'videoPresets' }" @click="activeTab = 'videoPresets'; mobileMenuOpen = false" @keyup.enter="activeTab = 'videoPresets'" tabindex="0" role="button" aria-pressed="activeTab === 'videoPresets'">
                         <span class="icon">&#128221;</span>

@@ -103,6 +103,7 @@ class PortraitPlugin(Star):
             '本人', '真人', '长什么样', '什么样子',
             '看看你', '给我看', '让我看', '康康', '瞧瞧', '瞅瞅',
             '全身', '今日穿搭', '查岗', '在干嘛', '在干什么', '干嘛呢',
+            '照片', '看看照片', '发照片', '拍照', '来张照片', '看图',
             # 中文 - 角色日常场景
             '在画室', '在卧室', '在厨房', '在客厅', '在浴室', '在阳台',
             '在书房', '在办公室', '在学校', '在教室', '在公园', '在海边',
@@ -1254,6 +1255,15 @@ class PortraitPlugin(Star):
         # 使用 file:// 协议发送图片
         file_uri = f"file://{image_path.resolve()}"
 
+        # 辅助函数：回退到 base64 发送
+        async def _fallback_send_base64() -> None:
+            import base64
+            image_bytes = await asyncio.to_thread(image_path.read_bytes)
+            image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+            await event.send(
+                event.chain_result([Comp.Image.fromBase64(image_b64)])
+            )
+
         # 尝试直接使用 bot.call_action 发送以获取消息ID
         if hasattr(event, 'bot') and event.bot:
             try:
@@ -1280,14 +1290,10 @@ class PortraitPlugin(Star):
             except Exception as e:
                 logger.warning(f"[Portrait] 使用 bot API 发送失败，回退到 event.send: {e}")
                 # 回退到标准方式（使用 base64）
-                await event.send(
-                    event.chain_result([Comp.Image.fromBase64(image_base64)])
-                )
+                await _fallback_send_base64()
         else:
             # 没有 bot 对象，使用标准方式（使用 base64）
-            await event.send(
-                event.chain_result([Comp.Image.fromBase64(image_base64)])
-            )
+            await _fallback_send_base64()
 
         return message_id
 
@@ -1358,17 +1364,13 @@ class PortraitPlugin(Star):
         self,
         event: AstrMessageEvent,
         prompt: str,
-        size: str = "",
-        resolution: str = "",
     ):
-        """根据提示词生成图片，可指定尺寸。调用一次即可，图片会自动发送给用户。收到 [SUCCESS] 后请勿重复调用。
+        """根据提示词生成图片。调用一次即可，图片会自动发送给用户。收到 [SUCCESS] 后请勿重复调用。尺寸由系统配置自动决定。
 
         Args:
             prompt(string): 图片提示词，需要包含主体、场景、风格等描述
-            size(string): 图片尺寸，支持: 正方形(256x256, 512x512, 1024x1024, 2048x2048), 横版(1152x896, 2048x1536, 2048x1360, 1024x576, 2048x1152), 竖版(768x1024, 1536x2048, 1360x2048, 576x1024, 1152x2048)。非标准尺寸会自动映射到最接近的支持尺寸
-            resolution(string): 分辨率快捷方式，可选 "1K"(1024x1024)、"2K"(2048x2048)
         """
-        return await self._handle_image_generation(event, prompt, size or None, resolution or None)
+        return await self._handle_image_generation(event, prompt)
 
     # === v2.5.0: 画图帮助指令 ===
     @filter.command("画图帮助")
