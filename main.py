@@ -739,10 +739,13 @@ class PortraitPlugin(Star):
 
         # 清理 system_prompt
         if req.system_prompt:
+            has_portrait = '<portrait_status>' in req.system_prompt
+            logger.debug(f"[Portrait] 清理检查: system_prompt 长度={len(req.system_prompt)}, 包含portrait_status={has_portrait}")
             cleaned = portrait_pattern.sub('', req.system_prompt)
             if cleaned != req.system_prompt:
+                removed_len = len(req.system_prompt) - len(cleaned)
                 req.system_prompt = cleaned
-                logger.debug("[Portrait] 已从 system_prompt 清理注入内容")
+                logger.info(f"[Portrait] 已从 system_prompt 清理注入内容，移除 {removed_len} 字符")
 
         # 清理 messages 中的历史消息
         if hasattr(req, 'messages') and req.messages:
