@@ -489,7 +489,9 @@ class PortraitPlugin(Star):
         if self.enable_camera_injection:
             cameras = self._dynamic_config.get("cameras", DEFAULT_CAMERAS)
             cam_section_lines = ["## 4. 摄影模式切换 (Photo Format Switching)"]
-            cam_section_lines.append("**指令:** 检查**当前用户输入**中的关键词。**不要**参考历史记录。")
+            cam_section_lines.append("**指令:** 仅检查**用户发送的消息文本**中的关键词来决定摄影模式。")
+            cam_section_lines.append("**注意:** 日程参考中的\"穿搭\"描述是用于生成服装内容的，不是摄影模式触发词。只有用户消息中明确出现\"全身\"、\"OOTD\"等词才切换全身模式。")
+            cam_section_lines.append("**默认规则:** 如果用户消息中没有明确的触发词，必须使用**半身/默认模式**。")
 
             for idx, cam in enumerate(cameras):
                 name = cam.get("name", f"Mode {idx}")
@@ -740,11 +742,9 @@ class PortraitPlugin(Star):
         original_len = len(req.system_prompt)
         req.system_prompt += injection
 
-        # 调试：记录注入的 prompt 长度和完整内容
+        # 调试：记录注入的 prompt 长度
         logger.info(f"[Portrait] 注入内容长度: {len(injection)} 字符")
         logger.info(f"[Portrait] system_prompt 长度: 注入前 {original_len} → 注入后 {len(req.system_prompt)}")
-        logger.debug(f"[Portrait] 完整注入内容:\n{injection}")
-        logger.debug(f"[Portrait] 注入后完整 system_prompt:\n{req.system_prompt}")
 
         self.injection_counter[session_id] -= 1
         remaining_after = self.injection_counter[session_id]
@@ -891,7 +891,7 @@ class PortraitPlugin(Star):
             config_path = self.data_dir.parent.parent / "config" / "astrbot_plugin_banana_sign_config.json"
             if config_path.exists():
                 import json
-                with open(config_path, 'r', encoding='utf-8') as f:
+                with open(config_path, 'r', encoding='utf-8-sig') as f:
                     config = json.load(f)
                 prompt_list = config.get("prompt", [])
                 for prompt in prompt_list:
