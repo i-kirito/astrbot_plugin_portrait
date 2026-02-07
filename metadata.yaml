@@ -1,6 +1,6 @@
 name: astrbot_plugin_portrait
 display_name: 人物形象
 desc: AI 绘图增强 + 文生图/视频服务插件。支持 Gitee AI / Gemini AI / Grok AI 三提供商，WebUI 管理界面，图片/视频画廊，人像参考功能。
-version: 3.1.0
+version: 3.2.0
 author: ikirito
 repo: https://github.com/i-kirito/astrbot_plugin_portrait
