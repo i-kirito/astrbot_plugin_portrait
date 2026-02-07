@@ -706,8 +706,31 @@ class PortraitPlugin(Star):
             logger.debug(f"[Portrait] 会话 {session_id} 注入次数已用尽，已清理历史注入内容")
             return
 
+        # === v3.2.0: 解析日程信息，融入注入内容 ===
+        schedule_hint = ""
+        character_state = self._extract_character_state(req)
+        if character_state:
+            schedule_info = self._parse_schedule_from_state(character_state)
+            if schedule_info:
+                schedule_hint = f"""
+## 5. 当前日程参考 (Current Schedule Reference)
+**当前时间点**: {schedule_info['time']}
+**角色状态**: {schedule_info['content']}
+**穿搭参考**: {schedule_info['outfit'][:200] if schedule_info['outfit'] else '参考上方穿搭设定'}
+
+**重要**: 生成图片时，请参考上述日程状态来决定场景、表情和动作。例如：
+- 如果日程是"被窝里好暖和"，场景应该是床上/卧室
+- 如果日程是"奶茶店排队"，场景应该是户外/奶茶店
+- 根据日程内容推断角色的情绪和姿态
+"""
+            else:
+                logger.debug("[Portrait] 未解析到日程条目，使用默认注入")
+        else:
+            logger.debug("[Portrait] 未检测到 <character_state>，跳过日程解析")
+
         # 执行注入并减少计数
-        injection = f"\n\n<portrait_status>\n{self.full_prompt}\n</portrait_status>"
+        full_injection_content = self.full_prompt + schedule_hint
+        injection = f"\n\n<portrait_status>\n{full_injection_content}\n</portrait_status>"
         if not req.system_prompt:
             req.system_prompt = ""
 
@@ -762,6 +785,96 @@ class PortraitPlugin(Star):
             if cleaned != req.prompt:
                 req.prompt = cleaned
                 logger.debug("[Portrait] 已从 prompt 清理注入内容")
+
+    def _extract_character_state(self, req: ProviderRequest) -> str | None:
+        """从请求中提取 <character_state> 块内容"""
+        state_pattern = re.compile(r'<character_state>(.*?)</character_state>', re.DOTALL)
+
+        # 优先从 system_prompt 提取
+        if req.system_prompt:
+            match = state_pattern.search(req.system_prompt)
+            if match:
+                return match.group(1).strip()
+
+        # 其次从 messages 提取
+        if hasattr(req, 'messages') and req.messages:
+            for msg in req.messages:
+                if hasattr(msg, 'content') and isinstance(msg.content, str):
+                    match = state_pattern.search(msg.content)
+                    if match:
+                        return match.group(1).strip()
+
+        return None
+
+    def _parse_schedule_from_state(self, state_content: str) -> dict | None:
+        """从 <character_state> 内容中解析当前时间对应的日程
+
+        Returns:
+            包含 time, content, outfit 的字典，或 None
+        """
+        if not state_content:
+            return None
+
+        # 提取穿着信息
+        outfit = ""
+        outfit_match = re.search(r'穿着[：:]\s*(.+?)(?=\n日程[：:]|\n时间[：:]|$)', state_content, re.DOTALL)
+        if outfit_match:
+            outfit = outfit_match.group(1).strip()
+
+        # 提取日程部分
+        schedule_match = re.search(r'日程[：:]\s*(.+?)$', state_content, re.DOTALL)
+        if not schedule_match:
+            return None
+
+        schedule_text = schedule_match.group(1).strip()
+
+        # 解析各个时间点 (格式: HH:MM 内容)
+        time_pattern = re.compile(r'(\d{1,2}:\d{2})\s+(.+?)(?=\n\d{1,2}:\d{2}|$)', re.DOTALL)
+        entries = time_pattern.findall(schedule_text)
+
+        if not entries:
+            return None
+
+        # 获取当前时间
+        now = datetime.now()
+        current_minutes = now.hour * 60 + now.minute
+
+        # 找到最近过去的时间点
+        best_entry = None
+        best_diff = float('inf')
+
+        for time_str, content in entries:
+            try:
+                parts = time_str.split(':')
+                entry_hour = int(parts[0])
+                entry_minute = int(parts[1])
+                entry_minutes = entry_hour * 60 + entry_minute
+
+                # 计算时间差（只匹配已过去的时间点）
+                diff = current_minutes - entry_minutes
+                if diff >= 0 and diff < best_diff:
+                    best_diff = diff
+                    best_entry = {
+                        'time': time_str,
+                        'content': content.strip(),
+                        'outfit': outfit,
+                    }
+            except (ValueError, IndexError):
+                continue
+
+        # 如果没有找到过去的时间点，取最后一个条目（跨天情况）
+        if best_entry is None and entries:
+            last_time, last_content = entries[-1]
+            best_entry = {
+                'time': last_time,
+                'content': last_content.strip(),
+                'outfit': outfit,
+            }
+
+        if best_entry:
+            logger.info(f"[Portrait] 日程匹配: {best_entry['time']} - {best_entry['content'][:30]}...")
+
+        return best_entry
 
     def _get_banana_sign_prefixes(self) -> set[str]:
         """动态获取 banana_sign 插件的预设词列表"""
