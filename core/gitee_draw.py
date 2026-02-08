@@ -109,7 +109,8 @@ def resolution_to_size(resolution: str) -> str | None:
     if r in {"2K", "2048"}:
         return "2048x2048"
     if r in {"4K", "4096"}:
-        return "4096x4096"
+        # Gitee 最大支持 2048x2048，4K 降级处理
+        return "2048x2048"
 
     # 处理 WxH 格式
     if "X" in r:
@@ -292,6 +293,19 @@ class GiteeDrawService:
             or resolution_to_size(resolution or "")
             or self.default_size
         )
+
+        # 验证 final_size 是否为 Gitee 支持的格式
+        if final_size and "x" in final_size.lower():
+            try:
+                w, h = map(int, final_size.lower().split("x"))
+                if (w, h) not in GITEE_SUPPORTED_SIZES:
+                    # 不支持的尺寸，映射到最接近的
+                    final_size = _find_closest_size(w, h)
+                    logger.debug(f"[GiteeDrawService] 尺寸 {w}x{h} 不支持，映射到 {final_size}")
+            except (ValueError, AttributeError):
+                final_size = "1024x1024"
+                logger.warning(f"[GiteeDrawService] 无效的尺寸格式，使用默认 1024x1024")
+
         final_steps = num_inference_steps or self.num_inference_steps
         final_negative = negative_prompt or self.negative_prompt
 
