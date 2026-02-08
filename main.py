@@ -32,6 +32,119 @@ from .core.defaults import (
 from .web_server import WebServer
 
 
+# ============================================================================
+# gitee_aiimg 兼容层：让其他插件（如 daily_sharing）可以通过 draw.generate() 调用
+# ============================================================================
+
+
+class _DrawAdapter:
+    """
+    模拟 gitee_aiimg 插件的 draw 对象接口。
+    其他插件通过 plugin.draw.generate(prompt, size) 调用时，
+    实际调用的是 portrait 插件的生图能力。
+    """
+
+    def __init__(self, plugin: "PortraitPlugin"):
+        self._plugin = plugin
+
+    async def generate(
+        self,
+        prompt: str,
+        size: str | None = None,
+        **kwargs,
+    ) -> Path | None:
+        """
+        兼容 gitee_aiimg 的 draw.generate() 接口。
+
+        Args:
+            prompt: 生图提示词
+            size: 图片尺寸（如 1024x1024），可选
+
+        Returns:
+            生成的图片路径 (Path) 或 None
+        """
+        try:
+            # 调用 portrait 内部生图方法
+            image_path = await self._plugin._generate_image(
+                prompt=prompt,
+                size=size,
+                images=None,
+                is_character_related=False,
+            )
+            return image_path
+        except Exception as e:
+            logger.error(f"[Portrait] DrawAdapter.generate 失败: {e}")
+            return None
+
+
+class _EditAdapter:
+    """
+    模拟 gitee_aiimg 插件的 edit 对象接口。
+    其他插件通过 plugin.edit.edit(prompt, images, ...) 调用时，
+    实际调用的是 portrait 插件的改图能力。
+    """
+
+    def __init__(self, plugin: "PortraitPlugin"):
+        self._plugin = plugin
+
+    async def edit(
+        self,
+        prompt: str,
+        images: list[bytes] | None = None,
+        backend: str | None = None,
+        task_types: list[str] | None = None,
+        **kwargs,
+    ) -> Path | None:
+        """
+        兼容 gitee_aiimg 的 edit.edit() 接口。
+
+        Args:
+            prompt: 改图提示词
+            images: 参考图字节列表（取第一张作为输入）
+            backend: 后端名称（忽略，使用 portrait 配置）
+            task_types: 任务类型（忽略）
+
+        Returns:
+            生成的图片路径 (Path) 或 None
+        """
+        if not images:
+            logger.warning("[Portrait] EditAdapter.edit 缺少输入图片")
+            return None
+
+        try:
+            # 使用第一张图片作为输入
+            image_bytes = images[0]
+
+            # 调用改图 API，获取 (mime, base64)
+            result = await self._plugin.edit_image_api(
+                prompt=prompt,
+                image_bytes=image_bytes,
+                provider=None,  # 使用默认改图提供商
+            )
+
+            if result:
+                mime, b64 = result
+                # 将 base64 保存为文件并返回路径
+                img_bytes = base64.b64decode(b64)
+                ext = ".png"
+                if "jpeg" in mime:
+                    ext = ".jpg"
+                elif "webp" in mime:
+                    ext = ".webp"
+
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"edit_{timestamp}{ext}"
+                save_path = self._plugin.data_dir / "image_cache" / filename
+                save_path.parent.mkdir(parents=True, exist_ok=True)
+                save_path.write_bytes(img_bytes)
+                return save_path
+
+            return None
+        except Exception as e:
+            logger.error(f"[Portrait] EditAdapter.edit 失败: {e}")
+            return None
+
+
 class PortraitPlugin(Star):
     """人物特征Prompt注入器,增强美化画图,内置Gitee AI文生图"""
 
@@ -394,6 +507,16 @@ class PortraitPlugin(Star):
             except RuntimeError:
                 # 没有运行中的事件循环，延迟到首次 LLM 请求时启动
                 pass
+
+        # === gitee_aiimg 兼容层 ===
+        # 暴露 draw/edit/config 属性，使其他插件可以像调用 gitee_aiimg 一样调用 portrait
+        # 用法示例：plugin.draw.generate(prompt=..., size=...)
+        self.draw = _DrawAdapter(self)
+        self.edit = _EditAdapter(self)
+        # 确保 config 有顶级 size 键（兼容 daily_sharing 的 config.get("size")）
+        if "size" not in self.config:
+            gitee_size = self.config.get("gitee_config", {}).get("size", "1024x1024")
+            self.config["size"] = gitee_size
 
     def _load_dynamic_config(self) -> dict:
         """从独立文件加载动态配置（环境和摄影模式）"""

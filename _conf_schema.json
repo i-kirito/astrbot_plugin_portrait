@@ -33,7 +33,7 @@
     "auto_prepend_identity": {
         "type": "bool",
         "description": "自动追加人物外貌到提示词",
-        "hint": "启用后在生成绘图提示词时自动加入 char_identity",
+        "hint": "启用后在生成绘图提示词时自动加入 char_identity 默认关闭，llm模型不读外貌的时候可以打开",
         "default": true
     },
     "proxy": {
