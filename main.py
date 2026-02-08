@@ -1235,8 +1235,8 @@ class PortraitPlugin(Star):
         - 发送图片 + /改图 <提示词>
         - 引用图片消息 + /改图 <提示词>
         """
-        # 阻止 LLM 调用
-        event.stop_event()
+        # 阻止 LLM 调用但允许命令响应
+        event.should_call_llm(False)
 
         # 功能开关检查
         if not self.edit_enabled:
