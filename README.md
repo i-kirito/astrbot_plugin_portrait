@@ -126,7 +126,38 @@
 | `max_storage_mb` | 最大存储空间 MB（0 不限制） |
 | `max_count` | 最大图片数量（0 不限制） |
 
+## 🔌 插件间调用 API
+
+本插件提供公共 API，供其他 AstrBot 插件调用生图能力：
+
+```python
+# 在其他插件中调用
+for star in context.get_all_stars():
+    if star.name == "astrbot_plugin_portrait":
+        plugin = star.star_instance
+
+        # 文生图
+        result = await plugin.generate_image_api(
+            prompt="a cute cat",
+            provider="gemini",  # 可选：gitee/gemini/grok
+            size="1K",          # 可选：1K/2K/4K 或 1024x1024
+        )
+        if result:
+            mime, b64 = result
+            # 使用 base64 图片...
+
+        # 改图
+        result = await plugin.edit_image_api(
+            prompt="change background to blue",
+            image_bytes=original_image_bytes,
+            provider="gemini",
+        )
+```
+
 ## 🛠️ 版本历史
+
+### v3.4.0 (2026-02-08)
+- 公共 API：generate_image_api / edit_image_api 供其他插件调用
 
 ### v3.3.0 (2026-02-08)
 - 独立改图提供商，动态模型切换

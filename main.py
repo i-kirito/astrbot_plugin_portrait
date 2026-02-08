@@ -661,6 +661,152 @@ class PortraitPlugin(Star):
         except Exception as e:
             logger.error(f"[Portrait] 停止插件出错: {e}")
 
+    # ==================== 公共 API（供其他插件调用）====================
+
+    async def generate_image_api(
+        self,
+        prompt: str,
+        provider: str | None = None,
+        size: str | None = None,
+        reference_images: list[bytes] | None = None,
+    ) -> tuple[str, str] | None:
+        """公共 API：供其他插件调用的文生图接口
+
+        Args:
+            prompt: 生图提示词
+            provider: 提供商（gitee/gemini/grok），默认使用配置的 draw_provider
+            size: 图片尺寸（如 1024x1024 或 1K/2K/4K），默认使用配置值
+            reference_images: 可选的参考图字节列表（用于 Gemini/Grok 人像参考）
+
+        Returns:
+            (mime_type, base64_data) 或 None（生成失败）
+
+        Example:
+            # 在其他插件中调用
+            for star in context.get_all_stars():
+                if star.name == "astrbot_plugin_portrait":
+                    result = await star.star_instance.generate_image_api(
+                        prompt="a cute cat",
+                        provider="gemini",
+                        size="1K",
+                    )
+                    if result:
+                        mime, b64 = result
+                        # 使用图片...
+        """
+        if self._is_terminated:
+            return None
+
+        try:
+            # 临时切换提供商（如果指定）
+            original_provider = self.draw_provider
+            if provider and provider in ("gitee", "gemini", "grok"):
+                self.draw_provider = provider
+
+            try:
+                # 调用内部生图方法
+                image_path = await self._generate_image(
+                    prompt=prompt,
+                    size=size,
+                    images=reference_images,
+                    is_character_related=False,  # API 调用默认不加载自拍参考
+                )
+
+                if image_path and image_path.exists():
+                    # 读取图片并返回 base64
+                    image_bytes = await asyncio.to_thread(image_path.read_bytes)
+                    # 根据后缀判断 MIME 类型
+                    suffix = image_path.suffix.lower()
+                    mime_map = {
+                        ".jpg": "image/jpeg",
+                        ".jpeg": "image/jpeg",
+                        ".png": "image/png",
+                        ".gif": "image/gif",
+                        ".webp": "image/webp",
+                    }
+                    mime = mime_map.get(suffix, "image/png")
+                    b64 = base64.b64encode(image_bytes).decode("utf-8")
+                    return (mime, b64)
+
+                return None
+            finally:
+                # 恢复原始提供商
+                self.draw_provider = original_provider
+
+        except Exception as e:
+            logger.error(f"[Portrait] API 生图失败: {e}")
+            return None
+
+    async def edit_image_api(
+        self,
+        prompt: str,
+        image_bytes: bytes,
+        provider: str | None = None,
+    ) -> tuple[str, str] | None:
+        """公共 API：供其他插件调用的改图接口
+
+        Args:
+            prompt: 改图提示词
+            image_bytes: 原始图片字节数据
+            provider: 提供商（gitee/gemini/grok），默认使用配置的 edit_provider
+
+        Returns:
+            (mime_type, base64_data) 或 None（生成失败）
+        """
+        if self._is_terminated:
+            return None
+
+        if not self.edit_enabled:
+            logger.warning("[Portrait] 改图功能未启用")
+            return None
+
+        try:
+            target_provider = provider or self.edit_provider
+
+            if target_provider == "gemini":
+                # Gemini 改图
+                model = self.edit_model_gemini or self.gemini_draw.model
+                result_path = await self.gemini_draw.edit_image(
+                    prompt=prompt,
+                    image_bytes=image_bytes,
+                    model=model,
+                )
+            elif target_provider == "grok":
+                # Grok 改图
+                model = self.edit_model_grok or self.grok_draw.model
+                result_path = await self.grok_draw.edit_image(
+                    prompt=prompt,
+                    image_bytes=image_bytes,
+                    model=model,
+                )
+            else:
+                # Gitee 改图
+                result_path = await self.gitee_draw.edit_image(
+                    prompt=prompt,
+                    image_bytes=image_bytes,
+                    model=self.edit_model_gitee,
+                )
+
+            if result_path and result_path.exists():
+                img_bytes = await asyncio.to_thread(result_path.read_bytes)
+                suffix = result_path.suffix.lower()
+                mime_map = {
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".png": "image/png",
+                    ".gif": "image/gif",
+                    ".webp": "image/webp",
+                }
+                mime = mime_map.get(suffix, "image/png")
+                b64 = base64.b64encode(img_bytes).decode("utf-8")
+                return (mime, b64)
+
+            return None
+
+        except Exception as e:
+            logger.error(f"[Portrait] API 改图失败: {e}")
+            return None
+
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
         # 生命周期检查：防止旧实例继续工作
