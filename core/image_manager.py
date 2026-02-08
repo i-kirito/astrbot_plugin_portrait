@@ -172,6 +172,28 @@ class ImageManager:
                 self._metadata_mtime = current_mtime
             return self._metadata.get(filename)
 
+    async def get_metadata_snapshot_async(self) -> dict:
+        """获取元数据快照（单次重载，避免循环内反复 stat）"""
+        async with self._metadata_lock:
+            if not self._metadata_loaded:
+                self._metadata = await asyncio.to_thread(self._load_metadata)
+                self._metadata_mtime = self._get_metadata_mtime()
+                self._metadata_loaded = True
+            else:
+                current_mtime = await asyncio.to_thread(self._get_metadata_mtime)
+                if current_mtime > self._metadata_mtime:
+                    self._metadata = await asyncio.to_thread(self._load_metadata)
+                    self._metadata_mtime = current_mtime
+            return dict(self._metadata)
+
+    async def get_favorites_snapshot_async(self) -> set[str]:
+        """获取收藏快照（避免扫描循环内反复读取）"""
+        async with self._favorites_lock:
+            if not self._favorites_loaded:
+                self._favorites = await asyncio.to_thread(self._load_favorites)
+                self._favorites_loaded = True
+            return set(self._favorites)
+
     def set_metadata(
         self,
         filename: str,
@@ -215,6 +237,35 @@ class ImageManager:
                 "category": category,
                 "size": size,
             }
+            await asyncio.to_thread(self._save_metadata_sync)
+            self._metadata_mtime = self._get_metadata_mtime()
+
+    async def set_metadata_batch_async(
+        self,
+        items: list[tuple[str, str, str, str, str]],
+    ) -> None:
+        """批量写入元数据（单次落盘）
+
+        Args:
+            items: [(filename, prompt, model, category, size), ...]
+        """
+        if not items:
+            return
+        async with self._metadata_lock:
+            if not self._metadata_loaded:
+                self._metadata = await asyncio.to_thread(self._load_metadata)
+                self._metadata_mtime = self._get_metadata_mtime()
+                self._metadata_loaded = True
+            now = int(time.time())
+            for filename, prompt, model, category, size in items:
+                old = self._metadata.get(filename, {})
+                self._metadata[filename] = {
+                    "prompt": prompt,
+                    "created_at": old.get("created_at", now),
+                    "model": model,
+                    "category": category,
+                    "size": size,
+                }
             await asyncio.to_thread(self._save_metadata_sync)
             self._metadata_mtime = self._get_metadata_mtime()
 
@@ -295,6 +346,36 @@ class ImageManager:
                 self._favorites.discard(filename)
                 await asyncio.to_thread(self._save_metadata_sync)
                 await asyncio.to_thread(self._save_favorites_sync)
+                self._metadata_mtime = self._get_metadata_mtime()
+
+    async def remove_metadata_batch_async(self, filenames: list[str]) -> None:
+        """批量删除元数据与收藏（单次落盘）"""
+        if not filenames:
+            return
+        names = set(filenames)
+        async with self._metadata_lock:
+            async with self._favorites_lock:
+                if not self._metadata_loaded:
+                    self._metadata = await asyncio.to_thread(self._load_metadata)
+                    self._metadata_mtime = self._get_metadata_mtime()
+                    self._metadata_loaded = True
+                if not self._favorites_loaded:
+                    self._favorites = await asyncio.to_thread(self._load_favorites)
+                    self._favorites_loaded = True
+
+                changed = False
+                for filename in names:
+                    if filename in self._metadata:
+                        self._metadata.pop(filename, None)
+                        changed = True
+                    if filename in self._favorites:
+                        self._favorites.discard(filename)
+                        changed = True
+
+                if changed:
+                    await asyncio.to_thread(self._save_metadata_sync)
+                    await asyncio.to_thread(self._save_favorites_sync)
+                    self._metadata_mtime = self._get_metadata_mtime()
 
     async def close(self) -> None:
         if self._session is not None:

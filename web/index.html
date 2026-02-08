@@ -10,15 +10,15 @@
     <link rel="preconnect" href="https://unpkg.com">
     <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
     <link rel="dns-prefetch" href="https://unpkg.com">
-    <!-- Tailwind CSS (不能 defer，需要在 DOM 解析时应用样式) -->
+    <!-- Tailwind CSS (Runtime parser) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Element Plus -->
     <link rel="stylesheet" href="https://unpkg.com/element-plus@2.4.4/dist/index.css" />
-    <!-- Vue 3 (不能 defer，内联脚本依赖它) -->
-    <script src="https://unpkg.com/vue@3.4.15/dist/vue.global.prod.js"></script>
-    <script src="https://unpkg.com/element-plus@2.4.4/dist/index.full.min.js"></script>
+    <!-- Vue 3 & Libs (Deferred for faster FCP) -->
+    <script src="https://unpkg.com/vue@3.4.15/dist/vue.global.prod.js" defer></script>
+    <script src="https://unpkg.com/element-plus@2.4.4/dist/index.full.min.js" defer></script>
     <!-- SortableJS for drag-drop -->
-    <script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js"></script>
+    <script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js" defer></script>
     <style>
         :root {
             --primary-pink: #FF69B4;
@@ -163,6 +163,7 @@
             backdrop-filter: blur(10px);
             content-visibility: auto;
             contain-intrinsic-size: 300px; /* Estimated height */
+            will-change: transform, box-shadow; /* GPU acceleration */
         }
         .image-card:hover {
             border-color: rgba(255, 105, 180, 0.5);
@@ -174,6 +175,7 @@
             height: 300px;
             object-fit: cover;
             transition: transform 0.3s ease;
+            will-change: transform; /* GPU acceleration */
         }
         .image-card:hover img {
             transform: scale(1.05);
@@ -786,7 +788,7 @@
                             <el-row :gutter="24">
                                 <el-col :span="8">
                                     <el-form-item label="图片模型">
-                                        <el-input v-model="grokConfig.image_model" placeholder="grok-2-image" />
+                                        <el-input v-model="grokConfig.image_model" placeholder="grok-imagine-1.0" />
                                     </el-form-item>
                                 </el-col>
                                 <el-col :span="8">
@@ -898,18 +900,28 @@
                                 <span class="text-sm text-gray-400 ml-3">启用后可使用 /改图 命令</span>
                             </el-form-item>
                             <el-row :gutter="20">
-                                <el-col :span="12">
-                                    <el-form-item label="改图模型">
-                                        <el-input v-model="editConfig.model" placeholder="Qwen-Image-Edit-2511" />
-                                        <p class="text-xs text-pink-400 mt-1">Gitee AI 改图使用的模型</p>
+                                <el-col :span="8">
+                                    <el-form-item label="改图提供商">
+                                        <el-select v-model="editConfig.provider" style="width: 100%" @change="onEditProviderChange">
+                                            <el-option value="gemini" label="Gemini"></el-option>
+                                            <el-option value="gitee" label="Gitee (Qwen)"></el-option>
+                                            <el-option value="grok" label="Grok"></el-option>
+                                        </el-select>
+                                        <p class="text-xs text-pink-400 mt-1">独立于生图主提供商，复用 API Key</p>
                                     </el-form-item>
                                 </el-col>
-                                <el-col :span="6">
+                                <el-col :span="8">
+                                    <el-form-item :label="editModelLabel">
+                                        <el-input v-model="currentEditModel" :placeholder="editModelPlaceholder" />
+                                        <p class="text-xs text-pink-400 mt-1">{{ editModelHint }}</p>
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="4" v-if="editConfig.provider === 'gitee'">
                                     <el-form-item label="轮询间隔 (秒)">
                                         <el-input-number v-model="editConfig.poll_interval" :min="1" :max="30" :step="1" style="width: 100%;" />
                                     </el-form-item>
                                 </el-col>
-                                <el-col :span="6">
+                                <el-col :span="4" v-if="editConfig.provider === 'gitee'">
                                     <el-form-item label="轮询超时 (秒)">
                                         <el-input-number v-model="editConfig.poll_timeout" :min="60" :max="600" :step="30" style="width: 100%;" />
                                     </el-form-item>
@@ -1468,6 +1480,7 @@
     </div>
 
     <script>
+      document.addEventListener('DOMContentLoaded', () => {
         const { createApp, ref, reactive, computed, onMounted, nextTick, watch } = Vue;
 
         // 从 URL 获取 token（用于首次认证）
@@ -1544,7 +1557,7 @@
                 const grokConfig = reactive({
                     api_key: '',
                     base_url: 'https://api.x.ai',
-                    image_model: 'grok-2-image',
+                    image_model: 'grok-imagine-1.0',
                     video_model: 'grok-imagine-1.0-video',
                     size: '1024x1024',
                     timeout: 180,
@@ -1565,7 +1578,10 @@
                 // 改图配置
                 const editConfig = reactive({
                     enabled: true,
-                    model: 'Qwen-Image-Edit-2511',
+                    provider: 'gemini',
+                    model: 'Qwen-Image-Edit-2511',  // Gitee 改图模型
+                    gemini_model: 'gemini-3-pro-image-preview',  // Gemini 改图模型
+                    grok_model: 'grok-imagine-1.0',  // Grok 改图模型
                     poll_interval: 5,
                     poll_timeout: 300,
                     presets: ['手办化:将图片转换为精致的手办模型风格', 'Q版化:将图片转换为可爱的Q版卡通风格', '赛博朋克:添加霓虹灯光和未来科技感', '水彩画:转换为柔和的水彩画艺术风格', '油画:转换为经典油画艺术风格'],
@@ -1614,6 +1630,69 @@
                         giteeConfig.api_keys = val.split('\n').map(k => k.trim()).filter(k => k);
                     }
                 });
+
+                // 改图模型动态计算属性
+                const editModelLabel = computed(() => {
+                    switch (editConfig.provider) {
+                        case 'gemini': return 'Gemini 改图模型';
+                        case 'grok': return 'Grok 改图模型';
+                        default: return 'Gitee 改图模型';
+                    }
+                });
+
+                const editModelPlaceholder = computed(() => {
+                    switch (editConfig.provider) {
+                        case 'gemini': return 'gemini-3-pro-image-preview';
+                        case 'grok': return 'grok-imagine-1.0';
+                        default: return 'Qwen-Image-Edit-2511';
+                    }
+                });
+
+                const editModelHint = computed(() => {
+                    switch (editConfig.provider) {
+                        case 'gemini': return '用于 Gemini 改图的模型';
+                        case 'grok': return '用于 Grok 改图的模型';
+                        default: return '用于 Gitee 改图的模型';
+                    }
+                });
+
+                const currentEditModel = computed({
+                    get: () => {
+                        switch (editConfig.provider) {
+                            case 'gemini': return editConfig.gemini_model;
+                            case 'grok': return editConfig.grok_model;
+                            default: return editConfig.model;
+                        }
+                    },
+                    set: (val) => {
+                        switch (editConfig.provider) {
+                            case 'gemini': editConfig.gemini_model = val; break;
+                            case 'grok': editConfig.grok_model = val; break;
+                            default: editConfig.model = val; break;
+                        }
+                    }
+                });
+
+                // 切换改图提供商时，从文生图配置继承模型（如果当前为空）
+                const onEditProviderChange = (provider) => {
+                    switch (provider) {
+                        case 'gemini':
+                            if (!editConfig.gemini_model) {
+                                editConfig.gemini_model = geminiConfig.model || 'gemini-3-pro-image-preview';
+                            }
+                            break;
+                        case 'grok':
+                            if (!editConfig.grok_model) {
+                                editConfig.grok_model = grokConfig.image_model || 'grok-imagine-1.0';
+                            }
+                            break;
+                        case 'gitee':
+                            if (!editConfig.model) {
+                                editConfig.model = 'Qwen-Image-Edit-2511';
+                            }
+                            break;
+                    }
+                };
 
                 // 动态配置
                 const environments = ref([]);
@@ -2466,6 +2545,11 @@
                     cleaningCache,
                     cleanupCache,
                     editConfig,
+                    editModelLabel,
+                    editModelPlaceholder,
+                    editModelHint,
+                    currentEditModel,
+                    onEditProviderChange,
                     editPresets,
                     loadEditPresets,
                     saveEditPresets,
@@ -2551,6 +2635,7 @@
 
         app.use(ElementPlus);
         app.mount('#app');
+      });
     </script>
 </body>
 </html>

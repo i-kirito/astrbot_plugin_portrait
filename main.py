@@ -256,7 +256,7 @@ class PortraitPlugin(Star):
             data_dir=self.data_dir,
             api_key=grok_conf.get("api_key", "") or "",
             base_url=grok_conf.get("base_url", "https://api.x.ai") or "https://api.x.ai",
-            model=grok_conf.get("image_model", "") or grok_conf.get("model", "grok-2-image") or "grok-2-image",
+            model=grok_conf.get("image_model", "grok-imagine-1.0") or "grok-imagine-1.0",
             default_size=grok_conf.get("size", "1024x1024") or "1024x1024",
             timeout=grok_conf.get("timeout", 180) or 180,
             max_retries=grok_conf.get("max_retries", 2) or 2,
@@ -303,6 +303,11 @@ class PortraitPlugin(Star):
         edit_conf = self.config.get("edit_config", {}) or {}
         self.edit_enabled = edit_conf.get("enabled", True)
         self.edit_presets = edit_conf.get("presets", []) or []
+        self.edit_provider = edit_conf.get("provider", "gemini") or "gemini"
+        # 各提供商改图模型（独立配置）
+        self.edit_model_gitee = edit_conf.get("model", "Qwen-Image-Edit-2511") or "Qwen-Image-Edit-2511"
+        self.edit_model_gemini = edit_conf.get("gemini_model", "") or ""
+        self.edit_model_grok = edit_conf.get("grok_model", "") or ""
         self.gitee_draw = GiteeDrawService(
             data_dir=self.data_dir,
             api_keys=gitee_conf.get("api_keys", []) or [],
@@ -468,9 +473,11 @@ class PortraitPlugin(Star):
                     for key in persist_fields:
                         if key in persist_data:
                             astrbot_config[key] = persist_data[key]
-                    # 清理废弃的顶级 video_presets 字段
-                    if "video_presets" in astrbot_config:
-                        del astrbot_config["video_presets"]
+                    # 清理废弃字段（不应出现在 AstrBot 配置中）
+                    deprecated_fields = ["video_presets", "environments", "cameras"]
+                    for field in deprecated_fields:
+                        if field in astrbot_config:
+                            del astrbot_config[field]
                     with open(astrbot_config_path, "w", encoding="utf-8") as f:
                         json.dump(astrbot_config, f, ensure_ascii=False, indent=2)
                     logger.debug(f"[Portrait] 已同步配置到 AstrBot")
@@ -1335,21 +1342,35 @@ class PortraitPlugin(Star):
         return self._edit_http_session
 
     async def _download_image_bytes(self, url: str, retries: int = 3) -> bytes | None:
-        """下载图片，带重试机制"""
+        """下载图片，带重试机制和指数退避"""
         session = await self._get_edit_session()
+        proxy = self.config.get("proxy", "") or None
+        max_size = 20 * 1024 * 1024
+        backoff = 0.5
+        last_error: Exception | None = None
+
         for i in range(retries):
             try:
-                async with session.get(url) as resp:
+                async with session.get(url, proxy=proxy) as resp:
                     if resp.status == 200:
+                        content_length = resp.headers.get("Content-Length")
+                        if content_length and int(content_length) > max_size:
+                            logger.warning(f"[Portrait] 下载图片过大: {url[:60]}...")
+                            return None
                         return await resp.read()
+                    last_error = RuntimeError(f"HTTP {resp.status}")
                     logger.warning(f"[Portrait] 下载图片 HTTP {resp.status}: {url[:60]}...")
-            except asyncio.TimeoutError:
-                logger.warning(f"[Portrait] 下载图片超时 (第{i + 1}次): {url[:60]}...")
+            except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+                last_error = e
+                logger.warning(f"[Portrait] 下载图片网络异常 (第{i + 1}次): {url[:60]}..., {e}")
             except Exception as e:
-                if i < retries - 1:
-                    await asyncio.sleep(1)
-                else:
-                    logger.error(f"[Portrait] 下载图片失败: {url[:60]}..., 错误: {e}")
+                last_error = e
+                logger.warning(f"[Portrait] 下载图片失败 (第{i + 1}次): {url[:60]}..., 错误: {e}")
+            if i < retries - 1:
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 3.0)
+        if last_error:
+            logger.error(f"[Portrait] 下载图片最终失败: {url[:60]}..., 错误: {last_error}")
         return None
 
     async def _get_images_from_event(
@@ -1427,39 +1448,68 @@ class PortraitPlugin(Star):
         if not images:
             raise ValueError("至少需要一张图片")
 
-        # 确定提供商顺序：Gitee（支持异步改图） > Gemini > Grok
+        # 确定提供商顺序：使用独立的 edit_provider 配置
         providers = {
             "gitee": (self.gitee_draw, "Gitee"),
             "gemini": (self.gemini_draw, "Gemini"),
             "grok": (self.grok_draw, "Grok"),
         }
 
-        # 主提供商使用配置的 draw_provider
-        primary_key = self.draw_provider if self.draw_provider in providers else "gitee"
+        # 主提供商使用配置的 edit_provider（独立于 draw_provider）
+        primary_key = self.edit_provider if self.edit_provider in providers else "gemini"
         primary, primary_name = providers[primary_key]
 
-        # 备用提供商顺序
-        fallback_order = [k for k in self.fallback_models if k != primary_key and k in providers]
+        # 获取改图专用模型配置
+        def get_edit_model(provider_key: str, service) -> str:
+            """获取提供商的改图模型，优先使用独立配置，否则回退到文生图模型"""
+            if provider_key == "gitee":
+                return self.edit_model_gitee or (service.edit_model if hasattr(service, 'edit_model') else service.model)
+            elif provider_key == "gemini":
+                return self.edit_model_gemini or service.model
+            elif provider_key == "grok":
+                return self.edit_model_grok or (service.image_model if hasattr(service, 'image_model') else service.model)
+            return service.model
 
+        # 备用提供商顺序（排除主改图提供商）
+        fallback_order = [k for k in ["gemini", "gitee", "grok"] if k != primary_key and k in providers]
+
+        # 获取当前改图使用的模型
+        edit_model = get_edit_model(primary_key, primary)
         logger.info(
-            f"[Portrait] 改图配置: provider={primary_key}, "
+            f"[Portrait] 改图配置: provider={primary_key}, model={edit_model}, "
             f"fallback={self.enable_fallback}, images={len(images)}"
         )
 
         # 尝试主提供商
         if primary.enabled:
             try:
+                # 临时切换模型用于改图
+                original_model = primary.model
+                if primary_name == "Gemini" and self.edit_model_gemini:
+                    primary.model = self.edit_model_gemini
+                elif primary_name == "Grok" and self.edit_model_grok:
+                    if hasattr(primary, 'image_model'):
+                        primary.image_model = self.edit_model_grok
+                    primary.model = self.edit_model_grok
+
                 if primary_name == "Gitee":
-                    # Gitee 使用异步改图 API
+                    # Gitee 使用异步改图 API，edit_model 已在服务初始化时设置
+                    # 临时切换 edit_model
+                    original_edit_model = primary.edit_model if hasattr(primary, 'edit_model') else None
+                    if self.edit_model_gitee:
+                        primary.edit_model = self.edit_model_gitee
                     image_path = await primary.edit(prompt, images)
                     logger.info(f"[Portrait] Gitee 改图成功")
                     # 保存元数据，分类为 edit
                     await self.image_manager.set_metadata_async(
                         image_path.name,
                         prompt,
-                        model=primary.edit_model if hasattr(primary, 'edit_model') else primary.model,
+                        model=self.edit_model_gitee or primary.edit_model,
                         category="edit",
                     )
+                    # 恢复原模型
+                    if original_edit_model is not None:
+                        primary.edit_model = original_edit_model
                     return image_path
                 else:
                     # Gemini/Grok 使用 generate + images 参数
@@ -1469,11 +1519,16 @@ class PortraitPlugin(Star):
                     await self.image_manager.set_metadata_async(
                         image_path.name,
                         prompt,
-                        model=primary.model,
+                        model=edit_model,  # 使用改图专用模型名
                         category="edit",
                     )
+                    # 恢复原模型
+                    primary.model = original_model
                     return image_path
             except Exception as e:
+                # 恢复原模型
+                if 'original_model' in dir():
+                    primary.model = original_model
                 logger.warning(f"[Portrait] {primary_name} 改图失败: {e}")
                 if not self.enable_fallback:
                     raise
@@ -1485,12 +1540,14 @@ class PortraitPlugin(Star):
                 if not fallback or not fallback.enabled:
                     continue
                 try:
+                    # 获取备用提供商的改图模型
+                    fallback_edit_model = get_edit_model(fallback_key, fallback)
                     if fallback_name == "Gitee":
                         image_path = await fallback.edit(prompt, images)
-                        model_name = fallback.edit_model if hasattr(fallback, 'edit_model') else fallback.model
+                        model_name = self.edit_model_gitee or (fallback.edit_model if hasattr(fallback, 'edit_model') else fallback.model)
                     else:
                         image_path = await fallback.generate(prompt, images=images)
-                        model_name = fallback.model if hasattr(fallback, 'model') else fallback_name
+                        model_name = fallback_edit_model
                     logger.info(f"[Portrait] {fallback_name} 改图成功 (备用)")
                     # 保存元数据，分类为 edit
                     await self.image_manager.set_metadata_async(

@@ -13,6 +13,7 @@ import base64
 import contextlib
 import hashlib
 import json
+import random
 import re
 import time
 from pathlib import Path
@@ -288,8 +289,18 @@ class GrokDrawService:
     async def _get_client(self) -> httpx.AsyncClient:
         """获取或创建共享的 HTTP 客户端"""
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
+            timeout = httpx.Timeout(
                 timeout=float(self.timeout),
+                connect=min(10.0, float(self.timeout)),
+            )
+            limits = httpx.Limits(
+                max_connections=20,
+                max_keepalive_connections=10,
+                keepalive_expiry=30.0,
+            )
+            self._client = httpx.AsyncClient(
+                timeout=timeout,
+                limits=limits,
                 follow_redirects=True,
                 proxy=self.proxy,
             )
@@ -415,6 +426,8 @@ class GrokDrawService:
                         attempt + 1,
                         e,
                     )
+                    sleep_s = min(0.5 * (2 ** attempt), 4.0) + random.random() * 0.2
+                    await asyncio.sleep(sleep_s)
                     continue
 
         raise RuntimeError(f"Grok 图片生成失败: {last_error}")
@@ -492,6 +505,8 @@ class GrokDrawService:
                         attempt + 1,
                         e,
                     )
+                    sleep_s = min(0.5 * (2 ** attempt), 4.0) + random.random() * 0.2
+                    await asyncio.sleep(sleep_s)
                     continue
                 raise
 

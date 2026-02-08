@@ -95,7 +95,7 @@
 | :--- | :--- |
 | `api_key` | API 密钥 |
 | `base_url` | API 地址（默认 https://api.x.ai） |
-| `image_model` | 图片模型（默认 grok-2-image） |
+| `image_model` | 图片模型（默认 grok-imagine-1.0） |
 | `video_model` | 视频模型（默认 grok-imagine-1.0-video） |
 | `video_enabled` | 启用视频生成功能 |
 | `video_presets` | 视频预设词（格式：预设名:提示词） |
@@ -127,6 +127,18 @@
 | `max_count` | 最大图片数量（0 不限制） |
 
 ## 🛠️ 版本历史
+
+### v3.3.0 (2026-02-08)
+- [Feat] 独立改图提供商：改图功能可独立选择 Gemini/Gitee/Grok，不再绑定生图提供商
+- [Feat] 动态改图模型：根据选择的提供商显示对应模型配置
+- [Perf] 前端性能优化：Vue/ElementPlus 脚本 defer 加载，图片卡片 GPU 加速
+- [Perf] 后端性能优化：元数据批量读写、缩略图并发生成、缓存清理单次落盘
+- [Perf] 网络稳定性：Grok/Gemini 连接池优化，重试添加指数退避
+- [Perf] 下载链路优化：添加代理支持、大小保护、指数退避重试
+- [Security] API Key 掩码化：WebUI 不再返回明文密钥
+- [Security] Token 比较使用 secrets.compare_digest 防时序攻击
+- [Fix] Grok 模型默认值更新为 grok-imagine-1.0
+- [Fix] 移除废弃的 grok_config.model 兼容字段
 
 ### v3.2.0 (2026-02-07)
 - [Perf] 后端性能优化：O(n²)→O(n) 图片去重、异步文件 I/O、后台清理任务去重

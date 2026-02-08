@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import base64
+import random
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -95,8 +96,19 @@ class GeminiDrawService:
     async def _get_session(self) -> aiohttp.ClientSession:
         """获取或创建 HTTP 会话（复用连接）"""
         if self._session is None or self._session.closed:
-            timeout = aiohttp.ClientTimeout(total=self.timeout)
-            self._session = aiohttp.ClientSession(timeout=timeout)
+            connector = aiohttp.TCPConnector(
+                limit=20,
+                limit_per_host=10,
+                ttl_dns_cache=300,
+                enable_cleanup_closed=True,
+            )
+            timeout = aiohttp.ClientTimeout(
+                total=self.timeout,
+                connect=10,
+                sock_connect=10,
+                sock_read=self.timeout,
+            )
+            self._session = aiohttp.ClientSession(timeout=timeout, connector=connector)
         return self._session
 
     async def generate(self, prompt: str, images: list[bytes] | None = None, resolution: str | None = None) -> Path:

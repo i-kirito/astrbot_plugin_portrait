@@ -16,6 +16,13 @@ from astrbot.api import logger
 from .core.image_manager import ImageManager
 
 
+def _mask_key(key: str) -> str:
+    """将密钥掩码化，只显示前4位和后4位"""
+    if not key or len(key) <= 8:
+        return "*" * len(key) if key else ""
+    return f"{key[:4]}...{key[-4:]}"
+
+
 class WebServer:
     """Portrait 插件 Web 管理服务器"""
 
@@ -26,7 +33,7 @@ class WebServer:
         # 安全默认：如果未设置 token 且非本地监听，自动生成随机 token
         if not token and host != "127.0.0.1":
             token = secrets.token_urlsafe(32)
-            logger.warning(f"[Portrait WebUI] 未设置 token，已自动生成: {token}")
+            logger.warning(f"[Portrait WebUI] 未设置 token，已自动生成（请在配置中查看）")
         self.token = token  # 访问令牌
         self.app = web.Application(middlewares=[self._auth_middleware])
         self.runner: web.AppRunner | None = None
@@ -49,6 +56,7 @@ class WebServer:
         self._images_cache: dict | None = None
         self._images_cache_time: float = 0
         self._images_cache_ttl: float = 5.0  # 5秒缓存
+        self._thumb_gen_semaphore = asyncio.Semaphore(4)  # 并发缩略图生成限制
 
         self._setup_routes()
 
@@ -75,7 +83,7 @@ class WebServer:
             or request.query.get("token")
         )
 
-        if req_token != self.token:
+        if not secrets.compare_digest(req_token, self.token):
             return web.json_response(
                 {"success": False, "error": "未授权访问，请提供正确的 token"},
                 status=401
@@ -232,7 +240,7 @@ class WebServer:
                 # 未设置 token，直接放行
                 return web.json_response({"success": True, "message": "无需认证"})
 
-            if req_token != self.token:
+            if not secrets.compare_digest(req_token, self.token):
                 return web.json_response(
                     {"success": False, "error": "Token 错误"},
                     status=401
@@ -286,10 +294,11 @@ class WebServer:
                     else:
                         config[field] = None
 
-            # gitee_config 单独处理，返回真实密钥
+            # gitee_config 单独处理，密钥掩码化
             gitee_conf = self.plugin.config.get("gitee_config", {}) or {}
+            api_keys_raw = gitee_conf.get("api_keys", []) or []
             config["gitee_config"] = {
-                "api_keys": gitee_conf.get("api_keys", []) or [],
+                "api_keys": [_mask_key(k) for k in api_keys_raw],
                 "base_url": gitee_conf.get("base_url", "https://ai.gitee.com/v1"),
                 "model": gitee_conf.get("model", "z-image-turbo"),
                 "size": gitee_conf.get("size", "1024x1024"),
@@ -299,20 +308,20 @@ class WebServer:
                 "max_retries": gitee_conf.get("max_retries", 2),
             }
 
-            # gemini_config 单独处理，返回真实密钥
+            # gemini_config 单独处理，密钥掩码化
             gemini_conf = self.plugin.config.get("gemini_config", {}) or {}
             config["gemini_config"] = {
-                "api_key": gemini_conf.get("api_key", "") or "",
+                "api_key": _mask_key(gemini_conf.get("api_key", "") or ""),
                 "base_url": gemini_conf.get("base_url", "https://generativelanguage.googleapis.com"),
                 "model": gemini_conf.get("model", "gemini-2.0-flash-exp-image-generation"),
                 "image_size": gemini_conf.get("image_size", "1K"),
                 "timeout": gemini_conf.get("timeout", 120),
             }
 
-            # grok_config 单独处理
+            # grok_config 单独处理，密钥掩码化
             grok_conf = self.plugin.config.get("grok_config", {}) or {}
             config["grok_config"] = {
-                "api_key": grok_conf.get("api_key", "") or "",
+                "api_key": _mask_key(grok_conf.get("api_key", "") or ""),
                 "base_url": grok_conf.get("base_url", "https://api.x.ai"),
                 "image_model": grok_conf.get("image_model", "grok-2-image"),
                 "video_model": grok_conf.get("video_model", "grok-imagine-1.0-video"),
@@ -595,24 +604,25 @@ class WebServer:
 
                 file_stats = await asyncio.to_thread(scan_images)
 
-                # 一次性加载元数据（避免循环中重复读取文件）
-                await self.imgr.get_metadata_async("")  # 触发元数据重载
+                # 一次性获取元数据和收藏快照（避免循环中重复读取文件）
+                metadata_map, favorites = await asyncio.gather(
+                    self.imgr.get_metadata_snapshot_async(),
+                    self.imgr.get_favorites_snapshot_async(),
+                )
 
                 images = []
-                metadata_updated = False
-                
+                missing_metadata_records: list[tuple[str, str, str, str, str]] = []
+
                 for file_path, stat, img_width, img_height in file_stats:
                     filename = file_path.name
 
-                    # 从内存缓存获取元数据
-                    metadata = self.imgr.get_metadata(filename)
-                    is_favorite = self.imgr.is_favorite(filename)
-                    
-                    # 如果没有元数据，在内存中初始化（稍后批量保存）
+                    # 从快照获取元数据
+                    metadata = metadata_map.get(filename) or {}
+                    is_favorite = filename in favorites
+
+                    # 如果没有元数据，记录下来稍后批量保存
                     if not metadata:
-                        self.imgr.update_metadata_no_save(filename)
-                        metadata = self.imgr.get_metadata(filename)
-                        metadata_updated = True
+                        missing_metadata_records.append((filename, "", "", "", ""))
 
                     # 生成缩略图路径
                     thumb_path = self.thumbnails_dir / filename
@@ -656,9 +666,11 @@ class WebServer:
                         "favorite": is_favorite,
                     })
 
-                # 如果有元数据更新，异步保存一次
-                if metadata_updated:
-                    asyncio.create_task(self.imgr.save_metadata_async())
+                # 如果有缺失元数据的图片，异步批量保存
+                if missing_metadata_records:
+                    asyncio.create_task(
+                        self.imgr.set_metadata_batch_async(missing_metadata_records)
+                    )
 
                 # 按修改时间倒序
                 images.sort(key=lambda x: x["mtime"], reverse=True)
@@ -695,15 +707,24 @@ class WebServer:
             end = start + page_size
             paged_images = filtered_images[start:end]
 
-            # Generate thumbnails for current page if needed
-            for img in paged_images:
-                 thumb_path = self.thumbnails_dir / img["name"]
-                 if not thumb_path.exists():
-                     file_path = self.images_dir / img["name"]
-                     if file_path.exists():
-                         await self._generate_thumbnail(file_path, thumb_path)
-                     if thumb_path.exists():
-                        img["thumbnail"] = f"/thumbnails/{img['name']}"
+            # Generate thumbnails for current page (concurrent with semaphore)
+            async def ensure_thumbnail(img: dict) -> None:
+                thumb_path = self.thumbnails_dir / img["name"]
+                if thumb_path.exists():
+                    img["thumbnail"] = f"/thumbnails/{img['name']}"
+                    return
+                file_path = self.images_dir / img["name"]
+                if not file_path.exists():
+                    return
+                async with self._thumb_gen_semaphore:
+                    await self._generate_thumbnail(file_path, thumb_path)
+                if thumb_path.exists():
+                    img["thumbnail"] = f"/thumbnails/{img['name']}"
+
+            await asyncio.gather(
+                *(ensure_thumbnail(img) for img in paged_images),
+                return_exceptions=True
+            )
 
             return web.json_response({
                 "success": True,
@@ -1338,6 +1359,10 @@ class WebServer:
 
             deleted_count = 0
             freed_bytes = 0
+            deleted_names: list[str] = []
+
+            # 获取收藏快照（避免扫描时反复读取）
+            favorites = await self.imgr.get_favorites_snapshot_async()
 
             # 获取所有图片文件及其信息
             def scan_images():
@@ -1345,8 +1370,8 @@ class WebServer:
                 for file_path in self.images_dir.iterdir():
                     if file_path.is_file() and file_path.suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
                         stat = file_path.stat()
-                        # 使用 is_favorite 方法正确判断收藏状态
-                        is_favorite = self.imgr.is_favorite(file_path.name)
+                        # 使用快照判断收藏状态
+                        is_favorite = file_path.name in favorites
                         results.append({
                             "path": file_path,
                             "name": file_path.name,
@@ -1389,9 +1414,9 @@ class WebServer:
                     to_delete.append(img)
                     current_size -= img["size"]
 
-            # 执行删除
+            # 执行删除（只删文件，不在循环里写元数据）
             def do_delete():
-                nonlocal deleted_count, freed_bytes
+                nonlocal deleted_count, freed_bytes, deleted_names
                 for img in to_delete:
                     try:
                         img["path"].unlink()
@@ -1399,16 +1424,20 @@ class WebServer:
                         thumb_path = self.thumbnails_dir / img["name"]
                         if thumb_path.exists():
                             thumb_path.unlink()
-                        # 删除元数据
-                        self.imgr.remove_metadata(img["name"])
+                        deleted_names.append(img["name"])
                         deleted_count += 1
                         freed_bytes += img["size"]
                     except Exception:
                         pass
-                # 保存元数据
-                self.imgr._save_metadata()
 
             await asyncio.to_thread(do_delete)
+
+            # 批量删除元数据（单次落盘）
+            if deleted_names:
+                await self.imgr.remove_metadata_batch_async(deleted_names)
+                # 清理缓存
+                self._images_cache = None
+                self._images_cache_time = 0
 
             return web.json_response({
                 "success": True,

@@ -189,14 +189,8 @@
             "image_model": {
                 "description": "图片模型",
                 "type": "string",
-                "default": "grok-2-image",
-                "hint": "图片生成使用的模型，默认 grok-2-image"
-            },
-            "model": {
-                "description": "图片模型（兼容旧配置）",
-                "type": "string",
-                "default": "grok-2-image",
-                "hint": "兼容历史配置，建议优先使用 image_model"
+                "default": "grok-imagine-1.0",
+                "hint": "图片生成使用的模型"
             },
             "video_model": {
                 "description": "视频模型",
@@ -274,11 +268,30 @@
                 "default": true,
                 "hint": "启用后可使用 /改图 命令进行图片编辑"
             },
+            "provider": {
+                "description": "改图提供商",
+                "type": "string",
+                "options": ["gemini", "gitee", "grok"],
+                "default": "gemini",
+                "hint": "选择改图使用的提供商，独立于生图主提供商，复用对应的 API Key"
+            },
             "model": {
-                "description": "改图模型",
+                "description": "Gitee 改图模型",
                 "type": "string",
                 "default": "Qwen-Image-Edit-2511",
-                "hint": "Gitee AI 改图使用的模型名称"
+                "hint": "Gitee 提供商使用的改图模型名称"
+            },
+            "gemini_model": {
+                "description": "Gemini 改图模型",
+                "type": "string",
+                "default": "gemini-3-pro-image-preview",
+                "hint": "Gemini 提供商使用的改图模型名称"
+            },
+            "grok_model": {
+                "description": "Grok 改图模型",
+                "type": "string",
+                "default": "grok-imagine-1.0",
+                "hint": "Grok 提供商使用的改图模型名称"
             },
             "poll_interval": {
                 "description": "轮询间隔(秒)",
