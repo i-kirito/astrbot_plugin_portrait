@@ -532,6 +532,10 @@
                         <span class="icon">&#128248;</span>
                         <span>人像参考</span>
                     </div>
+                    <div class="nav-item" :class="{ active: activeTab === 'editSettings' }" @click="activeTab = 'editSettings'; mobileMenuOpen = false" @keyup.enter="activeTab = 'editSettings'" tabindex="0" role="button" aria-pressed="activeTab === 'editSettings'">
+                        <span class="icon">&#9998;</span>
+                        <span>改图设置</span>
+                    </div>
                     <div class="nav-item" :class="{ active: activeTab === 'gallery' }" @click="activeTab = 'gallery'; mobileMenuOpen = false" @keyup.enter="activeTab = 'gallery'" tabindex="0" role="button" aria-pressed="activeTab === 'gallery'">
                         <span class="icon">&#128444;</span>
                         <span>图片画廊</span>
@@ -1138,6 +1142,80 @@
                     </el-card>
                 </div>
 
+                <!-- 改图设置页面 -->
+                <div v-if="activeTab === 'editSettings'" class="max-w-4xl mx-auto fade-in">
+                    <div class="page-header">
+                        <h2 class="page-title">改图设置</h2>
+                        <el-button type="primary" size="large" :loading="saving" @click="saveConfig">
+                            <span style="margin-right: 8px;">&#128190;</span> 保存更改
+                        </el-button>
+                    </div>
+
+                    <!-- 基本设置 -->
+                    <el-card class="mb-6">
+                        <template #header>
+                            <div class="card-title">
+                                <span class="icon">&#9881;</span>
+                                <span>基本配置</span>
+                            </div>
+                        </template>
+                        <el-form label-position="top" class="space-y-4">
+                            <el-form-item label="启用改图功能">
+                                <el-switch v-model="editConfig.enabled" />
+                                <span class="text-sm text-gray-400 ml-3">启用后可使用 /改图 命令</span>
+                            </el-form-item>
+                            <el-form-item label="改图模型">
+                                <el-input v-model="editConfig.model" placeholder="Qwen-Image-Edit-2511" />
+                                <div class="text-xs text-gray-400 mt-1">Gitee AI 改图使用的模型名称</div>
+                            </el-form-item>
+                            <el-form-item label="轮询间隔 (秒)">
+                                <el-slider v-model="editConfig.poll_interval" :min="1" :max="30" :step="1" show-input input-size="small" style="max-width: 400px;" />
+                                <div class="text-xs text-gray-400 mt-1">异步任务状态轮询间隔</div>
+                            </el-form-item>
+                            <el-form-item label="轮询超时 (秒)">
+                                <el-slider v-model="editConfig.poll_timeout" :min="60" :max="600" :step="30" show-input input-size="small" style="max-width: 400px;" />
+                                <div class="text-xs text-gray-400 mt-1">异步任务最大等待时间</div>
+                            </el-form-item>
+                        </el-form>
+                    </el-card>
+
+                    <!-- 改图预设 -->
+                    <el-card>
+                        <template #header>
+                            <div class="card-title">
+                                <span class="icon">&#128221;</span>
+                                <span>改图预设</span>
+                                <el-button type="primary" size="small" @click="addEditPreset" style="margin-left: auto;">
+                                    <span style="margin-right: 4px;">&#43;</span> 添加预设
+                                </el-button>
+                            </div>
+                        </template>
+                        <el-alert type="info" :closable="false" style="margin-bottom: 1rem;">
+                            <template #title>
+                                <span>常用改图提示词预设，方便快速选择使用</span>
+                            </template>
+                            <div class="text-sm mt-1" style="color: #666;">
+                                例如：手办化、Q版化、水彩画风格
+                            </div>
+                        </el-alert>
+                        <div v-if="!editConfig.presets || editConfig.presets.length === 0" class="empty-state">
+                            <p>暂无改图预设</p>
+                            <p class="text-sm text-gray-400 mt-2">点击上方按钮添加预设</p>
+                        </div>
+                        <div v-else class="flex flex-col gap-3">
+                            <div v-for="(preset, index) in editConfig.presets" :key="index" class="preset-card" style="background: rgba(255,255,255,0.9); border-radius: 12px; padding: 0.75rem 1rem; box-shadow: 0 4px 15px rgba(0,0,0,0.08);">
+                                <el-input v-model="editConfig.presets[index]" placeholder="预设提示词（如 手办化）">
+                                    <template #suffix>
+                                        <el-button type="danger" link @click="deleteEditPreset(index)" style="font-size: 1rem; padding: 0 8px;">
+                                            &#10005;
+                                        </el-button>
+                                    </template>
+                                </el-input>
+                            </div>
+                        </div>
+                    </el-card>
+                </div>
+
                 <!-- 图片画廊页面 -->
                 <div v-if="activeTab === 'gallery'" class="fade-in">
                     <div class="page-header">
@@ -1485,6 +1563,15 @@
                 });
                 const cleaningCache = ref(false);
 
+                // 改图配置
+                const editConfig = reactive({
+                    enabled: true,
+                    model: 'Qwen-Image-Edit-2511',
+                    poll_interval: 5,
+                    poll_timeout: 300,
+                    presets: ['手办化', 'Q版化', '赛博朋克风格', '水彩画风格', '油画风格'],
+                });
+
                 // 提供商配置
                 const providerConfig = reactive({
                     draw_provider: 'gitee',
@@ -1718,6 +1805,10 @@
                             if (data.config.cache_config) {
                                 Object.assign(cacheConfig, data.config.cache_config);
                             }
+                            // 加载改图配置
+                            if (data.config.edit_config) {
+                                Object.assign(editConfig, data.config.edit_config);
+                            }
                             // 加载提供商配置
                             if (data.config.draw_provider) {
                                 providerConfig.draw_provider = data.config.draw_provider;
@@ -1781,6 +1872,7 @@
                                 gemini_config: { ...geminiConfig },
                                 grok_config: { ...grokConfig },
                                 cache_config: { ...cacheConfig },
+                                edit_config: { ...editConfig },
                                 draw_provider: providerConfig.draw_provider,
                                 enable_fallback: providerConfig.enable_fallback,
                                 fallback_models: providerConfig.fallback_models,
@@ -2306,6 +2398,18 @@
                     saveVideoPresets();
                 }
 
+                // ========== 改图预设 ==========
+                function addEditPreset() {
+                    if (!editConfig.presets) {
+                        editConfig.presets = [];
+                    }
+                    editConfig.presets.push('');
+                }
+
+                function deleteEditPreset(index) {
+                    editConfig.presets.splice(index, 1);
+                }
+
                 return {
                     // 登录相关
                     isAuthenticated,
@@ -2331,6 +2435,9 @@
                     cacheConfig,
                     cleaningCache,
                     cleanupCache,
+                    editConfig,
+                    addEditPreset,
+                    deleteEditPreset,
                     providerConfig,
                     availableProviders,
                     onFallbackChange,

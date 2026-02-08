@@ -275,6 +275,45 @@
             }
         }
     },
+    "edit_config": {
+        "description": "改图功能配置",
+        "type": "object",
+        "hint": "配置图生图/改图功能，支持风格迁移、主体替换等",
+        "items": {
+            "enabled": {
+                "description": "启用改图功能",
+                "type": "bool",
+                "default": true,
+                "hint": "启用后可使用 /改图 命令进行图片编辑"
+            },
+            "model": {
+                "description": "改图模型",
+                "type": "string",
+                "default": "Qwen-Image-Edit-2511",
+                "hint": "Gitee AI 改图使用的模型名称"
+            },
+            "poll_interval": {
+                "description": "轮询间隔(秒)",
+                "type": "int",
+                "default": 5,
+                "slider": { "min": 1, "max": 30, "step": 1 },
+                "hint": "异步任务状态轮询间隔"
+            },
+            "poll_timeout": {
+                "description": "轮询超时(秒)",
+                "type": "int",
+                "default": 300,
+                "slider": { "min": 60, "max": 600, "step": 30 },
+                "hint": "异步任务最大等待时间"
+            },
+            "presets": {
+                "description": "改图预设",
+                "type": "list",
+                "default": ["手办化", "Q版化", "赛博朋克风格", "水彩画风格", "油画风格"],
+                "hint": "常用改图提示词预设，方便快速选择"
+            }
+        }
+    },
     "cache_config": {
         "description": "图片缓存清理配置",
         "type": "object",

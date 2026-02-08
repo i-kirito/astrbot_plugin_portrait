@@ -142,6 +142,9 @@ class GiteeDrawService:
         proxy: str | None = None,
         max_storage_mb: int = 500,
         max_count: int = 100,
+        edit_model: str = "Qwen-Image-Edit-2511",
+        edit_poll_interval: int = 5,
+        edit_poll_timeout: int = 300,
     ):
         self.data_dir = Path(data_dir)
         self.api_keys = [k.strip() for k in api_keys if k.strip()]
@@ -168,9 +171,9 @@ class GiteeDrawService:
         )
 
         # 改图配置 (异步任务模式)
-        self.edit_model = "Qwen-Image-Edit-2511"
-        self.edit_poll_interval = 5  # 轮询间隔（秒）
-        self.edit_poll_timeout = 300  # 轮询超时（秒）
+        self.edit_model = edit_model
+        self.edit_poll_interval = edit_poll_interval
+        self.edit_poll_timeout = edit_poll_timeout
         self._edit_session: aiohttp.ClientSession | None = None
         self._edit_session_lock = asyncio.Lock()
 

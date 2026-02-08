@@ -300,6 +300,9 @@ class PortraitPlugin(Star):
 
         # === v2.0.0: Gitee AI 文生图服务 ===
         gitee_conf = self.config.get("gitee_config", {}) or {}
+        edit_conf = self.config.get("edit_config", {}) or {}
+        self.edit_enabled = edit_conf.get("enabled", True)
+        self.edit_presets = edit_conf.get("presets", []) or []
         self.gitee_draw = GiteeDrawService(
             data_dir=self.data_dir,
             api_keys=gitee_conf.get("api_keys", []) or [],
@@ -313,6 +316,9 @@ class PortraitPlugin(Star):
             proxy=self.config.get("proxy", "") or None,
             max_storage_mb=cache_conf.get("max_storage_mb", 500) or 500,
             max_count=cache_conf.get("max_count", 100) or 100,
+            edit_model=edit_conf.get("model", "Qwen-Image-Edit-2511") or "Qwen-Image-Edit-2511",
+            edit_poll_interval=edit_conf.get("poll_interval", 5) or 5,
+            edit_poll_timeout=edit_conf.get("poll_timeout", 300) or 300,
         )
 
         # === v2.4.0: Gemini AI 文生图服务 ===
@@ -1229,6 +1235,11 @@ class PortraitPlugin(Star):
         - 发送图片 + /改图 <提示词>
         - 引用图片消息 + /改图 <提示词>
         """
+        # 功能开关检查
+        if not self.edit_enabled:
+            yield event.plain_result("改图功能未启用，请在配置中开启")
+            return
+
         # 冷却检查
         is_allowed, remaining = self._check_cooldown(event)
         if not is_allowed:
