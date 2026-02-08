@@ -91,13 +91,15 @@ class WebServer:
             return await handler(request)
 
         # 优先从 Cookie 获取 token，其次是 Header 或 Query
+        # 确保所有来源都有默认空字符串，避免 None 导致 compare_digest TypeError
         req_token = (
-            request.cookies.get("portrait_token")
+            request.cookies.get("portrait_token", "")
             or request.headers.get("X-Token", "")
-            or request.query.get("token")
+            or request.query.get("token", "")
+            or ""  # 最终保底，确保不为 None
         )
 
-        if not secrets.compare_digest(req_token, self.token):
+        if not req_token or not secrets.compare_digest(req_token, self.token):
             return web.json_response(
                 {"success": False, "error": "未授权访问，请提供正确的 token"},
                 status=401
@@ -248,13 +250,20 @@ class WebServer:
         """登录认证，验证 token 后设置 Cookie"""
         try:
             data = await request.json()
-            req_token = data.get("token", "")
+            raw_token = data.get("token", "")
+            # 确保 token 是字符串类型，防止 JSON 传数字/数组导致 TypeError
+            if not isinstance(raw_token, str):
+                return web.json_response(
+                    {"success": False, "error": "Token 必须是字符串"},
+                    status=400
+                )
+            req_token = raw_token or ""
 
             if not self.token:
                 # 未设置 token，直接放行
                 return web.json_response({"success": True, "message": "无需认证"})
 
-            if not secrets.compare_digest(req_token, self.token):
+            if not req_token or not secrets.compare_digest(req_token, self.token):
                 return web.json_response(
                     {"success": False, "error": "Token 错误"},
                     status=401
@@ -602,8 +611,15 @@ class WebServer:
                     "filters": {"models": [], "sizes": [], "categories": []}
                 })
 
-            page = int(request.query.get("page", 1))
-            page_size = int(request.query.get("size", 50))
+            # 分页参数解析，格式错误返回 400
+            try:
+                page = max(1, int(request.query.get("page", 1)))
+                page_size = min(200, max(1, int(request.query.get("size", 50))))
+            except (ValueError, TypeError):
+                return web.json_response(
+                    {"success": False, "error": "分页参数格式错误"},
+                    status=400
+                )
             filter_favorites = request.query.get("favorites", "").lower() == "true"
             filter_model = request.query.get("model", "").strip()
             filter_size = request.query.get("filter_size", "").strip()  # 1K/2K/4K
@@ -1136,8 +1152,15 @@ class WebServer:
     async def handle_list_videos(self, request: web.Request) -> web.Response:
         """列出生成的视频（在线URL）"""
         try:
-            page = int(request.query.get("page", 1))
-            page_size = int(request.query.get("page_size", 20))
+            # 分页参数解析，格式错误返回 400
+            try:
+                page = max(1, int(request.query.get("page", 1)))
+                page_size = min(100, max(1, int(request.query.get("page_size", 20))))
+            except (ValueError, TypeError):
+                return web.json_response(
+                    {"success": False, "error": "分页参数格式错误"},
+                    status=400
+                )
 
             # 从 VideoManager 获取视频列表
             all_videos = self.plugin.video_manager.get_video_list()
@@ -1401,8 +1424,15 @@ class WebServer:
         """手动清理缓存"""
         try:
             data = await request.json()
-            max_storage_mb = data.get("max_storage_mb", 500)
-            max_count = data.get("max_count", 100)
+            # 参数边界校验：限制合理范围，格式错误返回 400
+            try:
+                max_storage_mb = min(10000, max(0, int(data.get("max_storage_mb", 500))))
+                max_count = min(10000, max(0, int(data.get("max_count", 100))))
+            except (ValueError, TypeError):
+                return web.json_response(
+                    {"success": False, "error": "参数格式错误"},
+                    status=400
+                )
 
             deleted_count = 0
             freed_bytes = 0

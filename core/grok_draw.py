@@ -285,10 +285,20 @@ class GrokDrawService:
         self._cleanup_task: asyncio.Task | None = None
         # 共享的 HTTP 客户端（连接池复用）
         self._client: httpx.AsyncClient | None = None
+        self._client_lock = asyncio.Lock()  # 保护 client 创建，避免并发重复创建
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """获取或创建共享的 HTTP 客户端"""
-        if self._client is None or self._client.is_closed:
+        """获取或创建共享的 HTTP 客户端（带锁保护避免并发重复创建）"""
+        # 快速路径：已有可用 client
+        if self._client is not None and not self._client.is_closed:
+            return self._client
+
+        # 慢速路径：需要创建，加锁保护
+        async with self._client_lock:
+            # 双重检查
+            if self._client is not None and not self._client.is_closed:
+                return self._client
+
             timeout = httpx.Timeout(
                 timeout=float(self.timeout),
                 connect=min(10.0, float(self.timeout)),

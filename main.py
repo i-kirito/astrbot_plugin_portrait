@@ -806,40 +806,32 @@ class PortraitPlugin(Star):
             return None
 
         try:
-            # 临时切换提供商（如果指定）
-            original_provider = self.draw_provider
-            if provider and provider in ("gitee", "gemini", "grok"):
-                self.draw_provider = provider
+            # 调用内部生图方法，通过参数传递 provider（不修改全局状态，避免并发污染）
+            image_path = await self._generate_image(
+                prompt=prompt,
+                size=size,
+                images=reference_images,
+                is_character_related=False,  # API 调用默认不加载自拍参考
+                provider=provider,  # 直接传递 provider 参数
+            )
 
-            try:
-                # 调用内部生图方法
-                image_path = await self._generate_image(
-                    prompt=prompt,
-                    size=size,
-                    images=reference_images,
-                    is_character_related=False,  # API 调用默认不加载自拍参考
-                )
+            if image_path and image_path.exists():
+                # 读取图片并返回 base64
+                image_bytes = await asyncio.to_thread(image_path.read_bytes)
+                # 根据后缀判断 MIME 类型
+                suffix = image_path.suffix.lower()
+                mime_map = {
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".png": "image/png",
+                    ".gif": "image/gif",
+                    ".webp": "image/webp",
+                }
+                mime = mime_map.get(suffix, "image/png")
+                b64 = base64.b64encode(image_bytes).decode("utf-8")
+                return (mime, b64)
 
-                if image_path and image_path.exists():
-                    # 读取图片并返回 base64
-                    image_bytes = await asyncio.to_thread(image_path.read_bytes)
-                    # 根据后缀判断 MIME 类型
-                    suffix = image_path.suffix.lower()
-                    mime_map = {
-                        ".jpg": "image/jpeg",
-                        ".jpeg": "image/jpeg",
-                        ".png": "image/png",
-                        ".gif": "image/gif",
-                        ".webp": "image/webp",
-                    }
-                    mime = mime_map.get(suffix, "image/png")
-                    b64 = base64.b64encode(image_bytes).decode("utf-8")
-                    return (mime, b64)
-
-                return None
-            finally:
-                # 恢复原始提供商
-                self.draw_provider = original_provider
+            return None
 
         except Exception as e:
             logger.error(f"[Portrait] API 生图失败: {e}")
@@ -870,26 +862,31 @@ class PortraitPlugin(Star):
 
         target_provider = provider or self.edit_provider
 
-        if target_provider == "gemini":
-            model = self.edit_model_gemini or self.gemini_draw.model
-            result_path = await self.gemini_draw.edit_image(
-                prompt=prompt,
-                image_bytes=image_bytes,
-                model=model,
-            )
-        elif target_provider == "grok":
-            model = self.edit_model_grok or self.grok_draw.model
-            result_path = await self.grok_draw.edit_image(
-                prompt=prompt,
-                image_bytes=image_bytes,
-                model=model,
-            )
-        else:
-            result_path = await self.gitee_draw.edit_image(
-                prompt=prompt,
-                image_bytes=image_bytes,
-                model=self.edit_model_gitee,
-            )
+        try:
+            if target_provider == "gemini":
+                # Gemini 使用 generate 方法，传入图片作为参考
+                # 注：Gemini generate 不支持指定 model，使用实例默认配置
+                result_path = await self.gemini_draw.generate(
+                    prompt=prompt,
+                    images=[image_bytes],
+                )
+            elif target_provider == "grok":
+                # Grok 使用 generate 方法，传入图片作为参考
+                # 注：Grok generate 不支持指定 model，使用实例默认配置
+                result_path = await self.grok_draw.generate(
+                    prompt=prompt,
+                    images=[image_bytes],
+                )
+            else:
+                # Gitee 使用 edit 方法
+                result_path = await self.gitee_draw.edit(
+                    prompt=prompt,
+                    images=[image_bytes],
+                    task_types=("id",),
+                )
+        except Exception:
+            logger.exception(f"[Portrait] _edit_image_internal 失败 (provider={target_provider})")
+            return None
 
         if result_path and result_path.exists():
             return result_path
@@ -1844,6 +1841,7 @@ class PortraitPlugin(Star):
         resolution: str | None = None,
         images: list[bytes] | None = None,
         is_character_related: bool | None = None,
+        provider: str | None = None,
     ) -> Path:
         """统一图片生成方法，支持主备切换
 
@@ -1853,6 +1851,7 @@ class PortraitPlugin(Star):
             resolution: 分辨率（仅 Gitee 支持）
             images: 额外参考图片列表（会与自拍参考照合并）
             is_character_related: 是否角色相关（可选，避免重复判断）
+            provider: 指定提供商（可选，不指定则使用全局配置）
 
         Returns:
             生成的图片路径
@@ -1897,13 +1896,14 @@ class PortraitPlugin(Star):
             "grok": (self.grok_draw, "Grok"),
         }
 
-        # 确定主提供商
-        primary_key = self.draw_provider if self.draw_provider in providers else "gitee"
+        # 确定主提供商：优先使用参数传入的 provider，否则使用全局配置
+        effective_provider = provider if provider in providers else self.draw_provider
+        primary_key = effective_provider if effective_provider in providers else "gitee"
         primary, primary_name = providers[primary_key]
 
         # 调试日志
         logger.info(
-            f"[Portrait] 生图配置: provider={self.draw_provider}, primary={primary_name}, "
+            f"[Portrait] 生图配置: provider={effective_provider}, primary={primary_name}, "
             f"enabled={primary.enabled}, fallback={self.enable_fallback}, fallback_models={self.fallback_models}, "
             f"ref_images={len(all_images) if all_images else 0}, custom_size={is_custom_size}"
         )

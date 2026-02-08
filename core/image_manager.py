@@ -7,6 +7,7 @@ import base64
 import hashlib
 import ipaddress
 import json
+import socket
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -21,29 +22,64 @@ MAX_DOWNLOAD_SIZE = 20 * 1024 * 1024
 
 
 def _is_safe_url(url: str) -> bool:
-    """检查URL是否安全（防止SSRF）"""
+    """检查URL是否安全（防止SSRF）
+
+    采用 DNS 解析验证，防止以下绕过方式：
+    - 127.0.0.1.nip.io (DNS 重绑定)
+    - [::1] (IPv6 回环)
+    - 2130706433 (十进制 IP)
+    - 0x7f000001 (十六进制 IP)
+    """
     try:
         parsed = urlparse(url)
-        # 仅允许http/https
+        # 允许 http/https（内部使用场景允许 http，如 Gitee AI 返回的图片链接）
         if parsed.scheme not in ('http', 'https'):
             return False
         host = parsed.hostname
         if not host:
             return False
-        # 检查是否为IP地址
+
+        # 先检查是否直接是 IP 地址
         try:
             ip = ipaddress.ip_address(host)
-            # 阻止私有/保留/回环地址
             if ip.is_private or ip.is_reserved or ip.is_loopback or ip.is_link_local:
                 return False
         except ValueError:
-            # 不是IP，是域名，检查常见危险域名
+            # 不是 IP，是域名，进行 DNS 解析验证
             host_lower = host.lower()
-            dangerous_hosts = ['localhost', '127.0.0.1', '0.0.0.0', '::1']
-            if host_lower in dangerous_hosts or host_lower.endswith('.local'):
+
+            # 快速拒绝已知危险域名
+            dangerous_patterns = [
+                'localhost', 'internal', 'intranet', 'corp',
+                '169.254.', 'metadata', 'instance'
+            ]
+            if any(pat in host_lower for pat in dangerous_patterns):
                 return False
+            if host_lower.endswith('.local'):
+                return False
+
+            # DNS 解析获取真实 IP 并验证
+            try:
+                # 解析所有 IP 地址（IPv4 + IPv6）
+                addr_infos = socket.getaddrinfo(host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+                for addr_info in addr_infos:
+                    ip_str = addr_info[4][0]
+                    try:
+                        ip = ipaddress.ip_address(ip_str)
+                        # 任何一个解析结果指向私网/回环/链路本地都拒绝
+                        if ip.is_private or ip.is_reserved or ip.is_loopback or ip.is_link_local:
+                            logger.warning(f"[SSRF] 域名 {host} 解析到不安全 IP: {ip_str}")
+                            return False
+                    except ValueError:
+                        continue
+            except socket.gaierror:
+                # DNS 解析失败，拒绝
+                logger.warning(f"[SSRF] 无法解析域名: {host}")
+                return False
+
         return True
-    except Exception:
+    except Exception as e:
+        logger.warning(f"[SSRF] URL 安全检查异常: {e}")
         return False
 
 
@@ -75,6 +111,7 @@ class ImageManager:
         # 并发锁：保护元数据和收藏文件的读写
         self._metadata_lock = asyncio.Lock()
         self._favorites_lock = asyncio.Lock()
+        self._session_lock = asyncio.Lock()  # 保护 session 创建
 
     def _ensure_metadata_loaded(self) -> None:
         """确保元数据已加载（延迟加载）"""
@@ -90,7 +127,17 @@ class ImageManager:
             self._favorites_loaded = True
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        if self._session is None or self._session.closed:
+        """获取或创建 HTTP 会话（带锁保护避免并发重复创建）"""
+        # 快速路径：已有可用 session
+        if self._session is not None and not self._session.closed:
+            return self._session
+
+        # 慢速路径：需要创建，加锁保护
+        async with self._session_lock:
+            # 双重检查
+            if self._session is not None and not self._session.closed:
+                return self._session
+
             timeout = aiohttp.ClientTimeout(total=60, connect=10)
             self._session = aiohttp.ClientSession(timeout=timeout)
         return self._session
@@ -398,21 +445,39 @@ class ImageManager:
 
         session = await self._get_session()
         try:
-            async with session.get(url, proxy=self.proxy) as resp:
-                resp.raise_for_status()
-                # 检查Content-Length（如果有）
-                content_length = resp.headers.get('Content-Length')
-                if content_length and int(content_length) > MAX_DOWNLOAD_SIZE:
-                    raise ValueError(f"文件过大: {int(content_length) / 1024 / 1024:.1f}MB > {MAX_DOWNLOAD_SIZE / 1024 / 1024:.0f}MB")
-                # 流式读取并限制大小（使用 bytearray 降低内存峰值）
-                data = bytearray()
-                total_size = 0
-                async for chunk in resp.content.iter_chunked(8192):
-                    total_size += len(chunk)
-                    if total_size > MAX_DOWNLOAD_SIZE:
-                        raise ValueError(f"文件过大: 超过{MAX_DOWNLOAD_SIZE / 1024 / 1024:.0f}MB限制")
-                    data.extend(chunk)
-                data = bytes(data)
+            # 禁用自动重定向，手动处理以防止 SSRF 重定向绕过
+            max_redirects = 3
+            current_url = url
+            for _ in range(max_redirects + 1):
+                async with session.get(current_url, proxy=self.proxy, allow_redirects=False) as resp:
+                    # 处理重定向
+                    if resp.status in (301, 302, 303, 307, 308):
+                        redirect_url = resp.headers.get('Location')
+                        if not redirect_url:
+                            raise ValueError("重定向响应缺少 Location 头")
+                        # 对重定向目标进行 SSRF 校验
+                        if not _is_safe_url(redirect_url):
+                            raise ValueError(f"重定向目标不安全: {redirect_url}")
+                        current_url = redirect_url
+                        continue
+
+                    resp.raise_for_status()
+                    # 检查Content-Length（如果有）
+                    content_length = resp.headers.get('Content-Length')
+                    if content_length and int(content_length) > MAX_DOWNLOAD_SIZE:
+                        raise ValueError(f"文件过大: {int(content_length) / 1024 / 1024:.1f}MB > {MAX_DOWNLOAD_SIZE / 1024 / 1024:.0f}MB")
+                    # 流式读取并限制大小（使用 bytearray 降低内存峰值）
+                    data = bytearray()
+                    total_size = 0
+                    async for chunk in resp.content.iter_chunked(8192):
+                        total_size += len(chunk)
+                        if total_size > MAX_DOWNLOAD_SIZE:
+                            raise ValueError(f"文件过大: 超过{MAX_DOWNLOAD_SIZE / 1024 / 1024:.0f}MB限制")
+                        data.extend(chunk)
+                    data = bytes(data)
+                    break
+            else:
+                raise ValueError(f"重定向次数过多 (>{max_redirects})")
         except ValueError:
             raise
         except Exception as e:

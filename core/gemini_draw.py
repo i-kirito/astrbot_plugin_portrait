@@ -59,6 +59,7 @@ class GeminiDrawService:
 
         # HTTP 会话（延迟初始化，复用连接）
         self._session: aiohttp.ClientSession | None = None
+        self._session_lock = asyncio.Lock()  # 保护 session 创建，避免并发重复创建
         self._cleanup_task: asyncio.Task | None = None
 
     @staticmethod
@@ -94,8 +95,17 @@ class GeminiDrawService:
         return bool(self.api_key)
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """获取或创建 HTTP 会话（复用连接）"""
-        if self._session is None or self._session.closed:
+        """获取或创建 HTTP 会话（复用连接，带锁保护避免并发重复创建）"""
+        # 快速路径：已有可用 session
+        if self._session is not None and not self._session.closed:
+            return self._session
+
+        # 慢速路径：需要创建，加锁保护
+        async with self._session_lock:
+            # 双重检查
+            if self._session is not None and not self._session.closed:
+                return self._session
+
             connector = aiohttp.TCPConnector(
                 limit=20,
                 limit_per_host=10,
