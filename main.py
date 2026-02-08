@@ -4,11 +4,14 @@ from astrbot.api import logger
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.api.provider import LLMResponse
 import astrbot.api.message_components as Comp
-from astrbot.api.message_components import Video
+from astrbot.api.message_components import Video, Image, At
+from astrbot.core.message.components import Reply
 import re
 import asyncio
 import base64
 import json
+import time
+import aiohttp
 from datetime import datetime
 from pathlib import Path
 
@@ -150,6 +153,56 @@ class PortraitPlugin(Star):
             re.IGNORECASE
         )
 
+        # === 高频路径正则预编译（性能优化）===
+        self._portrait_status_pattern = re.compile(
+            r'\s*<portrait_status>.*?</portrait_status>\s*',
+            re.DOTALL,
+        )
+        self._character_state_pattern = re.compile(
+            r'<character_state>(.*?)</character_state>',
+            re.DOTALL,
+        )
+        self._state_outfit_pattern = re.compile(
+            r'穿着[：:]\s*(.+?)(?=\n日程[：:]|\n时间[：:]|$)',
+            re.DOTALL,
+        )
+        self._state_schedule_pattern = re.compile(r'日程[：:]\s*(.+?)$', re.DOTALL)
+        self._schedule_time_pattern = re.compile(
+            r'(\d{1,2}:\d{2})\s+(.+?)(?=\n\d{1,2}:\d{2}|$)',
+            re.DOTALL,
+        )
+        self._video_cmd_pattern = re.compile(r'[./]?视频\s+(.+)', re.DOTALL)
+        self._img_url_pattern = re.compile(
+            r'(\d+_[a-f0-9]+\.(jpg|jpeg|png|gif|webp))',
+            re.IGNORECASE,
+        )
+        # 回应性词汇正则（用户回应角色消息）
+        response_patterns = [
+            r'吃饱', r'吃完', r'好吃', r'好喝', r'好看', r'真棒', r'辛苦',
+            r'早安', r'晚安', r'午安', r'早上好', r'晚上好', r'下午好',
+            r'起床', r'睡觉', r'睡了', r'醒了', r'累了', r'困了',
+            r'开心', r'高兴', r'难过', r'伤心', r'生气',
+            r'干嘛呢', r'在干嘛', r'做什么呢', r'忙什么',
+            r'怎么了', r'怎么样', r'还好吗', r'好点没',
+            r'宝宝', r'宝贝', r'亲爱的', r'老婆', r'老公', r'媳妇',
+            r'乖', r'棒', r'厉害', r'可爱', r'漂亮', r'好美',
+            r'想你', r'爱你', r'喜欢你', r'抱抱', r'亲亲', r'摸摸',
+            r'然后呢', r'接下来', r'后来呢', r'继续',
+        ]
+        self._response_regex = re.compile('|'.join(response_patterns), re.IGNORECASE)
+        # 上下文角色活动关键词正则
+        context_keywords = [
+            r'吃', r'喝', r'做饭', r'下厨', r'烹饪',
+            r'穿', r'换衣', r'打扮',
+            r'睡', r'躺', r'起床', r'休息',
+            r'洗', r'刷', r'泡澡', r'洗澡',
+            r'看', r'读', r'玩', r'听',
+            r'画', r'写', r'工作', r'学习',
+            r'拍', r'照', r'自拍',
+            r'发', r'给你', r'送你',
+        ]
+        self._context_regex = re.compile('|'.join(context_keywords))
+
         # 读取用户配置（留空则不注入，使用 AstrBot 默认人格）
         p_char_id = self.config.get("char_identity", "") or ""
         # 存储角色外貌配置，用于在画图时自动添加
@@ -174,6 +227,13 @@ class PortraitPlugin(Star):
         self.injection_rounds = max(1, self.config.get("injection_rounds", 1))
         # 会话过期时间（秒），默认 1 小时
         self.session_ttl = 3600
+
+        # === 高频路径缓存（性能优化）===
+        self._banana_prefixes_cache: set[str] | None = None
+        self._banana_prefixes_cache_time: float = 0.0
+        self._banana_prefixes_cache_ttl: float = 60.0
+        self._last_session_cleanup_ts: float = 0.0
+        self._session_cleanup_interval: float = 60.0
 
         # === v2.9.4: 消息ID与图片路径映射（用于删图命令）===
         # {message_id: image_path}
@@ -287,10 +347,17 @@ class PortraitPlugin(Star):
         # === v2.6.0: 人像参考配置 ===
         selfie_conf = self.config.get("selfie_config", {}) or {}
         self.selfie_enabled = selfie_conf.get("enabled", False)
+        # 参考图缓存（目录 mtime 变化时自动失效）
+        self._selfie_refs_cache: list[bytes] = []
+        self._selfie_refs_cache_mtime: float = 0.0
         # 清理废弃的 reference_images 字段
         if "reference_images" in selfie_conf:
             del selfie_conf["reference_images"]
             self.config["selfie_config"] = selfie_conf
+
+        # === v3.1.0: 改图功能配置 ===
+        self._edit_http_session: aiohttp.ClientSession | None = None
+        self._edit_session_lock = asyncio.Lock()
 
         # 清理废弃的顶级 video_presets 字段（已迁移到 grok_config 内）
         if "video_presets" in self.config:
@@ -413,13 +480,23 @@ class PortraitPlugin(Star):
                 raise
 
     async def _load_selfie_reference_images(self) -> list[bytes]:
-        """加载人像参考照片 - 自动扫描 selfie_refs 目录（异步）"""
+        """加载人像参考照片 - 自动扫描 selfie_refs 目录（带 mtime 缓存）"""
         if not self.selfie_enabled:
             return []
 
         selfie_refs_dir = self.data_dir / "selfie_refs"
         if not selfie_refs_dir.exists():
             return []
+
+        # 检查目录 mtime，如果未变化则返回缓存
+        try:
+            dir_mtime = selfie_refs_dir.stat().st_mtime
+        except OSError:
+            return []
+
+        if self._selfie_refs_cache and dir_mtime == self._selfie_refs_cache_mtime:
+            logger.debug(f"[Portrait] 使用缓存的 {len(self._selfie_refs_cache)} 张人像参考")
+            return self._selfie_refs_cache
 
         allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
@@ -437,6 +514,11 @@ class PortraitPlugin(Star):
         images = await asyncio.to_thread(_load_sync)
         if images:
             logger.info(f"[Portrait] 已加载 {len(images)} 张人像参考")
+
+        # 更新缓存
+        self._selfie_refs_cache = images
+        self._selfie_refs_cache_mtime = dir_mtime
+
         return images
 
     def get_dynamic_config(self) -> dict:
@@ -546,6 +628,16 @@ class PortraitPlugin(Star):
             await self.gitee_draw.close()
             # 关闭 Gemini 服务
             await self.gemini_draw.close()
+            # 关闭 Grok 图片服务
+            if self.grok_draw:
+                await self.grok_draw.close()
+            # 关闭 Grok 视频服务
+            if self.video_service:
+                await self.video_service.close()
+            # 关闭改图 HTTP session
+            if self._edit_http_session and not self._edit_http_session.closed:
+                await self._edit_http_session.close()
+                self._edit_http_session = None
             logger.info("[Portrait] 插件已停止，清理资源完成")
         except Exception as e:
             logger.error(f"[Portrait] 停止插件出错: {e}")
@@ -580,11 +672,13 @@ class PortraitPlugin(Star):
         # 方式2: 从 event.message 获取
         if not user_message and hasattr(event, 'message') and event.message:
             if hasattr(event.message, 'message'):
+                parts = []
                 for seg in event.message.message:
                     if hasattr(seg, 'text'):
-                        user_message += seg.text
+                        parts.append(seg.text)
                     elif hasattr(seg, 'data') and isinstance(seg.data, dict):
-                        user_message += seg.data.get('text', '')
+                        parts.append(seg.data.get('text', ''))
+                user_message = ''.join(parts)
                 if user_message:
                     extract_source = "event.message.message"
             # 尝试直接获取 raw_message
@@ -675,30 +769,31 @@ class PortraitPlugin(Star):
         session_id = f"{group_id}:{user_id}"
         current_time = datetime.now().timestamp()
 
-        # 清理过期会话（防止内存无限增长）
-        expired_sessions = [
-            sid for sid, last_active in self.injection_last_active.items()
-            if current_time - last_active > self.session_ttl
-        ]
-        for sid in expired_sessions:
-            self.injection_counter.pop(sid, None)
-            self.injection_last_active.pop(sid, None)
-        if expired_sessions:
-            logger.debug(f"[Portrait] 已清理 {len(expired_sessions)} 个过期会话")
+        # 清理过期会话（间隔触发，减少每次请求的开销）
+        if current_time - self._last_session_cleanup_ts >= self._session_cleanup_interval:
+            expired_sessions = [
+                sid for sid, last_active in self.injection_last_active.items()
+                if current_time - last_active > self.session_ttl
+            ]
+            for sid in expired_sessions:
+                self.injection_counter.pop(sid, None)
+                self.injection_last_active.pop(sid, None)
+            if expired_sessions:
+                logger.debug(f"[Portrait] 已清理 {len(expired_sessions)} 个过期会话")
+            self._last_session_cleanup_ts = current_time
 
         # 更新当前会话的活跃时间
         self.injection_last_active[session_id] = current_time
 
         # === v2.9.0: 修复重复注入问题 - 只在计数已耗尽时才重置 ===
-        # 检测到绘图触发词时，仅在新会话或计数已完全耗尽时才重置
-        if self.trigger_regex.search(user_message):
-            current_count = self.injection_counter.get(session_id, 0)
-            # 只有当计数为 0 或会话不存在时才重新初始化
-            if current_count <= 0:
-                self.injection_counter[session_id] = self.injection_rounds
-                logger.info(f"[Portrait] 检测到新的绘图请求，初始化注入轮次: {self.injection_rounds}")
-            else:
-                logger.debug(f"[Portrait] 会话 {session_id} 仍有 {current_count} 轮注入，继续使用")
+        # 注：此处已确认匹配到触发词（660行已检测），仅在新会话或计数耗尽时重置
+        current_count = self.injection_counter.get(session_id, 0)
+        # 只有当计数为 0 或会话不存在时才重新初始化
+        if current_count <= 0:
+            self.injection_counter[session_id] = self.injection_rounds
+            logger.info(f"[Portrait] 检测到新的绘图请求，初始化注入轮次: {self.injection_rounds}")
+        else:
+            logger.debug(f"[Portrait] 会话 {session_id} 仍有 {current_count} 轮注入，继续使用")
 
         # 检查是否还有剩余注入次数
         remaining = self.injection_counter.get(session_id, 0)
@@ -757,14 +852,11 @@ class PortraitPlugin(Star):
 
     def _clean_portrait_injection(self, req: ProviderRequest):
         """清理请求中的 portrait 注入内容，防止污染上下文"""
-        import re
-        portrait_pattern = re.compile(r'\s*<portrait_status>.*?</portrait_status>\s*', re.DOTALL)
-
         # 清理 system_prompt
         if req.system_prompt:
             has_portrait = '<portrait_status>' in req.system_prompt
             logger.debug(f"[Portrait] 清理检查: system_prompt 长度={len(req.system_prompt)}, 包含portrait_status={has_portrait}")
-            cleaned = portrait_pattern.sub('', req.system_prompt)
+            cleaned = self._portrait_status_pattern.sub('', req.system_prompt)
             if cleaned != req.system_prompt:
                 removed_len = len(req.system_prompt) - len(cleaned)
                 req.system_prompt = cleaned
@@ -788,11 +880,9 @@ class PortraitPlugin(Star):
 
     def _extract_character_state(self, req: ProviderRequest) -> str | None:
         """从请求中提取 <character_state> 块内容"""
-        state_pattern = re.compile(r'<character_state>(.*?)</character_state>', re.DOTALL)
-
         # 优先从 system_prompt 提取
         if req.system_prompt:
-            match = state_pattern.search(req.system_prompt)
+            match = self._character_state_pattern.search(req.system_prompt)
             if match:
                 return match.group(1).strip()
 
@@ -800,7 +890,7 @@ class PortraitPlugin(Star):
         if hasattr(req, 'messages') and req.messages:
             for msg in req.messages:
                 if hasattr(msg, 'content') and isinstance(msg.content, str):
-                    match = state_pattern.search(msg.content)
+                    match = self._character_state_pattern.search(msg.content)
                     if match:
                         return match.group(1).strip()
 
@@ -817,20 +907,19 @@ class PortraitPlugin(Star):
 
         # 提取穿着信息
         outfit = ""
-        outfit_match = re.search(r'穿着[：:]\s*(.+?)(?=\n日程[：:]|\n时间[：:]|$)', state_content, re.DOTALL)
+        outfit_match = self._state_outfit_pattern.search(state_content)
         if outfit_match:
             outfit = outfit_match.group(1).strip()
 
         # 提取日程部分
-        schedule_match = re.search(r'日程[：:]\s*(.+?)$', state_content, re.DOTALL)
+        schedule_match = self._state_schedule_pattern.search(state_content)
         if not schedule_match:
             return None
 
         schedule_text = schedule_match.group(1).strip()
 
         # 解析各个时间点 (格式: HH:MM 内容)
-        time_pattern = re.compile(r'(\d{1,2}:\d{2})\s+(.+?)(?=\n\d{1,2}:\d{2}|$)', re.DOTALL)
-        entries = time_pattern.findall(schedule_text)
+        entries = self._schedule_time_pattern.findall(schedule_text)
 
         if not entries:
             return None
@@ -877,7 +966,14 @@ class PortraitPlugin(Star):
         return best_entry
 
     def _get_banana_sign_prefixes(self) -> set[str]:
-        """动态获取 banana_sign 插件的预设词列表"""
+        """动态获取 banana_sign 插件的预设词列表（带 TTL 缓存）"""
+        current_time = time.time()
+
+        # 检查缓存是否有效
+        if (self._banana_prefixes_cache is not None
+            and current_time - self._banana_prefixes_cache_time < self._banana_prefixes_cache_ttl):
+            return self._banana_prefixes_cache
+
         prefixes = set()
 
         # 固定的命令（不在配置文件中的）
@@ -890,7 +986,6 @@ class PortraitPlugin(Star):
         try:
             config_path = self.data_dir.parent.parent / "config" / "astrbot_plugin_banana_sign_config.json"
             if config_path.exists():
-                import json
                 with open(config_path, 'r', encoding='utf-8-sig') as f:
                     config = json.load(f)
                 prompt_list = config.get("prompt", [])
@@ -913,6 +1008,10 @@ class PortraitPlugin(Star):
                             prefixes.add(first_word)
         except Exception as e:
             logger.debug(f"[Portrait] 读取 banana_sign 配置失败: {e}")
+
+        # 更新缓存
+        self._banana_prefixes_cache = prefixes
+        self._banana_prefixes_cache_time = current_time
 
         return prefixes
 
@@ -937,7 +1036,6 @@ class PortraitPlugin(Star):
         if self._is_global_admin(event):
             return True, 0
 
-        import time
         user_id = str(event.get_sender_id())
         now = time.time()
 
@@ -952,7 +1050,6 @@ class PortraitPlugin(Star):
 
     def _update_cooldown(self, event: AstrMessageEvent):
         """更新用户的冷却时间"""
-        import time
         user_id = str(event.get_sender_id())
         self.user_last_use[user_id] = time.time()
 
@@ -1067,8 +1164,7 @@ class PortraitPlugin(Star):
 
         raw_msg = (event.message_str or "").strip()
         # 直接匹配 "视频" 后面的提示词
-        import re
-        match = re.search(r'[./]?视频\s+(.+)', raw_msg, flags=re.DOTALL)
+        match = self._video_cmd_pattern.search(raw_msg)
         arg = match.group(1).strip() if match else ""
         if not arg:
             yield event.plain_result("用法: /视频 <提示词> 或 /视频 <预设名> [额外提示词]\n请附带图片或引用一张图片")
@@ -1117,11 +1213,70 @@ class PortraitPlugin(Star):
             yield event.plain_result("📋 视频预设列表\n暂无预设（请在 WebUI 视频预设词页面添加）")
             return
 
-        message = "📋 视频预设列表\n"
+        parts = ["📋 视频预设列表"]
         for name in names:
-            message += f"- {name}\n"
-        message += "\n用法: /视频 <预设名> [额外提示词]"
-        yield event.plain_result(message)
+            parts.append(f"- {name}")
+        parts.append("\n用法: /视频 <预设名> [额外提示词]")
+        yield event.plain_result('\n'.join(parts))
+
+    # === v3.1.0: 改图命令 ===
+
+    @filter.command("改图", alias={"图生图", "修图", "aiedit"})
+    async def edit_image_cmd(self, event: AstrMessageEvent, prompt: str = ""):
+        """改图命令：发送/引用图片 + /改图 <提示词>
+
+        用法:
+        - 发送图片 + /改图 <提示词>
+        - 引用图片消息 + /改图 <提示词>
+        """
+        # 冷却检查
+        is_allowed, remaining = self._check_cooldown(event)
+        if not is_allowed:
+            yield event.plain_result(f"操作太频繁，请 {remaining} 秒后再试")
+            return
+
+        # 获取图片
+        images = await self._get_images_from_event(event, include_avatar=False)
+        if not images:
+            yield event.plain_result(
+                "请发送或引用一张图片\n"
+                "用法: 发送图片 + /改图 <提示词>\n"
+                "或: 引用图片消息 + /改图 <提示词>"
+            )
+            return
+
+        # 提示词处理
+        if not prompt.strip():
+            prompt = "优化这张图片"
+
+        yield event.plain_result("正在处理改图请求...")
+
+        try:
+            t_start = time.perf_counter()
+            image_path = await self._edit_image(prompt, images)
+            t_end = time.perf_counter()
+
+            logger.info(f"[Portrait] 改图完成: prompt={prompt[:30]}..., 耗时={t_end - t_start:.2f}s")
+
+            # 更新冷却
+            self._update_cooldown(event)
+
+            # 发送结果
+            try:
+                await event.send(
+                    event.chain_result([Comp.Image.fromFileSystem(str(image_path))])
+                )
+            except Exception as e:
+                logger.warning(f"[Portrait] 发送改图结果失败: {e}，尝试 base64 方式")
+                image_bytes = await asyncio.to_thread(image_path.read_bytes)
+                image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+                await event.send(
+                    event.chain_result([Comp.Image.fromBase64(image_b64)])
+                )
+
+        except Exception as e:
+            logger.error(f"[Portrait] 改图失败: {e}")
+            yield event.plain_result(f"改图失败: {str(e)}")
 
     def _is_character_related_prompt(self, text: str, context_messages: list | None = None) -> bool:
         """判断文本是否与角色本人相关
@@ -1142,35 +1297,7 @@ class PortraitPlugin(Star):
             return True
 
         # === 上下文检测：当前消息是回应性对话时，检查上下文是否与角色相关 ===
-        # 回应性词汇（表明用户在回应角色的消息）
-        response_patterns = [
-            r'吃饱', r'吃完', r'好吃', r'好喝', r'好看', r'真棒', r'辛苦',
-            r'早安', r'晚安', r'午安', r'早上好', r'晚上好', r'下午好',
-            r'起床', r'睡觉', r'睡了', r'醒了', r'累了', r'困了',
-            r'开心', r'高兴', r'难过', r'伤心', r'生气',
-            r'干嘛呢', r'在干嘛', r'做什么呢', r'忙什么',
-            r'怎么了', r'怎么样', r'还好吗', r'好点没',
-            r'宝宝', r'宝贝', r'亲爱的', r'老婆', r'老公', r'媳妇',
-            r'乖', r'棒', r'厉害', r'可爱', r'漂亮', r'好美',
-            r'想你', r'爱你', r'喜欢你', r'抱抱', r'亲亲', r'摸摸',
-            r'然后呢', r'接下来', r'后来呢', r'继续',
-        ]
-        response_regex = re.compile('|'.join(response_patterns), re.IGNORECASE)
-
-        if response_regex.search(text) and context_messages:
-            # 检查上下文中最近的助手消息是否包含角色活动
-            context_keywords = [
-                r'吃', r'喝', r'做饭', r'下厨', r'烹饪',
-                r'穿', r'换衣', r'打扮',
-                r'睡', r'躺', r'起床', r'休息',
-                r'洗', r'刷', r'泡澡', r'洗澡',
-                r'看', r'读', r'玩', r'听',
-                r'画', r'写', r'工作', r'学习',
-                r'拍', r'照', r'自拍',
-                r'发', r'给你', r'送你',
-            ]
-            context_regex = re.compile('|'.join(context_keywords))
-
+        if self._response_regex.search(text) and context_messages:
             # 检查最近 3 条助手消息
             assistant_messages = [
                 msg for msg in context_messages[-6:]
@@ -1179,13 +1306,177 @@ class PortraitPlugin(Star):
 
             for msg in reversed(assistant_messages):
                 content = getattr(msg, 'content', '') or ''
-                if isinstance(content, str) and context_regex.search(content):
+                if isinstance(content, str) and self._context_regex.search(content):
                     logger.info(f"[Portrait] 上下文检测：用户回应 + 角色活动上下文，执行注入")
                     return True
 
         # 默认不注入
         logger.debug("[Portrait] 未匹配角色关键词，跳过注入")
         return False
+
+    # === v3.1.0: 改图功能辅助方法 ===
+
+    async def _get_edit_session(self) -> aiohttp.ClientSession:
+        """获取或创建改图用的 HTTP Session (线程安全)"""
+        if self._edit_http_session is None or self._edit_http_session.closed:
+            async with self._edit_session_lock:
+                if self._edit_http_session is None or self._edit_http_session.closed:
+                    timeout = aiohttp.ClientTimeout(total=60, connect=15)
+                    connector = aiohttp.TCPConnector(limit=10, limit_per_host=5)
+                    self._edit_http_session = aiohttp.ClientSession(
+                        timeout=timeout,
+                        connector=connector,
+                    )
+        return self._edit_http_session
+
+    async def _download_image_bytes(self, url: str, retries: int = 3) -> bytes | None:
+        """下载图片，带重试机制"""
+        session = await self._get_edit_session()
+        for i in range(retries):
+            try:
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        return await resp.read()
+                    logger.warning(f"[Portrait] 下载图片 HTTP {resp.status}: {url[:60]}...")
+            except asyncio.TimeoutError:
+                logger.warning(f"[Portrait] 下载图片超时 (第{i + 1}次): {url[:60]}...")
+            except Exception as e:
+                if i < retries - 1:
+                    await asyncio.sleep(1)
+                else:
+                    logger.error(f"[Portrait] 下载图片失败: {url[:60]}..., 错误: {e}")
+        return None
+
+    async def _get_images_from_event(
+        self,
+        event: AstrMessageEvent,
+        include_avatar: bool = False,
+    ) -> list[bytes]:
+        """从消息事件中提取图片字节列表
+
+        图片来源：
+        1. 回复/引用消息中的图片
+        2. 当前消息中的图片
+
+        Args:
+            event: 消息事件
+            include_avatar: 是否包含头像作为兜底
+
+        Returns:
+            图片字节列表
+        """
+        image_bytes_list: list[bytes] = []
+        chain = event.get_messages()
+
+        # 1. 回复链中的图片
+        for seg in chain:
+            if isinstance(seg, Reply) and seg.chain:
+                for chain_item in seg.chain:
+                    if isinstance(chain_item, Image):
+                        img_bytes = await self._image_to_bytes(chain_item)
+                        if img_bytes:
+                            image_bytes_list.append(img_bytes)
+                            logger.debug("[Portrait] 从回复中获取图片")
+
+        # 2. 当前消息中的图片
+        for seg in chain:
+            if isinstance(seg, Image):
+                img_bytes = await self._image_to_bytes(seg)
+                if img_bytes:
+                    image_bytes_list.append(img_bytes)
+                    logger.debug(f"[Portrait] 从当前消息获取图片")
+
+        logger.debug(f"[Portrait] 获取到 {len(image_bytes_list)} 张图片")
+        return image_bytes_list
+
+    async def _image_to_bytes(self, image: Image) -> bytes | None:
+        """将 Image 组件转换为字节"""
+        try:
+            # 优先使用 URL
+            if hasattr(image, 'url') and image.url:
+                return await self._download_image_bytes(image.url)
+            # 其次使用 base64
+            if hasattr(image, 'file') and image.file:
+                file_str = str(image.file)
+                if file_str.startswith('base64://'):
+                    return base64.b64decode(file_str[9:])
+            return None
+        except Exception as e:
+            logger.warning(f"[Portrait] 图片转换失败: {e}")
+            return None
+
+    async def _edit_image(
+        self,
+        prompt: str,
+        images: list[bytes],
+    ) -> Path:
+        """统一改图方法，支持主备切换
+
+        Args:
+            prompt: 改图提示词
+            images: 原图字节列表
+
+        Returns:
+            生成的图片路径
+        """
+        if not images:
+            raise ValueError("至少需要一张图片")
+
+        # 确定提供商顺序：Gitee（支持异步改图） > Gemini > Grok
+        providers = {
+            "gitee": (self.gitee_draw, "Gitee"),
+            "gemini": (self.gemini_draw, "Gemini"),
+            "grok": (self.grok_draw, "Grok"),
+        }
+
+        # 主提供商使用配置的 draw_provider
+        primary_key = self.draw_provider if self.draw_provider in providers else "gitee"
+        primary, primary_name = providers[primary_key]
+
+        # 备用提供商顺序
+        fallback_order = [k for k in self.fallback_models if k != primary_key and k in providers]
+
+        logger.info(
+            f"[Portrait] 改图配置: provider={primary_key}, "
+            f"fallback={self.enable_fallback}, images={len(images)}"
+        )
+
+        # 尝试主提供商
+        if primary.enabled:
+            try:
+                if primary_name == "Gitee":
+                    # Gitee 使用异步改图 API
+                    image_path = await primary.edit(prompt, images)
+                    logger.info(f"[Portrait] Gitee 改图成功")
+                    return image_path
+                else:
+                    # Gemini/Grok 使用 generate + images 参数
+                    image_path = await primary.generate(prompt, images=images)
+                    logger.info(f"[Portrait] {primary_name} 改图成功")
+                    return image_path
+            except Exception as e:
+                logger.warning(f"[Portrait] {primary_name} 改图失败: {e}")
+                if not self.enable_fallback:
+                    raise
+
+        # 尝试备用提供商
+        if self.enable_fallback:
+            for fallback_key in fallback_order:
+                fallback, fallback_name = providers[fallback_key]
+                if not fallback or not fallback.enabled:
+                    continue
+                try:
+                    if fallback_name == "Gitee":
+                        image_path = await fallback.edit(prompt, images)
+                    else:
+                        image_path = await fallback.generate(prompt, images=images)
+                    logger.info(f"[Portrait] {fallback_name} 改图成功 (备用)")
+                    return image_path
+                except Exception as e:
+                    logger.warning(f"[Portrait] {fallback_name} 改图失败: {e}")
+                    continue
+
+        raise RuntimeError("所有提供商均不可用或改图失败")
 
     # === v2.4.0: 统一图片生成方法（支持主备切换） ===
     async def _generate_image(
@@ -1391,7 +1682,6 @@ class PortraitPlugin(Star):
 
         # 辅助函数：回退到 base64 发送
         async def _fallback_send_base64() -> None:
-            import base64
             image_bytes = await asyncio.to_thread(image_path.read_bytes)
             image_b64 = base64.b64encode(image_bytes).decode("utf-8")
             await event.send(
@@ -1453,7 +1743,7 @@ class PortraitPlugin(Star):
     ) -> str:
         """通用图片生成处理"""
         # === v2.9.5: 冷却时间检查 ===
-        is_allowed, remaining = self._check_cooldown(event)
+        is_allowed, _ = self._check_cooldown(event)
         if not is_allowed:
             # 静默忽略冷却期间的请求，返回成功让 LLM 不再回复
             logger.debug(f"[Portrait] 用户 {event.get_sender_id()} 画图冷却中，静默忽略请求")
@@ -1542,6 +1832,11 @@ class PortraitPlugin(Star):
         Args:
             action: 操作类型，可选 "开" 或 "关"
         """
+        # 管理员鉴权
+        if not self._is_global_admin(event):
+            yield event.plain_result("仅管理员可使用此命令")
+            return
+
         action = action.strip()
 
         # 获取 WebUI 配置
@@ -1638,8 +1933,7 @@ class PortraitPlugin(Star):
             return None
         # 尝试从 URL 中提取文件名
         # 格式可能是: .../generated_images/1770263908130_e5f0ff33.jpg
-        import re
-        match = re.search(r'(\d+_[a-f0-9]+\.(jpg|jpeg|png|gif|webp))', url, re.IGNORECASE)
+        match = self._img_url_pattern.search(url)
         if match:
             return match.group(1)
         return None
@@ -1647,6 +1941,11 @@ class PortraitPlugin(Star):
     @filter.command("删图")
     async def delete_image(self, event: AstrMessageEvent):
         """引用一张由本插件生成的图片，撤回并从 WebUI 删除"""
+        # 管理员鉴权
+        if not self._is_global_admin(event):
+            yield event.plain_result("仅管理员可使用此命令")
+            return
+
         # 获取被引用的消息
         reply_msg_id = None
         image_url = None

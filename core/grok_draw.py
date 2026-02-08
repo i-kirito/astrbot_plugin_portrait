@@ -282,6 +282,30 @@ class GrokDrawService:
         self._images_endpoint = f"{self.base_url}/v1/images/generations" if self.base_url else ""
         self._origin = _origin(self._endpoint)
         self._cleanup_task: asyncio.Task | None = None
+        # 共享的 HTTP 客户端（连接池复用）
+        self._client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """获取或创建共享的 HTTP 客户端"""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=float(self.timeout),
+                follow_redirects=True,
+                proxy=self.proxy,
+            )
+        return self._client
+
+    async def close(self) -> None:
+        """关闭 HTTP 客户端"""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
+        # 同时关闭后台清理任务
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._cleanup_task
+        self._cleanup_task = None
 
     @property
     def enabled(self) -> bool:
@@ -293,14 +317,6 @@ class GrokDrawService:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
         }
-
-    async def close(self) -> None:
-        """关闭服务并停止后台任务"""
-        if self._cleanup_task and not self._cleanup_task.done():
-            self._cleanup_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._cleanup_task
-        self._cleanup_task = None
 
     async def generate(
         self,
@@ -360,14 +376,10 @@ class GrokDrawService:
         for attempt in range(self.max_retries + 1):
             try:
                 t0 = time.perf_counter()
-                async with httpx.AsyncClient(
-                    timeout=float(self.timeout),
-                    follow_redirects=True,
-                    proxy=self.proxy,
-                ) as client:
-                    resp = await client.post(
-                        self._images_endpoint, headers=self._headers(), json=payload
-                    )
+                client = await self._get_client()
+                resp = await client.post(
+                    self._images_endpoint, headers=self._headers(), json=payload
+                )
 
                 if resp.status_code != 200:
                     raise RuntimeError(
@@ -438,14 +450,10 @@ class GrokDrawService:
         for attempt in range(self.max_retries + 1):
             try:
                 t0 = time.perf_counter()
-                async with httpx.AsyncClient(
-                    timeout=float(self.timeout),
-                    follow_redirects=True,
-                    proxy=self.proxy,
-                ) as client:
-                    resp = await client.post(
-                        self._endpoint, headers=self._headers(), json=payload
-                    )
+                client = await self._get_client()
+                resp = await client.post(
+                    self._endpoint, headers=self._headers(), json=payload
+                )
 
                 if resp.status_code != 200:
                     raise RuntimeError(
@@ -526,13 +534,11 @@ class GrokDrawService:
 
     async def _download_image(self, url: str) -> Path:
         """下载图片"""
-        async with httpx.AsyncClient(
-            timeout=30.0, follow_redirects=True, proxy=self.proxy
-        ) as client:
-            resp = await client.get(url)
-            if resp.status_code != 200:
-                raise RuntimeError(f"下载图片失败 HTTP {resp.status_code}")
-            return await self._save_bytes(resp.content)
+        client = await self._get_client()
+        resp = await client.get(url)
+        if resp.status_code != 200:
+            raise RuntimeError(f"下载图片失败 HTTP {resp.status_code}")
+        return await self._save_bytes(resp.content)
 
     async def _save_bytes(self, data: bytes) -> Path:
         """保存图片字节到文件"""

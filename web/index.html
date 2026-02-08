@@ -10,15 +10,15 @@
     <link rel="preconnect" href="https://unpkg.com">
     <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
     <link rel="dns-prefetch" href="https://unpkg.com">
-    <!-- Tailwind CSS -->
+    <!-- Tailwind CSS (不能 defer，需要在 DOM 解析时应用样式) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Element Plus -->
     <link rel="stylesheet" href="https://unpkg.com/element-plus@2.4.4/dist/index.css" />
     <!-- Vue 3 -->
-    <script src="https://unpkg.com/vue@3.4.15/dist/vue.global.prod.js"></script>
-    <script src="https://unpkg.com/element-plus@2.4.4/dist/index.full.min.js"></script>
+    <script src="https://unpkg.com/vue@3.4.15/dist/vue.global.prod.js" defer></script>
+    <script src="https://unpkg.com/element-plus@2.4.4/dist/index.full.min.js" defer></script>
     <!-- SortableJS for drag-drop -->
-    <script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js"></script>
+    <script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js" defer></script>
     <style>
         :root {
             --primary-pink: #FF69B4;
@@ -161,6 +161,8 @@
             border: 1px solid rgba(255, 182, 193, 0.3);
             transition: all 0.3s ease;
             backdrop-filter: blur(10px);
+            content-visibility: auto;
+            contain-intrinsic-size: 300px; /* Estimated height */
         }
         .image-card:hover {
             border-color: rgba(255, 105, 180, 0.5);

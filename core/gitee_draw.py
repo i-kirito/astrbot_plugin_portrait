@@ -10,12 +10,17 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
+import aiohttp
 from openai import AsyncOpenAI
 from openai.types.images_response import ImagesResponse
 
 from astrbot.api import logger
 
+from .image_format import guess_image_mime_and_ext
 from .image_manager import ImageManager
+
+# 改图支持的任务类型
+EDIT_TASK_TYPES = frozenset({"id", "style", "subject", "background", "element"})
 
 # 不支持负面提示词的模型
 MODELS_WITHOUT_NEGATIVE_PROMPT = frozenset({
@@ -162,6 +167,13 @@ class GiteeDrawService:
             max_count=max_count,
         )
 
+        # 改图配置 (异步任务模式)
+        self.edit_model = "Qwen-Image-Edit-2511"
+        self.edit_poll_interval = 5  # 轮询间隔（秒）
+        self.edit_poll_timeout = 300  # 轮询超时（秒）
+        self._edit_session: aiohttp.ClientSession | None = None
+        self._edit_session_lock = asyncio.Lock()
+
     @staticmethod
     def _validate_base_url(url: str) -> str:
         """校验 base_url，阻断私网地址防止 SSRF"""
@@ -214,6 +226,12 @@ class GiteeDrawService:
             except Exception:
                 pass
         self._clients.clear()
+
+        # 关闭改图 session
+        if self._edit_session and not self._edit_session.closed:
+            await self._edit_session.close()
+            self._edit_session = None
+
         await self.imgr.close()
 
     def _next_key(self) -> str:
@@ -328,3 +346,170 @@ class GiteeDrawService:
             await self.imgr.cleanup_old_images()
         except Exception as e:
             logger.warning(f"[GiteeDrawService] 后台清理失败: {e}")
+
+    # ==================== 异步改图 (Qwen-Image-Edit-2511) ====================
+
+    async def _get_edit_session(self) -> aiohttp.ClientSession:
+        """获取或创建改图用的 HTTP Session (线程安全)"""
+        if self._edit_session is None or self._edit_session.closed:
+            async with self._edit_session_lock:
+                if self._edit_session is None or self._edit_session.closed:
+                    connector = aiohttp.TCPConnector(
+                        limit=10,
+                        limit_per_host=5,
+                        ttl_dns_cache=300,
+                        enable_cleanup_closed=True,
+                    )
+                    timeout = aiohttp.ClientTimeout(
+                        total=self.edit_poll_timeout + 60,
+                        connect=30,
+                    )
+                    self._edit_session = aiohttp.ClientSession(
+                        connector=connector,
+                        timeout=timeout,
+                    )
+        return self._edit_session
+
+    async def edit(
+        self,
+        prompt: str,
+        images: list[bytes],
+        task_types: tuple[str, ...] = ("id",),
+    ) -> Path:
+        """执行异步改图
+
+        Args:
+            prompt: 提示词
+            images: 图片字节列表
+            task_types: 任务类型 (id/style/subject/background/element)
+
+        Returns:
+            生成图片的本地路径
+        """
+        if not self.enabled:
+            raise RuntimeError("未配置 Gitee AI API Key")
+        if not images:
+            raise ValueError("至少需要一张图片")
+
+        api_key = self._next_key()
+        t_start = time.perf_counter()
+
+        logger.info(
+            f"[GiteeDrawService] 开始改图: model={self.edit_model}, "
+            f"task_types={list(task_types)}, images={len(images)}"
+        )
+
+        # 创建异步任务
+        task_id = await self._create_edit_task(prompt, images, task_types, api_key)
+        t_create = time.perf_counter()
+        logger.debug(
+            f"[GiteeDrawService] 改图任务创建成功: {task_id}, 耗时: {t_create - t_start:.2f}s"
+        )
+
+        # 轮询结果
+        file_url = await self._poll_edit_task(task_id, api_key)
+        t_poll = time.perf_counter()
+        logger.debug(f"[GiteeDrawService] 改图任务完成, 轮询耗时: {t_poll - t_create:.2f}s")
+
+        # 下载图片
+        result_path = await self.imgr.download_image(file_url, prompt=prompt)
+        t_end = time.perf_counter()
+
+        logger.info(
+            f"[GiteeDrawService] 改图完成: 总耗时={t_end - t_start:.2f}s, "
+            f"创建={t_create - t_start:.2f}s, 轮询={t_poll - t_create:.2f}s, "
+            f"下载={t_end - t_poll:.2f}s"
+        )
+
+        self._schedule_cleanup()
+        return result_path
+
+    async def _create_edit_task(
+        self,
+        prompt: str,
+        images: list[bytes],
+        task_types: tuple[str, ...],
+        api_key: str,
+    ) -> str:
+        """创建异步改图任务"""
+        session = await self._get_edit_session()
+
+        data = aiohttp.FormData()
+        data.add_field("prompt", prompt)
+        data.add_field("model", self.edit_model)
+        data.add_field("num_inference_steps", str(self.num_inference_steps))
+        data.add_field("guidance_scale", "1.0")
+
+        for t in task_types:
+            if t in EDIT_TASK_TYPES:
+                data.add_field("task_types", t)
+
+        for i, img in enumerate(images):
+            mime, ext = guess_image_mime_and_ext(img)
+            data.add_field(
+                "image",
+                img,
+                filename=f"image_{i}.{ext}",
+                content_type=mime,
+            )
+
+        try:
+            async with session.post(
+                f"{self.base_url}/async/images/edits",
+                headers={"Authorization": f"Bearer {api_key}"},
+                data=data,
+            ) as resp:
+                result = await resp.json()
+
+                if resp.status != 200:
+                    error_msg = result.get("message", str(result))
+                    logger.error(f"[GiteeDrawService] 创建改图任务失败 ({resp.status}): {error_msg}")
+                    raise RuntimeError(f"Gitee 创建改图任务失败: {error_msg}")
+
+                task_id = result.get("task_id")
+                if not task_id:
+                    logger.error(f"[GiteeDrawService] 响应未包含 task_id: {result}")
+                    raise RuntimeError("Gitee 未返回 task_id")
+
+                return task_id
+
+        except aiohttp.ClientError as e:
+            logger.error(f"[GiteeDrawService] 改图网络错误: {e}")
+            raise RuntimeError(f"Gitee 改图网络错误: {e}")
+
+    async def _poll_edit_task(self, task_id: str, api_key: str) -> str:
+        """轮询改图任务状态直到完成"""
+        session = await self._get_edit_session()
+        url = f"{self.base_url}/task/{task_id}"
+        max_rounds = self.edit_poll_timeout // self.edit_poll_interval
+
+        for i in range(max_rounds):
+            try:
+                async with session.get(
+                    url,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                ) as resp:
+                    result = await resp.json()
+                    status = result.get("status")
+
+                    if status == "success":
+                        file_url = result.get("output", {}).get("file_url")
+                        if not file_url:
+                            logger.error(f"[GiteeDrawService] 任务成功但无 file_url: {result}")
+                            raise RuntimeError("Gitee 任务成功但未返回 file_url")
+                        return file_url
+
+                    if status in {"failed", "cancelled"}:
+                        error_msg = result.get("message", status)
+                        logger.error(f"[GiteeDrawService] 改图任务失败: {error_msg}")
+                        raise RuntimeError(f"Gitee 改图任务失败: {error_msg}")
+
+                    logger.debug(f"[GiteeDrawService] 轮询第{i + 1}轮, 状态: {status}")
+
+            except aiohttp.ClientError as e:
+                logger.warning(f"[GiteeDrawService] 轮询网络错误 (第{i + 1}轮): {e}")
+
+            await asyncio.sleep(self.edit_poll_interval)
+
+        logger.error(f"[GiteeDrawService] 改图任务超时 (>{self.edit_poll_timeout}s)")
+        raise TimeoutError(f"Gitee 改图任务超时 (>{self.edit_poll_timeout}s)")

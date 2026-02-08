@@ -585,12 +585,20 @@ class WebServer:
                 await self.imgr.get_metadata_async("")  # 触发元数据重载
 
                 images = []
+                metadata_updated = False
+                
                 for file_path, stat, img_width, img_height in file_stats:
                     filename = file_path.name
 
-                    # 从内存缓存获取元数据（不再触发文件 I/O）
-                    metadata = self.imgr._metadata.get(filename)
+                    # 从内存缓存获取元数据
+                    metadata = self.imgr.get_metadata(filename)
                     is_favorite = self.imgr.is_favorite(filename)
+                    
+                    # 如果没有元数据，在内存中初始化（稍后批量保存）
+                    if not metadata:
+                        self.imgr.update_metadata_no_save(filename)
+                        metadata = self.imgr.get_metadata(filename)
+                        metadata_updated = True
 
                     # 生成缩略图路径
                     thumb_path = self.thumbnails_dir / filename
@@ -633,6 +641,10 @@ class WebServer:
                         "size_class": size_class,
                         "favorite": is_favorite,
                     })
+
+                # 如果有元数据更新，异步保存一次
+                if metadata_updated:
+                    asyncio.create_task(self.imgr.save_metadata_async())
 
                 # 按修改时间倒序
                 images.sort(key=lambda x: x["mtime"], reverse=True)

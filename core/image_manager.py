@@ -218,6 +218,26 @@ class ImageManager:
             await asyncio.to_thread(self._save_metadata_sync)
             self._metadata_mtime = self._get_metadata_mtime()
 
+    def update_metadata_no_save(self, filename: str, **kwargs) -> None:
+        """更新元数据但不立即保存（需手动调用保存，用于批量更新）"""
+        self._ensure_metadata_loaded()
+        if filename not in self._metadata:
+            # 如果不存在，初始化基本结构
+            self._metadata[filename] = {
+                "created_at": int(time.time()),
+                "prompt": "",
+                "model": "",
+                "category": "",
+                "size": ""
+            }
+        self._metadata[filename].update(kwargs)
+
+    async def save_metadata_async(self) -> None:
+        """异步保存元数据（配合 update_metadata_no_save 使用）"""
+        async with self._metadata_lock:
+            await asyncio.to_thread(self._save_metadata_sync)
+            self._metadata_mtime = self._get_metadata_mtime()
+
     def is_favorite(self, filename: str) -> bool:
         """检查是否为收藏"""
         self._ensure_favorites_loaded()

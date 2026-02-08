@@ -354,6 +354,15 @@ class GrokVideoService:
 
         self.api_url = urljoin(self.server_url + "/", "v1/chat/completions")
 
+        # 共享的 HTTP 客户端（连接池复用）
+        self._client: httpx.AsyncClient | None = None
+        self._client_timeout = httpx.Timeout(
+            connect=10.0,
+            read=float(self.timeout_seconds),
+            write=10.0,
+            pool=float(self.timeout_seconds) + 10.0,
+        )
+
         logger.info(
             "[GrokVideo] Initialized: model=%s, timeout=%ss, retries=%s, empty_retry=%s, presets=%s",
             self.model,
@@ -362,6 +371,21 @@ class GrokVideoService:
             self.empty_response_retry,
             len(self.presets),
         )
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """获取或创建共享的 HTTP 客户端"""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=self._client_timeout,
+                follow_redirects=True,
+            )
+        return self._client
+
+    async def close(self) -> None:
+        """关闭 HTTP 客户端"""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     def _load_presets(self) -> dict[str, str]:
         presets: dict[str, str] = {}
@@ -424,18 +448,9 @@ class GrokVideoService:
             "Authorization": f"Bearer {self.api_key}",
         }
 
-        timeout = httpx.Timeout(
-            connect=10.0,
-            read=float(self.timeout_seconds),
-            write=10.0,
-            pool=float(self.timeout_seconds) + 10.0,
-        )
-
         async def _request_once() -> Any:
-            async with httpx.AsyncClient(
-                timeout=timeout, follow_redirects=True
-            ) as client:
-                resp = await client.post(self.api_url, json=payload, headers=headers)
+            client = await self._get_client()
+            resp = await client.post(self.api_url, json=payload, headers=headers)
 
             if resp.status_code != 200:
                 detail = resp.text[:500]
