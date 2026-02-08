@@ -1210,21 +1210,6 @@ class PortraitPlugin(Star):
         finally:
             await self._video_end(user_id)
 
-    @filter.command("视频预设列表")
-    async def list_video_presets(self, event: AstrMessageEvent):
-        """列出所有可用视频预设。"""
-        event.should_call_llm(True)
-        names = self.video_service.get_preset_names()
-        if not names:
-            yield event.plain_result("📋 视频预设列表\n暂无预设（请在 WebUI 视频预设词页面添加）")
-            return
-
-        parts = ["📋 视频预设列表"]
-        for name in names:
-            parts.append(f"- {name}")
-        parts.append("\n用法: /视频 <预设名> [额外提示词]")
-        yield event.plain_result('\n'.join(parts))
-
     # === v3.1.0: 改图命令 ===
 
     @filter.command("改图")
@@ -1791,19 +1776,6 @@ class PortraitPlugin(Star):
     @filter.llm_tool(name="portrait_draw_image")
     async def portrait_draw_image(self, event: AstrMessageEvent, prompt: str):
         """根据提示词生成图片。调用一次即可，图片会自动发送给用户。收到 [SUCCESS] 后请勿重复调用。
-
-        Args:
-            prompt(string): 图片提示词，需要包含主体、场景、风格等描述
-        """
-        return await self._handle_image_generation(event, prompt)
-
-    @filter.llm_tool(name="portrait_generate_image")
-    async def portrait_generate_image(
-        self,
-        event: AstrMessageEvent,
-        prompt: str,
-    ):
-        """根据提示词生成图片。调用一次即可，图片会自动发送给用户。收到 [SUCCESS] 后请勿重复调用。尺寸由系统配置自动决定。
 
         Args:
             prompt(string): 图片提示词，需要包含主体、场景、风格等描述

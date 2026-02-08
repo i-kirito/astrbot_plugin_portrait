@@ -30,6 +30,12 @@
         "hint": "启用后会根据关键词自动选择镜头语言提示词",
         "default": true
     },
+    "auto_prepend_identity": {
+        "type": "bool",
+        "description": "自动追加人物外貌到提示词",
+        "hint": "启用后在生成绘图提示词时自动加入 char_identity",
+        "default": true
+    },
     "proxy": {
         "type": "string",
         "description": "HTTP 代理",
@@ -48,6 +54,12 @@
         "description": "启用备用提供商",
         "hint": "启用后，当主提供商失败时自动切换到备用提供商",
         "default": true
+    },
+    "fallback_models": {
+        "type": "list",
+        "description": "备用提供商顺序",
+        "hint": "当主提供商失败时的切换顺序，可选值: gitee, gemini, grok",
+        "default": ["gemini", "grok"]
     },
     "gitee_config": {
         "description": "Gitee AI 文生图配置",
@@ -179,6 +191,12 @@
                 "type": "string",
                 "default": "grok-2-image",
                 "hint": "图片生成使用的模型，默认 grok-2-image"
+            },
+            "model": {
+                "description": "图片模型（兼容旧配置）",
+                "type": "string",
+                "default": "grok-2-image",
+                "hint": "兼容历史配置，建议优先使用 image_model"
             },
             "video_model": {
                 "description": "视频模型",

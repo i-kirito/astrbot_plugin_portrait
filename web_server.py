@@ -276,7 +276,15 @@ class WebServer:
                 if field in self.plugin.config:
                     config[field] = self.plugin.config[field]
                 else:
-                    config[field] = None
+                    # 使用插件实例变量作为后备（确保返回正确的当前值）
+                    if field == "draw_provider":
+                        config[field] = getattr(self.plugin, "draw_provider", "gitee")
+                    elif field == "enable_fallback":
+                        config[field] = getattr(self.plugin, "enable_fallback", True)
+                    elif field == "fallback_models":
+                        config[field] = getattr(self.plugin, "fallback_models", ["gemini", "grok"])
+                    else:
+                        config[field] = None
 
             # gitee_config 单独处理，返回真实密钥
             gitee_conf = self.plugin.config.get("gitee_config", {}) or {}
@@ -508,10 +516,12 @@ class WebServer:
             # 更新提供商配置
             if "draw_provider" in config:
                 self.plugin.draw_provider = config.get("draw_provider", "gitee") or "gitee"
+                logger.info(f"[Portrait WebUI] draw_provider 已更新为: {self.plugin.draw_provider}")
             if "enable_fallback" in config:
                 self.plugin.enable_fallback = config.get("enable_fallback", True)
             if "fallback_models" in config:
                 self.plugin.fallback_models = config.get("fallback_models", ["gemini", "grok"]) or ["gemini", "grok"]
+                logger.info(f"[Portrait WebUI] fallback_models 已更新为: {self.plugin.fallback_models}")
 
             # 更新人像参考配置
             selfie_conf = config.get("selfie_config", {}) or {}
