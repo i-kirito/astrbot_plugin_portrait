@@ -1844,10 +1844,19 @@
                     });
                 });
 
+                // Sortable 实例追踪（防止内存泄漏）
+                let sortableInstances = [];
+
                 function initSortable() {
+                    // 销毁旧实例防止内存泄漏
+                    if (sortableInstances.length > 0) {
+                        sortableInstances.forEach(inst => inst && inst.destroy());
+                        sortableInstances = [];
+                    }
+
                     const setupSortable = (el, list) => {
                         if (!el) return;
-                        new Sortable(el, {
+                        const instance = new Sortable(el, {
                             animation: 150,
                             handle: '.drag-handle',
                             ghostClass: 'sortable-ghost',
@@ -1857,6 +1866,7 @@
                                 list.value.splice(evt.newIndex, 0, item);
                             }
                         });
+                        sortableInstances.push(instance);
                     };
                     setupSortable(envListRef.value, environments);
                     setupSortable(camListRef.value, cameras);

@@ -578,28 +578,13 @@ class WebServer:
             else:
                 allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
-                # 尝试导入 PIL 用于读取图片尺寸
-                try:
-                    from PIL import Image
-                    has_pil = True
-                except ImportError:
-                    has_pil = False
-
-                # 将目录扫描移至线程池避免阻塞
+                # 将目录扫描移至线程池避免阻塞（不再在循环中打开图片文件）
                 def scan_images():
                     results = []
                     for file_path in self.images_dir.iterdir():
                         if file_path.is_file() and file_path.suffix.lower() in allowed_exts:
                             stat = file_path.stat()
-                            # 读取图片尺寸
-                            img_width, img_height = 0, 0
-                            if has_pil:
-                                try:
-                                    with Image.open(file_path) as img:
-                                        img_width, img_height = img.size
-                                except Exception:
-                                    pass
-                            results.append((file_path, stat, img_width, img_height))
+                            results.append((file_path, stat))
                     return results
 
                 file_stats = await asyncio.to_thread(scan_images)
@@ -613,7 +598,7 @@ class WebServer:
                 images = []
                 missing_metadata_records: list[tuple[str, str, str, str, str]] = []
 
-                for file_path, stat, img_width, img_height in file_stats:
+                for file_path, stat in file_stats:
                     filename = file_path.name
 
                     # 从快照获取元数据
@@ -645,6 +630,18 @@ class WebServer:
                                 category = "character"
                             else:
                                 category = "other"
+
+                    # 从 metadata 获取图片尺寸（避免 O(N) 磁盘 I/O）
+                    img_width, img_height = 0, 0
+                    if metadata and metadata.get("size"):
+                        try:
+                            size_str = metadata.get("size", "")
+                            if "x" in size_str.lower():
+                                parts = size_str.lower().split("x")
+                                if len(parts) == 2:
+                                    img_width, img_height = int(parts[0]), int(parts[1])
+                        except (ValueError, AttributeError):
+                            pass
 
                     # 计算尺寸分类
                     size_class = ""
