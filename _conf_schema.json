@@ -33,8 +33,8 @@
     "auto_prepend_identity": {
         "type": "bool",
         "description": "自动追加人物外貌到提示词",
-        "hint": "启用后在生成绘图提示词时自动加入 char_identity 默认关闭，llm模型不读外貌的时候可以打开",
-        "default": true
+        "hint": "LLM 已通过 Visual Context 获取角色外貌，通常无需开启。仅当 LLM 生成的 prompt 遗漏外貌时才需要开启",
+        "default": false
     },
     "proxy": {
         "type": "string",

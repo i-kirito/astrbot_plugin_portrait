@@ -36,6 +36,8 @@ from .web_server import WebServer
 # gitee_aiimg 兼容层：让其他插件（如 daily_sharing）可以通过 draw.generate() 调用
 # ============================================================================
 
+import uuid as _uuid  # 用于生成唯一文件名
+
 
 class _DrawAdapter:
     """
@@ -64,7 +66,6 @@ class _DrawAdapter:
             生成的图片路径 (Path) 或 None
         """
         try:
-            # 调用 portrait 内部生图方法
             image_path = await self._plugin._generate_image(
                 prompt=prompt,
                 size=size,
@@ -72,8 +73,8 @@ class _DrawAdapter:
                 is_character_related=False,
             )
             return image_path
-        except Exception as e:
-            logger.error(f"[Portrait] DrawAdapter.generate 失败: {e}")
+        except Exception:
+            logger.exception("[Portrait] DrawAdapter.generate 失败")
             return None
 
 
@@ -111,37 +112,21 @@ class _EditAdapter:
             logger.warning("[Portrait] EditAdapter.edit 缺少输入图片")
             return None
 
-        try:
-            # 使用第一张图片作为输入
-            image_bytes = images[0]
+        # 类型校验
+        if not isinstance(images[0], bytes):
+            logger.warning("[Portrait] EditAdapter.edit 输入图片类型错误")
+            return None
 
-            # 调用改图 API，获取 (mime, base64)
-            result = await self._plugin.edit_image_api(
+        try:
+            image_bytes = images[0]
+            # 直接调用内部改图方法，返回 Path（避免 base64 往返）
+            return await self._plugin._edit_image_internal(
                 prompt=prompt,
                 image_bytes=image_bytes,
-                provider=None,  # 使用默认改图提供商
+                provider=None,
             )
-
-            if result:
-                mime, b64 = result
-                # 将 base64 保存为文件并返回路径
-                img_bytes = base64.b64decode(b64)
-                ext = ".png"
-                if "jpeg" in mime:
-                    ext = ".jpg"
-                elif "webp" in mime:
-                    ext = ".webp"
-
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"edit_{timestamp}{ext}"
-                save_path = self._plugin.data_dir / "image_cache" / filename
-                save_path.parent.mkdir(parents=True, exist_ok=True)
-                save_path.write_bytes(img_bytes)
-                return save_path
-
-            return None
-        except Exception as e:
-            logger.error(f"[Portrait] EditAdapter.edit 失败: {e}")
+        except Exception:
+            logger.exception("[Portrait] EditAdapter.edit 失败")
             return None
 
 
@@ -860,6 +845,56 @@ class PortraitPlugin(Star):
             logger.error(f"[Portrait] API 生图失败: {e}")
             return None
 
+    async def _edit_image_internal(
+        self,
+        prompt: str,
+        image_bytes: bytes,
+        provider: str | None = None,
+    ) -> Path | None:
+        """内部改图方法：直接返回 Path（供 _EditAdapter 使用，避免 base64 往返）
+
+        Args:
+            prompt: 改图提示词
+            image_bytes: 原始图片字节数据
+            provider: 提供商（gitee/gemini/grok），默认使用配置的 edit_provider
+
+        Returns:
+            生成的图片路径 (Path) 或 None
+        """
+        if self._is_terminated:
+            return None
+
+        if not self.edit_enabled:
+            logger.warning("[Portrait] 改图功能未启用")
+            return None
+
+        target_provider = provider or self.edit_provider
+
+        if target_provider == "gemini":
+            model = self.edit_model_gemini or self.gemini_draw.model
+            result_path = await self.gemini_draw.edit_image(
+                prompt=prompt,
+                image_bytes=image_bytes,
+                model=model,
+            )
+        elif target_provider == "grok":
+            model = self.edit_model_grok or self.grok_draw.model
+            result_path = await self.grok_draw.edit_image(
+                prompt=prompt,
+                image_bytes=image_bytes,
+                model=model,
+            )
+        else:
+            result_path = await self.gitee_draw.edit_image(
+                prompt=prompt,
+                image_bytes=image_bytes,
+                model=self.edit_model_gitee,
+            )
+
+        if result_path and result_path.exists():
+            return result_path
+        return None
+
     async def edit_image_api(
         self,
         prompt: str,
@@ -876,41 +911,10 @@ class PortraitPlugin(Star):
         Returns:
             (mime_type, base64_data) 或 None（生成失败）
         """
-        if self._is_terminated:
-            return None
-
-        if not self.edit_enabled:
-            logger.warning("[Portrait] 改图功能未启用")
-            return None
-
         try:
-            target_provider = provider or self.edit_provider
+            result_path = await self._edit_image_internal(prompt, image_bytes, provider)
 
-            if target_provider == "gemini":
-                # Gemini 改图
-                model = self.edit_model_gemini or self.gemini_draw.model
-                result_path = await self.gemini_draw.edit_image(
-                    prompt=prompt,
-                    image_bytes=image_bytes,
-                    model=model,
-                )
-            elif target_provider == "grok":
-                # Grok 改图
-                model = self.edit_model_grok or self.grok_draw.model
-                result_path = await self.grok_draw.edit_image(
-                    prompt=prompt,
-                    image_bytes=image_bytes,
-                    model=model,
-                )
-            else:
-                # Gitee 改图
-                result_path = await self.gitee_draw.edit_image(
-                    prompt=prompt,
-                    image_bytes=image_bytes,
-                    model=self.edit_model_gitee,
-                )
-
-            if result_path and result_path.exists():
+            if result_path:
                 img_bytes = await asyncio.to_thread(result_path.read_bytes)
                 suffix = result_path.suffix.lower()
                 mime_map = {
@@ -926,8 +930,8 @@ class PortraitPlugin(Star):
 
             return None
 
-        except Exception as e:
-            logger.error(f"[Portrait] API 改图失败: {e}")
+        except Exception:
+            logger.exception("[Portrait] API 改图失败")
             return None
 
     @filter.on_llm_request()
