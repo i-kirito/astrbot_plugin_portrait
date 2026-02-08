@@ -1216,7 +1216,7 @@
                                 <el-option v-for="s in availableFilters.sizes" :key="s" :label="s" :value="s" />
                             </el-select>
                             <el-select v-model="filterCategory" placeholder="分类" clearable size="small" style="width: 120px;" @change="applyFilters">
-                                <el-option v-for="c in availableFilters.categories" :key="c" :label="c === 'character' ? '人物' : (c === 'other' ? '其他' : c)" :value="c" />
+                                <el-option v-for="c in availableFilters.categories" :key="c" :label="c === 'character' ? '人物' : (c === 'edit' ? '改图' : (c === 'other' ? '其他' : c))" :value="c" />
                             </el-select>
                             <el-button v-if="filterModel || filterSize || filterCategory" type="info" size="small" @click="clearFilters">
                                 清除筛选
@@ -1442,7 +1442,7 @@
                             <p><span class="text-gray-500">尺寸:</span> {{ detailImageDimensions }}</p>
                             <p><span class="text-gray-500">创建时间:</span> {{ formatDate(detailImage?.ctime) }}</p>
                             <p v-if="detailImage?.model"><span class="text-gray-500">生成模型:</span> <el-tag size="small" type="info">{{ detailImage?.model }}</el-tag></p>
-                            <p v-if="detailImage?.category"><span class="text-gray-500">分类:</span> <el-tag size="small" :type="detailImage?.category === 'character' ? 'success' : 'warning'">{{ detailImage?.category === 'character' ? '人物' : detailImage?.category }}</el-tag></p>
+                            <p v-if="detailImage?.category"><span class="text-gray-500">分类:</span> <el-tag size="small" :type="detailImage?.category === 'character' ? 'success' : (detailImage?.category === 'edit' ? 'primary' : 'warning')">{{ detailImage?.category === 'character' ? '人物' : (detailImage?.category === 'edit' ? '改图' : detailImage?.category) }}</el-tag></p>
                         </div>
                     </el-card>
                     <!-- Prompt 信息 -->
@@ -1639,7 +1639,7 @@
                 const availableFilters = reactive({
                     models: [],
                     sizes: ['1K', '2K', '4K'],
-                    categories: ['character', 'other'],
+                    categories: ['character', 'edit', 'other'],
                 });
 
                 // 视频画廊

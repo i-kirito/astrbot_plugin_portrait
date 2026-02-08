@@ -412,18 +412,24 @@ class PortraitPlugin(Star):
             logger.error(f"[Portrait] 保存动态配置失败: {e}")
 
     def _load_persisted_config(self):
-        """加载 WebUI 持久化的配置（优先级高于 AstrBot 配置）"""
+        """加载 WebUI 持久化的配置（仅填充 AstrBot 未设置的字段）"""
         if self.config_persist_path.exists():
             try:
                 with open(self.config_persist_path, "r", encoding="utf-8") as f:
                     persisted = json.load(f)
-                # 合并到当前配置（WebUI 持久化配置优先）
+                # 仅填充 AstrBot 配置中未设置或为空的字段
+                # AstrBot 配置优先级高于 WebUI 持久化配置
+                merged_keys = []
                 for key, value in persisted.items():
                     # 跳过已废弃的字段
                     if key == "vision_model":
                         continue
-                    self.config[key] = value
-                logger.debug(f"[Portrait] 已加载持久化配置: {list(persisted.keys())}")
+                    # 只有当 AstrBot 配置中没有该字段或值为空时才使用持久化值
+                    if key not in self.config or self.config.get(key) in (None, "", [], {}):
+                        self.config[key] = value
+                        merged_keys.append(key)
+                if merged_keys:
+                    logger.debug(f"[Portrait] 从持久化配置填充字段: {merged_keys}")
             except Exception as e:
                 logger.warning(f"[Portrait] 加载持久化配置失败: {e}")
 
@@ -1447,11 +1453,25 @@ class PortraitPlugin(Star):
                     # Gitee 使用异步改图 API
                     image_path = await primary.edit(prompt, images)
                     logger.info(f"[Portrait] Gitee 改图成功")
+                    # 保存元数据，分类为 edit
+                    await self.image_manager.set_metadata_async(
+                        image_path.name,
+                        prompt,
+                        model=primary.edit_model if hasattr(primary, 'edit_model') else primary.model,
+                        category="edit",
+                    )
                     return image_path
                 else:
                     # Gemini/Grok 使用 generate + images 参数
                     image_path = await primary.generate(prompt, images=images)
                     logger.info(f"[Portrait] {primary_name} 改图成功")
+                    # 保存元数据，分类为 edit
+                    await self.image_manager.set_metadata_async(
+                        image_path.name,
+                        prompt,
+                        model=primary.model,
+                        category="edit",
+                    )
                     return image_path
             except Exception as e:
                 logger.warning(f"[Portrait] {primary_name} 改图失败: {e}")
@@ -1467,9 +1487,18 @@ class PortraitPlugin(Star):
                 try:
                     if fallback_name == "Gitee":
                         image_path = await fallback.edit(prompt, images)
+                        model_name = fallback.edit_model if hasattr(fallback, 'edit_model') else fallback.model
                     else:
                         image_path = await fallback.generate(prompt, images=images)
+                        model_name = fallback.model if hasattr(fallback, 'model') else fallback_name
                     logger.info(f"[Portrait] {fallback_name} 改图成功 (备用)")
+                    # 保存元数据，分类为 edit
+                    await self.image_manager.set_metadata_async(
+                        image_path.name,
+                        prompt,
+                        model=model_name,
+                        category="edit",
+                    )
                     return image_path
                 except Exception as e:
                     logger.warning(f"[Portrait] {fallback_name} 改图失败: {e}")
