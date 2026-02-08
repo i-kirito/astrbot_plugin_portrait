@@ -23,6 +23,20 @@ def _mask_key(key: str) -> str:
     return f"{key[:4]}...{key[-4:]}"
 
 
+def _is_masked_key(value: str) -> bool:
+    """检测是否为脱敏后的密钥格式（如 XXXX...YYYY）"""
+    if not value or not isinstance(value, str):
+        return False
+    # 脱敏格式: 4字符 + ... + 4字符，或全是星号
+    if value == "*" * len(value):
+        return True
+    if "..." in value and len(value) <= 12:
+        parts = value.split("...")
+        if len(parts) == 2 and len(parts[0]) == 4 and len(parts[1]) == 4:
+            return True
+    return False
+
+
 class WebServer:
     """Portrait 插件 Web 管理服务器"""
 
@@ -388,6 +402,36 @@ class WebServer:
                 "selfie_config",
             }
 
+            # === 处理脱敏 API Key：如果是脱敏格式，保留原值 ===
+            def merge_config_with_masked_keys(field: str, new_val: dict, old_val: dict) -> dict:
+                """合并配置，脱敏格式的 Key 保留原值"""
+                if not isinstance(new_val, dict) or not isinstance(old_val, dict):
+                    return new_val
+
+                result = new_val.copy()
+                key_fields = ["api_key", "api_keys", "token"]
+
+                for key_field in key_fields:
+                    if key_field in result:
+                        new_key = result[key_field]
+                        old_key = old_val.get(key_field)
+
+                        if key_field == "api_keys" and isinstance(new_key, list):
+                            # 处理 api_keys 列表
+                            old_keys = old_val.get("api_keys", [])
+                            merged_keys = []
+                            for i, k in enumerate(new_key):
+                                if _is_masked_key(k) and i < len(old_keys):
+                                    merged_keys.append(old_keys[i])
+                                elif not _is_masked_key(k):
+                                    merged_keys.append(k)
+                            result["api_keys"] = merged_keys
+                        elif isinstance(new_key, str) and _is_masked_key(new_key) and old_key:
+                            # 单个 api_key，保留原值
+                            result[key_field] = old_key
+
+                return result
+
             # 更新配置
             updated_fields = []
             for field, value in new_config.items():
@@ -395,6 +439,12 @@ class WebServer:
                     # selfie_config 特殊处理：移除 reference_images 字段（已废弃）
                     if field == "selfie_config" and isinstance(value, dict):
                         value.pop("reference_images", None)
+
+                    # 处理包含 API Key 的配置（gitee_config, gemini_config, grok_config）
+                    if field in ("gitee_config", "gemini_config", "grok_config") and isinstance(value, dict):
+                        old_value = self.plugin.config.get(field, {}) or {}
+                        value = merge_config_with_masked_keys(field, value, old_value)
+
                     self.plugin.config[field] = value
                     updated_fields.append(field)
 
