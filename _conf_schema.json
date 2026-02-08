@@ -83,7 +83,7 @@
                 "description": "模型名称",
                 "type": "string",
                 "default": "z-image-turbo",
-                "hint": "填写模型名称，常用: z-image-turbo, z-image-base, flux.1-dev, flux.1-schnell"
+                "hint": "填写模型名称，常用: z-image-turbo,z-image"
             },
             "size": {
                 "description": "默认输出尺寸",
