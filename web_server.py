@@ -113,6 +113,10 @@ class WebServer:
         self.app.router.add_get("/api/video-presets", self.handle_get_video_presets)
         self.app.router.add_post("/api/video-presets", self.handle_save_video_presets)
 
+        # 改图预设词 API
+        self.app.router.add_get("/api/edit-presets", self.handle_get_edit_presets)
+        self.app.router.add_post("/api/edit-presets", self.handle_save_edit_presets)
+
         # 缓存清理 API
         self.app.router.add_post("/api/cache/cleanup", self.handle_cache_cleanup)
 
@@ -1219,6 +1223,75 @@ class WebServer:
             return web.json_response({"success": True})
         except Exception as e:
             logger.error(f"[Portrait WebUI] 保存视频预设词失败: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_get_edit_presets(self, request: web.Request) -> web.Response:
+        """获取改图预设词列表"""
+        try:
+            import json
+            astrbot_config_path = self.plugin.data_dir.parent.parent / "config" / "astrbot_plugin_portrait_config.json"
+            if astrbot_config_path.exists():
+                try:
+                    with open(astrbot_config_path, "r", encoding="utf-8-sig") as f:
+                        astrbot_config = json.load(f)
+                    edit_config = astrbot_config.get("edit_config", {}) or {}
+                    presets = edit_config.get("presets", []) or []
+                    # 同步到内存
+                    if "edit_config" not in self.plugin.config:
+                        self.plugin.config["edit_config"] = {}
+                    self.plugin.config["edit_config"]["presets"] = presets
+                except Exception as e:
+                    logger.warning(f"[Portrait WebUI] 读取 AstrBot 配置失败: {e}")
+                    edit_config = self.plugin.config.get("edit_config", {}) or {}
+                    presets = edit_config.get("presets", []) or []
+            else:
+                edit_config = self.plugin.config.get("edit_config", {}) or {}
+                presets = edit_config.get("presets", []) or []
+
+            # 确保是字符串列表
+            presets = [p for p in presets if isinstance(p, str)]
+            return web.json_response({"success": True, "presets": presets})
+        except Exception as e:
+            logger.error(f"[Portrait WebUI] 获取改图预设词失败: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_save_edit_presets(self, request: web.Request) -> web.Response:
+        """保存改图预设词列表"""
+        try:
+            import json
+            data = await request.json()
+            presets = data.get("presets", [])
+            # 过滤空字符串，保留有效格式（预设名:提示词）
+            presets = [p.strip() for p in presets if isinstance(p, str) and p.strip() and ":" in p]
+
+            # 保存到内存中的 edit_config
+            if "edit_config" not in self.plugin.config:
+                self.plugin.config["edit_config"] = {}
+            self.plugin.config["edit_config"]["presets"] = presets
+
+            # 同时直接更新 AstrBot 配置文件
+            astrbot_config_path = self.plugin.data_dir.parent.parent / "config" / "astrbot_plugin_portrait_config.json"
+            if astrbot_config_path.exists():
+                try:
+                    with open(astrbot_config_path, "r", encoding="utf-8-sig") as f:
+                        astrbot_config = json.load(f)
+                    if "edit_config" not in astrbot_config:
+                        astrbot_config["edit_config"] = {}
+                    astrbot_config["edit_config"]["presets"] = presets
+                    with open(astrbot_config_path, "w", encoding="utf-8") as f:
+                        json.dump(astrbot_config, f, ensure_ascii=False, indent=2)
+                except Exception as e:
+                    logger.warning(f"[Portrait WebUI] 更新 AstrBot 配置失败: {e}")
+
+            # 保存到 webui_config.json
+            self.plugin.save_config_to_disk()
+
+            # 更新插件的改图预设词
+            self.plugin.edit_presets = presets
+
+            return web.json_response({"success": True})
+        except Exception as e:
+            logger.error(f"[Portrait WebUI] 保存改图预设词失败: {e}")
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
     async def handle_serve_video(self, request: web.Request) -> web.Response:

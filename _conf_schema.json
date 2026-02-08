@@ -245,36 +245,6 @@
             }
         }
     },
-    "webui_config": {
-        "description": "Web 管理界面配置",
-        "type": "object",
-        "hint": "环境场景和摄影模式请在 WebUI 中配置",
-        "items": {
-            "enabled": {
-                "description": "启用 WebUI",
-                "type": "bool",
-                "default": false,
-                "hint": "启用后可通过浏览器访问管理界面，配置环境场景和摄影模式"
-            },
-            "host": {
-                "description": "监听地址",
-                "type": "string",
-                "default": "127.0.0.1",
-                "hint": "建议保持 127.0.0.1 仅本地访问，0.0.0.0 允许外部访问需配合 token 使用"
-            },
-            "port": {
-                "description": "端口",
-                "type": "int",
-                "default": 8088
-            },
-            "token": {
-                "description": "访问令牌",
-                "type": "string",
-                "default": "",
-                "hint": "设置后需在 URL 中添加 ?token=xxx 才能访问 WebUI，留空则无需认证"
-            }
-        }
-    },
     "edit_config": {
         "description": "改图功能配置",
         "type": "object",
@@ -309,8 +279,38 @@
             "presets": {
                 "description": "改图预设",
                 "type": "list",
-                "default": ["手办化", "Q版化", "赛博朋克风格", "水彩画风格", "油画风格"],
-                "hint": "常用改图提示词预设，方便快速选择"
+                "default": ["手办化:将图片转换为精致的手办模型风格", "Q版化:将图片转换为可爱的Q版卡通风格", "赛博朋克:添加霓虹灯光和未来科技感", "水彩画:转换为柔和的水彩画艺术风格", "油画:转换为经典油画艺术风格"],
+                "hint": "格式：预设名:提示词，用户发送/改图 预设名时使用"
+            }
+        }
+    },
+    "webui_config": {
+        "description": "Web 管理界面配置",
+        "type": "object",
+        "hint": "环境场景和摄影模式请在 WebUI 中配置",
+        "items": {
+            "enabled": {
+                "description": "启用 WebUI",
+                "type": "bool",
+                "default": false,
+                "hint": "启用后可通过浏览器访问管理界面，配置环境场景和摄影模式"
+            },
+            "host": {
+                "description": "监听地址",
+                "type": "string",
+                "default": "127.0.0.1",
+                "hint": "建议保持 127.0.0.1 仅本地访问，0.0.0.0 允许外部访问需配合 token 使用"
+            },
+            "port": {
+                "description": "端口",
+                "type": "int",
+                "default": 8088
+            },
+            "token": {
+                "description": "访问令牌",
+                "type": "string",
+                "default": "",
+                "hint": "设置后需在 URL 中添加 ?token=xxx 才能访问 WebUI，留空则无需认证"
             }
         }
     },

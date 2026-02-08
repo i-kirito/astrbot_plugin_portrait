@@ -14,11 +14,11 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Element Plus -->
     <link rel="stylesheet" href="https://unpkg.com/element-plus@2.4.4/dist/index.css" />
-    <!-- Vue 3 -->
-    <script src="https://unpkg.com/vue@3.4.15/dist/vue.global.prod.js" defer></script>
-    <script src="https://unpkg.com/element-plus@2.4.4/dist/index.full.min.js" defer></script>
+    <!-- Vue 3 (不能 defer，内联脚本依赖它) -->
+    <script src="https://unpkg.com/vue@3.4.15/dist/vue.global.prod.js"></script>
+    <script src="https://unpkg.com/element-plus@2.4.4/dist/index.full.min.js"></script>
     <!-- SortableJS for drag-drop -->
-    <script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js" defer></script>
+    <script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js"></script>
     <style>
         :root {
             --primary-pink: #FF69B4;
@@ -532,10 +532,6 @@
                         <span class="icon">&#128248;</span>
                         <span>人像参考</span>
                     </div>
-                    <div class="nav-item" :class="{ active: activeTab === 'editSettings' }" @click="activeTab = 'editSettings'; mobileMenuOpen = false" @keyup.enter="activeTab = 'editSettings'" tabindex="0" role="button" aria-pressed="activeTab === 'editSettings'">
-                        <span class="icon">&#9998;</span>
-                        <span>改图设置</span>
-                    </div>
                     <div class="nav-item" :class="{ active: activeTab === 'gallery' }" @click="activeTab = 'gallery'; mobileMenuOpen = false" @keyup.enter="activeTab = 'gallery'" tabindex="0" role="button" aria-pressed="activeTab === 'gallery'">
                         <span class="icon">&#128444;</span>
                         <span>图片画廊</span>
@@ -556,7 +552,7 @@
                     </div>
                     <div class="nav-item" :class="{ active: activeTab === 'videoPresets' }" @click="activeTab = 'videoPresets'; mobileMenuOpen = false" @keyup.enter="activeTab = 'videoPresets'" tabindex="0" role="button" aria-pressed="activeTab === 'videoPresets'">
                         <span class="icon">&#128221;</span>
-                        <span>视频预设词</span>
+                        <span>预设词设置</span>
                     </div>
                 </nav>
                 <div class="p-4 border-t border-pink-200/30">
@@ -888,6 +884,40 @@
                         </el-form>
                     </el-card>
 
+                    <!-- 改图功能配置卡片 -->
+                    <el-card class="mb-6">
+                        <template #header>
+                            <div class="card-title">
+                                <span class="icon">&#9998;</span>
+                                <span>改图功能</span>
+                            </div>
+                        </template>
+                        <el-form label-position="top">
+                            <el-form-item label="启用改图功能">
+                                <el-switch v-model="editConfig.enabled" />
+                                <span class="text-sm text-gray-400 ml-3">启用后可使用 /改图 命令</span>
+                            </el-form-item>
+                            <el-row :gutter="20">
+                                <el-col :span="12">
+                                    <el-form-item label="改图模型">
+                                        <el-input v-model="editConfig.model" placeholder="Qwen-Image-Edit-2511" />
+                                        <p class="text-xs text-pink-400 mt-1">Gitee AI 改图使用的模型</p>
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="6">
+                                    <el-form-item label="轮询间隔 (秒)">
+                                        <el-input-number v-model="editConfig.poll_interval" :min="1" :max="30" :step="1" style="width: 100%;" />
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="6">
+                                    <el-form-item label="轮询超时 (秒)">
+                                        <el-input-number v-model="editConfig.poll_timeout" :min="60" :max="600" :step="30" style="width: 100%;" />
+                                    </el-form-item>
+                                </el-col>
+                            </el-row>
+                        </el-form>
+                    </el-card>
+
                     <!-- 缓存清理配置卡片 -->
                     <el-card class="mb-6">
                         <template #header>
@@ -1142,80 +1172,6 @@
                     </el-card>
                 </div>
 
-                <!-- 改图设置页面 -->
-                <div v-if="activeTab === 'editSettings'" class="max-w-4xl mx-auto fade-in">
-                    <div class="page-header">
-                        <h2 class="page-title">改图设置</h2>
-                        <el-button type="primary" size="large" :loading="saving" @click="saveConfig">
-                            <span style="margin-right: 8px;">&#128190;</span> 保存更改
-                        </el-button>
-                    </div>
-
-                    <!-- 基本设置 -->
-                    <el-card class="mb-6">
-                        <template #header>
-                            <div class="card-title">
-                                <span class="icon">&#9881;</span>
-                                <span>基本配置</span>
-                            </div>
-                        </template>
-                        <el-form label-position="top" class="space-y-4">
-                            <el-form-item label="启用改图功能">
-                                <el-switch v-model="editConfig.enabled" />
-                                <span class="text-sm text-gray-400 ml-3">启用后可使用 /改图 命令</span>
-                            </el-form-item>
-                            <el-form-item label="改图模型">
-                                <el-input v-model="editConfig.model" placeholder="Qwen-Image-Edit-2511" />
-                                <div class="text-xs text-gray-400 mt-1">Gitee AI 改图使用的模型名称</div>
-                            </el-form-item>
-                            <el-form-item label="轮询间隔 (秒)">
-                                <el-slider v-model="editConfig.poll_interval" :min="1" :max="30" :step="1" show-input input-size="small" style="max-width: 400px;" />
-                                <div class="text-xs text-gray-400 mt-1">异步任务状态轮询间隔</div>
-                            </el-form-item>
-                            <el-form-item label="轮询超时 (秒)">
-                                <el-slider v-model="editConfig.poll_timeout" :min="60" :max="600" :step="30" show-input input-size="small" style="max-width: 400px;" />
-                                <div class="text-xs text-gray-400 mt-1">异步任务最大等待时间</div>
-                            </el-form-item>
-                        </el-form>
-                    </el-card>
-
-                    <!-- 改图预设 -->
-                    <el-card>
-                        <template #header>
-                            <div class="card-title">
-                                <span class="icon">&#128221;</span>
-                                <span>改图预设</span>
-                                <el-button type="primary" size="small" @click="addEditPreset" style="margin-left: auto;">
-                                    <span style="margin-right: 4px;">&#43;</span> 添加预设
-                                </el-button>
-                            </div>
-                        </template>
-                        <el-alert type="info" :closable="false" style="margin-bottom: 1rem;">
-                            <template #title>
-                                <span>常用改图提示词预设，方便快速选择使用</span>
-                            </template>
-                            <div class="text-sm mt-1" style="color: #666;">
-                                例如：手办化、Q版化、水彩画风格
-                            </div>
-                        </el-alert>
-                        <div v-if="!editConfig.presets || editConfig.presets.length === 0" class="empty-state">
-                            <p>暂无改图预设</p>
-                            <p class="text-sm text-gray-400 mt-2">点击上方按钮添加预设</p>
-                        </div>
-                        <div v-else class="flex flex-col gap-3">
-                            <div v-for="(preset, index) in editConfig.presets" :key="index" class="preset-card" style="background: rgba(255,255,255,0.9); border-radius: 12px; padding: 0.75rem 1rem; box-shadow: 0 4px 15px rgba(0,0,0,0.08);">
-                                <el-input v-model="editConfig.presets[index]" placeholder="预设提示词（如 手办化）">
-                                    <template #suffix>
-                                        <el-button type="danger" link @click="deleteEditPreset(index)" style="font-size: 1rem; padding: 0 8px;">
-                                            &#10005;
-                                        </el-button>
-                                    </template>
-                                </el-input>
-                            </div>
-                        </div>
-                    </el-card>
-                </div>
-
                 <!-- 图片画廊页面 -->
                 <div v-if="activeTab === 'gallery'" class="fade-in">
                     <div class="page-header">
@@ -1371,41 +1327,84 @@
                     </div>
                 </div>
 
-                <!-- 视频预设词页面 -->
-                <div v-if="activeTab === 'videoPresets'" class="fade-in">
+                <!-- 预设词设置页面 -->
+                <div v-if="activeTab === 'videoPresets'" class="fade-in max-w-4xl mx-auto">
                     <div class="page-header">
-                        <h2 class="page-title">视频预设词</h2>
-                        <el-button type="primary" @click="addVideoPreset">
-                            <span style="margin-right: 8px;">&#43;</span> 添加预设
-                        </el-button>
+                        <h2 class="page-title">预设词设置</h2>
+                        <span class="text-sm text-gray-400">修改后自动保存</span>
                     </div>
 
-                    <!-- 使用说明 -->
-                    <el-alert type="info" :closable="false" style="margin-bottom: 1rem;">
-                        <template #title>
-                            <span>格式：预设名:提示词，用户发送"视频 预设名"时自动使用对应提示词</span>
+                    <!-- 改图预设词 -->
+                    <el-card class="mb-6">
+                        <template #header>
+                            <div class="card-title">
+                                <span class="icon">&#9998;</span>
+                                <span>改图预设词</span>
+                                <el-button type="primary" size="small" @click="addEditPreset" style="margin-left: auto;">
+                                    <span style="margin-right: 4px;">&#43;</span> 添加预设
+                                </el-button>
+                            </div>
                         </template>
-                        <div class="text-sm mt-1" style="color: #666;">
-                            例如：微笑:让人物微笑，表情自然，眼睛有神
+                        <el-alert type="info" :closable="false" style="margin-bottom: 1rem;">
+                            <template #title>
+                                <span>格式：预设名:提示词，用户发送"/改图 预设名"时自动使用对应提示词</span>
+                            </template>
+                            <div class="text-sm mt-1" style="color: #666;">
+                                例如：手办化:将图片转换为精致的手办模型风格
+                            </div>
+                        </el-alert>
+                        <div v-if="editPresets.length === 0" class="empty-state">
+                            <p>暂无改图预设词</p>
+                            <p class="text-sm text-gray-400 mt-2">点击上方按钮添加预设词</p>
                         </div>
-                    </el-alert>
+                        <div v-else class="flex flex-col gap-3">
+                            <div v-for="(preset, index) in editPresets" :key="'edit-'+index" class="preset-card" style="background: rgba(255,255,255,0.9); border-radius: 12px; padding: 0.75rem 1rem; box-shadow: 0 4px 15px rgba(0,0,0,0.08);">
+                                <el-input v-model="editPresets[index]" placeholder="预设名:提示词（如 手办化:将图片转换为手办风格）" @change="saveEditPresets">
+                                    <template #suffix>
+                                        <el-button type="danger" link @click="deleteEditPreset(index)" style="font-size: 1rem; padding: 0 8px;">
+                                            &#10005;
+                                        </el-button>
+                                    </template>
+                                </el-input>
+                            </div>
+                        </div>
+                    </el-card>
 
-                    <!-- 预设列表 -->
-                    <div v-if="videoPresets.length === 0" class="empty-state">
-                        <p>暂无视频预设词</p>
-                        <p class="text-sm text-gray-400 mt-2">点击上方按钮添加预设词</p>
-                    </div>
-                    <div v-else class="flex flex-col gap-3">
-                        <div v-for="(preset, index) in videoPresets" :key="index" class="preset-card" style="background: rgba(255,255,255,0.9); border-radius: 12px; padding: 0.75rem 1rem; box-shadow: 0 4px 15px rgba(0,0,0,0.08);">
-                            <el-input v-model="videoPresets[index]" placeholder="预设名:提示词（如 微笑:让人物微笑）" @change="saveVideoPresets">
-                                <template #suffix>
-                                    <el-button type="danger" link @click="deleteVideoPreset(index)" style="font-size: 1rem; padding: 0 8px;">
-                                        &#10005;
-                                    </el-button>
-                                </template>
-                            </el-input>
+                    <!-- 视频预设词 -->
+                    <el-card>
+                        <template #header>
+                            <div class="card-title">
+                                <span class="icon">&#127916;</span>
+                                <span>视频预设词</span>
+                                <el-button type="primary" size="small" @click="addVideoPreset" style="margin-left: auto;">
+                                    <span style="margin-right: 4px;">&#43;</span> 添加预设
+                                </el-button>
+                            </div>
+                        </template>
+                        <el-alert type="info" :closable="false" style="margin-bottom: 1rem;">
+                            <template #title>
+                                <span>格式：预设名:提示词，用户发送"/视频 预设名"时自动使用对应提示词</span>
+                            </template>
+                            <div class="text-sm mt-1" style="color: #666;">
+                                例如：微笑:让人物微笑，表情自然，眼睛有神
+                            </div>
+                        </el-alert>
+                        <div v-if="videoPresets.length === 0" class="empty-state">
+                            <p>暂无视频预设词</p>
+                            <p class="text-sm text-gray-400 mt-2">点击上方按钮添加预设词</p>
                         </div>
-                    </div>
+                        <div v-else class="flex flex-col gap-3">
+                            <div v-for="(preset, index) in videoPresets" :key="'video-'+index" class="preset-card" style="background: rgba(255,255,255,0.9); border-radius: 12px; padding: 0.75rem 1rem; box-shadow: 0 4px 15px rgba(0,0,0,0.08);">
+                                <el-input v-model="videoPresets[index]" placeholder="预设名:提示词（如 微笑:让人物微笑）" @change="saveVideoPresets">
+                                    <template #suffix>
+                                        <el-button type="danger" link @click="deleteVideoPreset(index)" style="font-size: 1rem; padding: 0 8px;">
+                                            &#10005;
+                                        </el-button>
+                                    </template>
+                                </el-input>
+                            </div>
+                        </div>
+                    </el-card>
                 </div>
             </div>
         </div>
@@ -1569,7 +1568,7 @@
                     model: 'Qwen-Image-Edit-2511',
                     poll_interval: 5,
                     poll_timeout: 300,
-                    presets: ['手办化', 'Q版化', '赛博朋克风格', '水彩画风格', '油画风格'],
+                    presets: ['手办化:将图片转换为精致的手办模型风格', 'Q版化:将图片转换为可爱的Q版卡通风格', '赛博朋克:添加霓虹灯光和未来科技感', '水彩画:转换为柔和的水彩画艺术风格', '油画:转换为经典油画艺术风格'],
                 });
 
                 // 提供商配置
@@ -1683,7 +1682,7 @@
                         if (res.ok) {
                             // 不需要认证，直接进入
                             isAuthenticated.value = true;
-                            await Promise.all([loadConfig(), loadImages(), loadVideos(), loadVideoPresets()]);
+                            await Promise.all([loadConfig(), loadImages(), loadVideos(), loadVideoPresets(), loadEditPresets()]);
                             nextTick(() => initSortable());
                             return;
                         }
@@ -1707,7 +1706,7 @@
                                 url.searchParams.delete('token');
                                 window.history.replaceState({}, '', url.pathname + url.search);
                                 isAuthenticated.value = true;
-                                await Promise.all([loadConfig(), loadImages(), loadVideos(), loadVideoPresets()]);
+                                await Promise.all([loadConfig(), loadImages(), loadVideos(), loadVideoPresets(), loadEditPresets()]);
                                 nextTick(() => initSortable());
                             }
                         } catch {}
@@ -1737,7 +1736,7 @@
                             sessionStorage.removeItem('portrait_token');
                             isAuthenticated.value = true;
                             // 加载数据
-                            await Promise.all([loadConfig(), loadImages(), loadVideos(), loadVideoPresets()]);
+                            await Promise.all([loadConfig(), loadImages(), loadVideos(), loadVideoPresets(), loadEditPresets()]);
                             nextTick(() => initSortable());
                         } else {
                             loginError.value = data.error || '访问令牌无效';
@@ -2399,15 +2398,46 @@
                 }
 
                 // ========== 改图预设 ==========
-                function addEditPreset() {
-                    if (!editConfig.presets) {
-                        editConfig.presets = [];
+                const editPresets = ref([]);
+
+                async function loadEditPresets() {
+                    try {
+                        const res = await fetch('/api/edit-presets', { credentials: 'same-origin' });
+                        const data = await res.json();
+                        if (data.success) {
+                            editPresets.value = data.presets || [];
+                        }
+                    } catch (e) {
+                        console.error('加载改图预设词失败:', e);
                     }
-                    editConfig.presets.push('');
+                }
+
+                async function saveEditPresets() {
+                    try {
+                        const res = await fetch('/api/edit-presets', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'same-origin',
+                            body: JSON.stringify({ presets: editPresets.value })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            ElementPlus.ElMessage.success('改图预设词已保存');
+                        } else {
+                            ElementPlus.ElMessage.error(data.error || '保存失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('保存失败: ' + e.message);
+                    }
+                }
+
+                function addEditPreset() {
+                    editPresets.value.push('');
                 }
 
                 function deleteEditPreset(index) {
-                    editConfig.presets.splice(index, 1);
+                    editPresets.value.splice(index, 1);
+                    saveEditPresets();
                 }
 
                 return {
@@ -2436,6 +2466,9 @@
                     cleaningCache,
                     cleanupCache,
                     editConfig,
+                    editPresets,
+                    loadEditPresets,
+                    saveEditPresets,
                     addEditPreset,
                     deleteEditPreset,
                     providerConfig,

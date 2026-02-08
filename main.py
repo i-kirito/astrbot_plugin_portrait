@@ -872,14 +872,14 @@ class PortraitPlugin(Star):
         if hasattr(req, 'messages') and req.messages:
             for msg in req.messages:
                 if hasattr(msg, 'content') and isinstance(msg.content, str):
-                    cleaned = portrait_pattern.sub('', msg.content)
+                    cleaned = self._portrait_status_pattern.sub('', msg.content)
                     if cleaned != msg.content:
                         msg.content = cleaned
                         logger.debug(f"[Portrait] 已从 {msg.role} 消息清理注入内容")
 
         # 清理 prompt (如果是字符串)
         if hasattr(req, 'prompt') and isinstance(req.prompt, str):
-            cleaned = portrait_pattern.sub('', req.prompt)
+            cleaned = self._portrait_status_pattern.sub('', req.prompt)
             if cleaned != req.prompt:
                 req.prompt = cleaned
                 logger.debug("[Portrait] 已从 prompt 清理注入内容")
@@ -1227,7 +1227,7 @@ class PortraitPlugin(Star):
 
     # === v3.1.0: 改图命令 ===
 
-    @filter.command("改图", alias={"图生图", "修图", "aiedit"})
+    @filter.command("改图")
     async def edit_image_cmd(self, event: AstrMessageEvent, prompt: str = ""):
         """改图命令：发送/引用图片 + /改图 <提示词>
 
@@ -1235,6 +1235,9 @@ class PortraitPlugin(Star):
         - 发送图片 + /改图 <提示词>
         - 引用图片消息 + /改图 <提示词>
         """
+        # 阻止 LLM 调用
+        event.stop_event()
+
         # 功能开关检查
         if not self.edit_enabled:
             yield event.plain_result("改图功能未启用，请在配置中开启")
