@@ -931,6 +931,60 @@ class PortraitPlugin(Star):
             logger.exception("[Portrait] API 改图失败")
             return None
 
+    async def generate_video_api(
+        self,
+        prompt: str,
+        image_bytes: bytes | None = None,
+    ) -> str | None:
+        """公共 API：供其他插件调用的视频生成接口
+
+        Args:
+            prompt: 视频提示词
+            image_bytes: 可选的参考图片字节数据（图生视频）
+
+        Returns:
+            视频 URL 或 None（生成失败）
+
+        Example:
+            # 在其他插件中调用
+            for star in context.get_all_stars():
+                if star.name == "astrbot_plugin_portrait":
+                    video_url = await star.star_instance.generate_video_api(
+                        prompt="一只猫在草地上奔跑",
+                        image_bytes=image_data,  # 可选
+                    )
+                    if video_url:
+                        # 使用视频 URL...
+        """
+        if self._is_terminated:
+            return None
+
+        # 检查视频功能是否启用
+        if not bool(self.grok_config.get("video_enabled", False)):
+            logger.warning("[Portrait] 视频功能未启用")
+            return None
+
+        if not self.video_service:
+            logger.warning("[Portrait] 视频服务未初始化")
+            return None
+
+        try:
+            video_url = await self.video_service.generate_video_url(
+                prompt=prompt,
+                image_bytes=image_bytes,
+            )
+
+            if video_url:
+                # 保存到视频管理器
+                self.video_manager.save_video_url(video_url, prompt=prompt)
+                return video_url
+
+            return None
+
+        except Exception:
+            logger.exception("[Portrait] API 视频生成失败")
+            return None
+
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
         # 生命周期检查：防止旧实例继续工作
