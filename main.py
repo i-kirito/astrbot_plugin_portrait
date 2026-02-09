@@ -184,7 +184,10 @@ class PortraitPlugin(Star):
             r'[坐站躺蹲跪趴]着',
             # 日常活动：吃饭/睡觉/看书/玩手机/做饭/喝饮品
             r'(?:吃饭|睡觉|看书|玩手机|做饭)',
-            r'喝(?:水|咖啡|茶)',
+            r'喝(?:水|咖啡|茶|可可|奶茶|饮料|酒)',
+            # v3.x: 更多日常活动
+            r'发呆',
+            r'(?:看|望)[着向]?(?:窗|天空|远方|星星|月亮)',
         ]
         self.trigger_regex = re.compile(f"({'|'.join(trigger_keywords)})", re.IGNORECASE)
 
@@ -194,6 +197,11 @@ class PortraitPlugin(Star):
             'girl', 'woman', 'lady', 'female', 'person', 'human',
             'selfie', 'portrait', 'headshot', 'profile', 'cosplay',
             'face', 'body', 'eyes', 'ootd',
+            # v3.x: 更多英文关键词，用于匹配LLM生成的prompt
+            'sitting', 'standing', 'lying', 'drinking', 'eating',
+            'looking', 'staring', 'gazing', 'relaxing', 'resting',
+            'photo', 'picture', 'image', 'shot',
+            'chair', 'sofa', 'bed', 'window', 'desk',
         ]
         # 中文关键词（直接匹配）
         chinese_keywords = [
@@ -233,14 +241,17 @@ class PortraitPlugin(Star):
             r'(?:看|发|来|要).{0,6}(?:照片|图)',  # 匹配：看照片 / 发个图 / 来张照片
             r'(?:照片|图).{0,6}(?:给我|让我|给你|发来|看看|康康)',  # 匹配：照片给我看 / 图发来
             r'拍(?:一)?[张个]?(?:照|照片)',  # 匹配：拍照 / 拍一张照 / 拍个照片
+            r'拍(?:一)?[张个].{0,20}(?:照片|图)',  # 匹配：拍一张...的照片
             # 状态与外貌询问：在干嘛、长什么样
             r'在干(?:嘛|啥|什么)(?:呢)?',  # 匹配：在干嘛 / 在干什么呢
             r'干嘛呢',  # 匹配：干嘛呢
             r'长什么样(?:子)?',  # 匹配：长什么样 / 长什么样子
             r'什么样子',  # 匹配：什么样子
             # 场景与姿态：在画室、在卧室、坐着、站着
-            r'在(?:画室|卧室|厨房|客厅|浴室|阳台|书房|办公室|学校|教室|公园|海边|床上|沙发|窗边|镜子前|家|房间|茶水间|走廊|楼梯|天台|餐厅|咖啡厅)',  # 匹配常见角色所处场景
-            r'[坐站躺蹲跪趴]着',  # 匹配：坐着 / 站着 / 躺着等
+            r'在(?:画室|卧室|厨房|客厅|浴室|阳台|书房|办公室|学校|教室|公园|海边|床上|沙发|窗边|镜子前|家|房间|茶水间|走廊|楼梯|天台|餐厅|咖啡厅|椅子|桌前|车里|地铁|街上|商场|图书馆)',  # 匹配常见角色所处场景
+            r'[坐站躺蹲跪趴窝靠倚]着',  # 匹配：坐着 / 站着 / 躺着 / 窝着 / 靠着等
+            r'窝在',  # 匹配：窝在椅子里
+            r'靠在',  # 匹配：靠在墙上
         ]
         # 合并为单个正则：英文用词边界，中文直接匹配
         english_patterns = [rf'\b{re.escape(kw)}\b' for kw in english_keywords]
@@ -325,6 +336,12 @@ class PortraitPlugin(Star):
         self.injection_rounds = max(1, self.config.get("injection_rounds", 1))
         # 会话过期时间（秒），默认 1 小时
         self.session_ttl = 3600
+
+        # === v3.x: 角色相关性缓存（跨阶段传递判定结果，避免重复正则匹配）===
+        # {session_id: (is_character_related, timestamp)}
+        self.character_related_cache: dict[str, tuple[bool, float]] = {}
+        # 缓存 TTL（秒），60 秒内的工具调用复用第一阶段判定
+        self.character_related_cache_ttl: float = 60.0
 
         # === 高频路径缓存（性能优化）===
         self._banana_prefixes_cache: set[str] | None = None
@@ -751,6 +768,7 @@ class PortraitPlugin(Star):
             # 清理会话缓存
             self.injection_counter.clear()
             self.injection_last_active.clear()
+            self.character_related_cache.clear()  # v3.x: 清理角色相关性缓存
             # 关闭 Gitee 服务
             await self.gitee_draw.close()
             # 关闭 Gemini 服务
@@ -1098,19 +1116,24 @@ class PortraitPlugin(Star):
             logger.debug(f"[Portrait] 未检测到绘图意图，跳过注入")
             return
 
-        # === v2.9.2: 前置角色相关性判断，非角色内容不注入 ===
-        # === v2.9.8: 传入上下文消息用于回应性对话检测 ===
-        context_messages = list(req.messages) if hasattr(req, 'messages') and req.messages else None
-        if not self._is_character_related_prompt(user_message, context_messages):
-            logger.info(f"[Portrait] 用户消息非角色相关，跳过注入: {user_message[:50]}...")
-            return
-
         # === v1.8.1: 多轮次注入逻辑 ===
         # 修复：使用 群ID + 用户ID 作为 session key，避免群内用户互相污染
         group_id = event.unified_msg_origin or "default"
         user_id = str(event.get_sender_id()) if hasattr(event, 'get_sender_id') else "unknown"
         session_id = f"{group_id}:{user_id}"
         current_time = datetime.now().timestamp()
+
+        # === v2.9.2: 前置角色相关性判断，非角色内容不注入 ===
+        # === v2.9.8: 传入上下文消息用于回应性对话检测 ===
+        context_messages = list(req.messages) if hasattr(req, 'messages') and req.messages else None
+        is_char_related = self._is_character_related_prompt(user_message, context_messages)
+
+        # === v3.x: 缓存角色相关性判定结果，供后续工具调用阶段使用 ===
+        self.character_related_cache[session_id] = (is_char_related, current_time)
+
+        if not is_char_related:
+            logger.info(f"[Portrait] 用户消息非角色相关，跳过注入: {user_message[:50]}...")
+            return
 
         # 清理过期会话（间隔触发，减少每次请求的开销）
         if current_time - self._last_session_cleanup_ts >= self._session_cleanup_interval:
@@ -1121,6 +1144,14 @@ class PortraitPlugin(Star):
             for sid in expired_sessions:
                 self.injection_counter.pop(sid, None)
                 self.injection_last_active.pop(sid, None)
+                self.character_related_cache.pop(sid, None)  # v3.x: 同步清理
+            # v3.x: 清理过期的角色相关性缓存（TTL 较短，单独清理）
+            expired_char_cache = [
+                sid for sid, (_, ts) in self.character_related_cache.items()
+                if current_time - ts > self.character_related_cache_ttl * 10  # 10x TTL 后彻底清理
+            ]
+            for sid in expired_char_cache:
+                self.character_related_cache.pop(sid, None)
             if expired_sessions:
                 logger.debug(f"[Portrait] 已清理 {len(expired_sessions)} 个过期会话")
             self._last_session_cleanup_ts = current_time
@@ -2162,8 +2193,20 @@ class PortraitPlugin(Star):
             return "[SUCCESS] 图片已处理。"
 
         try:
-            # === v2.9.2: 统一判断角色相关性，避免重复调用 ===
-            is_character_related = self._is_character_related_prompt(prompt)
+            # === v3.x: 优先使用缓存的角色相关性判定，避免重复正则匹配 ===
+            group_id = event.unified_msg_origin or "default"
+            user_id = str(event.get_sender_id()) if hasattr(event, 'get_sender_id') else "unknown"
+            session_id = f"{group_id}:{user_id}"
+            current_time = datetime.now().timestamp()
+
+            cached = self.character_related_cache.get(session_id)
+            if cached and (current_time - cached[1]) < self.character_related_cache_ttl:
+                is_character_related = cached[0]
+                logger.debug(f"[Portrait] 使用缓存的角色相关性判定: {is_character_related}")
+            else:
+                # 缓存未命中或已过期，回退到 prompt 判断
+                is_character_related = self._is_character_related_prompt(prompt)
+                logger.debug(f"[Portrait] 缓存未命中，使用 prompt 判断: {is_character_related}")
 
             final_prompt = self._build_final_prompt(prompt, is_character_related)
             image_path = await self._generate_image(
