@@ -30,6 +30,13 @@ def _is_safe_url(url: str) -> bool:
     - 2130706433 (十进制 IP)
     - 0x7f000001 (十六进制 IP)
     """
+    # 可信域名白名单（跳过 IP 检查）
+    trusted_domains = (
+        '.bcebos.com',      # 百度云存储（Gitee AI 使用）
+        '.baidubce.com',    # 百度云
+        '.gitee.com',       # Gitee
+    )
+
     try:
         parsed = urlparse(url)
         # 允许 http/https（内部使用场景允许 http，如 Gitee AI 返回的图片链接）
@@ -39,6 +46,12 @@ def _is_safe_url(url: str) -> bool:
         if not host:
             return False
 
+        host_lower = host.lower()
+
+        # 检查是否为可信域名（跳过 IP 检查）
+        if any(host_lower.endswith(domain) for domain in trusted_domains):
+            return True
+
         # 先检查是否直接是 IP 地址
         try:
             ip = ipaddress.ip_address(host)
@@ -46,7 +59,6 @@ def _is_safe_url(url: str) -> bool:
                 return False
         except ValueError:
             # 不是 IP，是域名，进行 DNS 解析验证
-            host_lower = host.lower()
 
             # 快速拒绝已知危险域名
             dangerous_patterns = [
