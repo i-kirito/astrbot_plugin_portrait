@@ -521,7 +521,9 @@ class GiteeDrawService:
                         logger.error(f"[GiteeDrawService] 改图任务失败: {error_msg}")
                         raise RuntimeError(f"Gitee 改图任务失败: {error_msg}")
 
-                    logger.debug(f"[GiteeDrawService] 轮询第{i + 1}轮, 状态: {status}")
+                    # 每 5 轮输出一次日志，减少日志噪音
+                    if (i + 1) % 5 == 0:
+                        logger.debug(f"[GiteeDrawService] 轮询第{i + 1}轮, 状态: {status}")
 
             except aiohttp.ClientError as e:
                 logger.warning(f"[GiteeDrawService] 轮询网络错误 (第{i + 1}轮): {e}")
