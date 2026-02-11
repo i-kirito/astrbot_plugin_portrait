@@ -34,6 +34,7 @@ class GeminiDrawService:
         base_url: str = "https://generativelanguage.googleapis.com",
         model: str = "gemini-2.0-flash-exp-image-generation",
         image_size: str = "1K",
+        aspect_ratio: str = "1:1",
         timeout: int = 120,
         proxy: str | None = None,
         max_storage_mb: int = 500,
@@ -43,6 +44,7 @@ class GeminiDrawService:
         self.api_key = api_key.strip() if api_key else ""
         self.model = model.strip() if model else "gemini-2.0-flash-exp-image-generation"
         self.image_size = image_size.upper() if image_size else "1K"
+        self.aspect_ratio = aspect_ratio.strip() if aspect_ratio else "1:1"
         self.timeout = timeout
         self.proxy = proxy
 
@@ -143,16 +145,22 @@ class GeminiDrawService:
 
         has_ref = images and len(images) > 0
         mode_str = f"参考图x{len(images)}" if has_ref else "文生图"
-        logger.info(f"[Gemini] 开始生成图片 ({mode_str}, size={effective_size}): {prompt[:50]}...")
+        logger.info(f"[Gemini] 开始生成图片 ({mode_str}, size={effective_size}, ratio={self.aspect_ratio}): {prompt[:50]}...")
+
+        # v3.x: 对不支持 imageConfig 的模型（gemini-2 系列），在 prompt 末尾附加比例提示
+        effective_prompt = prompt
+        is_high_res_model = GEMINI_HIGH_RES_MODEL_PREFIX in self.model.lower()
+        if not is_high_res_model and self.aspect_ratio:
+            effective_prompt = f"{prompt}\n\n[Output: square image, {self.aspect_ratio} aspect ratio]"
 
         start_time = time.time()
 
         # 默认使用原生接口，失败时回退到 OpenAI 兼容接口
         try:
-            image_bytes = await self._generate_native(prompt, images, effective_size)
+            image_bytes = await self._generate_native(effective_prompt, images, effective_size)
         except Exception as e:
             logger.warning(f"[Gemini] 原生接口失败: {e}，尝试 OpenAI 兼容接口")
-            image_bytes = await self._generate_openai_compatible(prompt, images)
+            image_bytes = await self._generate_openai_compatible(effective_prompt, images)
 
         elapsed = time.time() - start_time
         logger.info(f"[Gemini] 图片生成耗时: {elapsed:.2f}s")
@@ -214,9 +222,12 @@ class GeminiDrawService:
             ],
         }
 
-        # 仅 gemini-3 系列支持 imageSize 参数（1K/2K/4K）
+        # 仅 gemini-3 系列支持 imageSize / aspectRatio 参数
         if GEMINI_HIGH_RES_MODEL_PREFIX in self.model.lower():
-            payload["generationConfig"]["imageConfig"] = {"imageSize": image_size}
+            image_config = {"imageSize": image_size}
+            if self.aspect_ratio:
+                image_config["aspectRatio"] = self.aspect_ratio
+            payload["generationConfig"]["imageConfig"] = image_config
 
         logger.debug(f"[Gemini Native] URL: {url}, has_images={bool(images)}")
 

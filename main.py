@@ -165,12 +165,15 @@ class PortraitPlugin(Star):
         # === Issue 1 fix: Refactored to list format for easier maintenance ===
         trigger_keywords = [
             # 基础绘图意图
-            r'画', r'拍', r'照', r'自拍', r'全身', r'穿搭', r'爆照', r'形象', r'样子',
+            # v3.x: 移除裸 '照'（误匹配"照顾/按照/对照"）和 '样子'（误匹配"什么样子的房子"）
+            r'画', r'拍', r'照[片相]', r'[自合]照', r'自拍', r'全身', r'穿搭', r'爆照', r'形象',
             # 英文触发词
-            r'draw', r'photo', r'selfie', r'picture', r'image', r'shot', r'snap',
-            r'ootd', r'outfit', r'look',
-            # 查看/发图表达：看看、康康、瞧瞧、瞅瞅、给我看、来张
-            r'[看康瞧瞅]{2}',
+            # v3.x: 移除泛化词 image/shot/look（误匹配 "docker image"/"one shot"/"look at code"）
+            r'draw', r'photo', r'selfie', r'picture', r'snap',
+            r'ootd', r'outfit',
+            # 查看/发图表达
+            # v3.x: '看看' 必须跟角色指向后缀，避免 "看看有吗/看看时间" 等误触发
+            r'[看康瞧瞅]{2}(?:你|自己|她|他|本人)',
             r'(?:给我|让我)[看康瞧瞅]',
             r'(?:发|来)[张个一]',
             # 状态询问与连续请求
@@ -192,16 +195,15 @@ class PortraitPlugin(Star):
         self.trigger_regex = re.compile(f"({'|'.join(trigger_keywords)})", re.IGNORECASE)
 
         # === 预编译角色相关关键词正则（性能优化）===
-        # 英文关键词（需要词边界避免误匹配）
+        # 英文关键词（仅保留强角色指示词，需要词边界避免误匹配）
+        # v3.x: 移除泛化词 (face/body/eyes/sitting/standing/photo/image 等)
+        #   这些词在非角色 prompt 中高频出现（如 "face like horse" 描述四不像），
+        #   导致工具调用阶段误判为角色相关并加载参考人像。
+        #   角色相关 prompt 几乎总包含 girl/woman/selfie 等强指示词，无需泛化词补充。
         english_keywords = [
-            'girl', 'woman', 'lady', 'female', 'person', 'human',
+            'girl', 'woman', 'lady',
             'selfie', 'portrait', 'headshot', 'profile', 'cosplay',
-            'face', 'body', 'eyes', 'ootd',
-            # v3.x: 更多英文关键词，用于匹配LLM生成的prompt
-            'sitting', 'standing', 'lying', 'drinking', 'eating',
-            'looking', 'staring', 'gazing', 'relaxing', 'resting',
-            'photo', 'picture', 'image', 'shot',
-            'chair', 'sofa', 'bed', 'window', 'desk',
+            'ootd',
         ]
         # 中文关键词（直接匹配）
         chinese_keywords = [
@@ -235,8 +237,9 @@ class PortraitPlugin(Star):
             r'(?:今[日天])?穿搭',  # 匹配：穿搭 / 今日穿搭 / 今天穿搭
             r'ootd',  # 匹配：英文穿搭词 ootd
             r'全身(?:照|图|像)?',  # 匹配：全身 / 全身照 / 全身图
-            # 查看表达：看看你、康康、瞧瞧、瞅瞅
-            r'[看康瞧瞅]{2}(?:你|下|一下)?',  # 匹配：看看 / 康康你 / 瞧瞧一下
+            # 查看表达：看看你、康康你 — 必须跟角色指向后缀
+            # v3.x: 移除可选后缀 '?'，避免 "看看有吗/看看时间" 等误触发
+            r'[看康瞧瞅]{2}(?:你|自己|她|他|本人|一下你)',  # 匹配：看看你 / 康康自己 / 瞧瞧一下你
             # 照片/图片请求：看照片、发图片、来张照片
             r'(?:看|发|来|要).{0,6}(?:照片|图)',  # 匹配：看照片 / 发个图 / 来张照片
             r'(?:照片|图).{0,6}(?:给我|让我|给你|发来|看看|康康)',  # 匹配：照片给我看 / 图发来
@@ -247,6 +250,10 @@ class PortraitPlugin(Star):
             r'干嘛呢',  # 匹配：干嘛呢
             r'长什么样(?:子)?',  # 匹配：长什么样 / 长什么样子
             r'什么样子',  # 匹配：什么样子
+            # v3.x: 活动/状态 + 样子 → 询问角色当前外貌
+            # "拍张现在直播的样子" / "看看你现在的样子" / "你工作的样子"
+            r'(?:现在|此刻|当前|直播|上班|工作|上课|运动|做饭|化妆|换装|洗澡|睡觉|游戏|打工|跳舞|唱歌|弹琴|健身).{0,8}样子',
+            r'拍[张个一]?.{0,10}样子',  # 匹配：拍张...的样子 / 拍个...样子
             # 场景与姿态：在画室、在卧室、坐着、站着
             r'在(?:画室|卧室|厨房|客厅|浴室|阳台|书房|办公室|学校|教室|公园|海边|床上|沙发|窗边|镜子前|家|房间|茶水间|走廊|楼梯|天台|餐厅|咖啡厅|椅子|桌前|车里|地铁|街上|商场|图书馆)',  # 匹配常见角色所处场景
             r'[坐站躺蹲跪趴窝靠倚]着',  # 匹配：坐着 / 站着 / 躺着 / 窝着 / 靠着等
@@ -340,8 +347,18 @@ class PortraitPlugin(Star):
         # === v3.x: 角色相关性缓存（跨阶段传递判定结果，避免重复正则匹配）===
         # {session_id: (is_character_related, timestamp)}
         self.character_related_cache: dict[str, tuple[bool, float]] = {}
-        # 缓存 TTL（秒），60 秒内的工具调用复用第一阶段判定
-        self.character_related_cache_ttl: float = 60.0
+        # 缓存 TTL（秒），注入阶段的判定结果供后续工具调用阶段复用
+        # v3.x: 增大到 300s，因为 LLM 处理（含推理/工具调用链）可能超过 60s
+        #   缓存过期会导致回退到不精确的英文关键词匹配，产生误判
+        self.character_related_cache_ttl: float = 300.0
+
+        # === v3.x: banana_sign 跳过标记（防止工具调用阶段重复生成）===
+        # 当 on_llm_request 检测到 banana_sign 命令时设置此标记，
+        # _handle_image_generation 工具处理器检查此标记并跳过生成。
+        # 解决：banana_sign 的 on_message 不调用 stop_event()，事件继续流向 LLM，
+        #   LLM 看到 portrait_draw_image 工具后仍可能调用它，导致竞争冲突。
+        # {session_id: timestamp}
+        self._banana_skip_sessions: dict[str, float] = {}
 
         # === 高频路径缓存（性能优化）===
         self._banana_prefixes_cache: set[str] | None = None
@@ -449,6 +466,7 @@ class PortraitPlugin(Star):
             base_url=gemini_conf.get("base_url", "https://generativelanguage.googleapis.com") or "https://generativelanguage.googleapis.com",
             model=gemini_conf.get("model", "gemini-2.0-flash-exp-image-generation") or "gemini-2.0-flash-exp-image-generation",
             image_size=gemini_conf.get("image_size", "1K") or "1K",
+            aspect_ratio=gemini_conf.get("aspect_ratio", "1:1") or "1:1",
             timeout=gemini_conf.get("timeout", 120) or 120,
             proxy=self.config.get("proxy", "") or None,
             max_storage_mb=cache_conf.get("max_storage_mb", 500) or 500,
@@ -515,10 +533,9 @@ class PortraitPlugin(Star):
         # 用法示例：plugin.draw.generate(prompt=..., size=...)
         self.draw = _DrawAdapter(self)
         self.edit = _EditAdapter(self)
-        # 确保 config 有顶级 size 键（兼容 daily_sharing 的 config.get("size")）
-        if "size" not in self.config:
-            gitee_size = self.config.get("gitee_config", {}).get("size", "1024x1024")
-            self.config["size"] = gitee_size
+        # 清理遗留的顶级 size 键（旧版兼容代码产生，会在 WebUI 中显示为多余字段）
+        if "size" in self.config:
+            del self.config["size"]
 
     def _load_dynamic_config(self) -> dict:
         """从独立文件加载动态配置（环境和摄影模式）"""
@@ -795,6 +812,7 @@ class PortraitPlugin(Star):
         provider: str | None = None,
         size: str | None = None,
         reference_images: list[bytes] | None = None,
+        is_character_related: bool | None = None,
     ) -> tuple[str, str] | None:
         """公共 API：供其他插件调用的文生图接口
 
@@ -803,6 +821,10 @@ class PortraitPlugin(Star):
             provider: 提供商（gitee/gemini/grok），默认使用配置的 draw_provider
             size: 图片尺寸（如 1024x1024 或 1K/2K/4K），默认使用配置值
             reference_images: 可选的参考图字节列表（用于 Gemini/Grok 人像参考）
+            is_character_related: 是否角色相关（可选）
+                - None（默认）：自动检测 prompt 中是否包含角色关键词
+                - True：强制加载自拍参考图
+                - False：强制不加载自拍参考图
 
         Returns:
             (mime_type, base64_data) 或 None（生成失败）
@@ -825,11 +847,13 @@ class PortraitPlugin(Star):
 
         try:
             # 调用内部生图方法，通过参数传递 provider（不修改全局状态，避免并发污染）
+            # v3.x: is_character_related=None 时自动从 prompt 检测角色关键词，
+            #        解决 daily_sharing 等外部插件调用时参考图不加载的问题
             image_path = await self._generate_image(
                 prompt=prompt,
                 size=size,
                 images=reference_images,
-                is_character_related=False,  # API 调用默认不加载自拍参考
+                is_character_related=is_character_related,
                 provider=provider,  # 直接传递 provider 参数
             )
 
@@ -1096,19 +1120,34 @@ class PortraitPlugin(Star):
             logger.debug("[Portrait] 检测到工具调用响应，跳过注入防止循环")
             return
 
+        # === v3.x: 提前计算 session_id 并设置默认缓存 ===
+        # 确保所有提前返回路径都会缓存 False，避免工具调用阶段
+        # 回退到不精确的英文关键词匹配（如 'female' 匹配到神兽描述）
+        group_id = event.unified_msg_origin or "default"
+        user_id = str(event.get_sender_id()) if hasattr(event, 'get_sender_id') else "unknown"
+        session_id = f"{group_id}:{user_id}"
+        current_time = datetime.now().timestamp()
+        self.character_related_cache[session_id] = (False, current_time)
+
         # === v2.9.6: 排除插件指令，避免干扰 ===
         user_msg_stripped = user_message.strip()
 
         # 排除以 / 或 . 开头的指令
         if user_msg_stripped.startswith('/') or user_msg_stripped.startswith('.'):
             logger.debug(f"[Portrait] 检测到插件指令，跳过注入")
+            # v3.x: 同时标记 banana_skip，防止 LLM 调用 portrait_draw_image
+            self._banana_skip_sessions[session_id] = current_time
             return
 
         # 动态获取 banana_sign 预设词（避免硬编码）
         banana_prefixes = self._get_banana_sign_prefixes()
         cmd = user_msg_stripped.split()[0] if user_msg_stripped else ""
         if cmd in banana_prefixes:
-            logger.debug(f"[Portrait] 检测到 banana_sign 命令 '{cmd}'，跳过注入")
+            logger.debug(f"[Portrait] 检测到 banana_sign 命令 '{cmd}'，跳过注入和工具调用")
+            # v3.x: 设置跳过标记，防止 LLM 仍调用 portrait_draw_image 工具
+            # 原因：banana_sign 的 on_message 不调用 stop_event()，
+            #   事件继续流向 LLM → LLM 看到 portrait_draw_image → 调用它 → 竞争冲突
+            self._banana_skip_sessions[session_id] = current_time
             return
 
         # 正则匹配检测绘图意图
@@ -1116,19 +1155,12 @@ class PortraitPlugin(Star):
             logger.debug(f"[Portrait] 未检测到绘图意图，跳过注入")
             return
 
-        # === v1.8.1: 多轮次注入逻辑 ===
-        # 修复：使用 群ID + 用户ID 作为 session key，避免群内用户互相污染
-        group_id = event.unified_msg_origin or "default"
-        user_id = str(event.get_sender_id()) if hasattr(event, 'get_sender_id') else "unknown"
-        session_id = f"{group_id}:{user_id}"
-        current_time = datetime.now().timestamp()
-
         # === v2.9.2: 前置角色相关性判断，非角色内容不注入 ===
         # === v2.9.8: 传入上下文消息用于回应性对话检测 ===
         context_messages = list(req.messages) if hasattr(req, 'messages') and req.messages else None
         is_char_related = self._is_character_related_prompt(user_message, context_messages)
 
-        # === v3.x: 缓存角色相关性判定结果，供后续工具调用阶段使用 ===
+        # === v3.x: 覆盖默认值，缓存实际判定结果供后续工具调用阶段使用 ===
         self.character_related_cache[session_id] = (is_char_related, current_time)
 
         if not is_char_related:
@@ -2185,6 +2217,31 @@ class PortraitPlugin(Star):
         resolution: str | None = None,
     ) -> str:
         """通用图片生成处理"""
+        # === v3.x: banana_sign 跳过检查 ===
+        # 当 on_llm_request 检测到 banana_sign 命令时，设置了跳过标记。
+        # 即使 LLM 仍调用此工具，也应跳过生成，避免与 banana_sign 竞争冲突。
+        group_id = event.unified_msg_origin or "default"
+        user_id = str(event.get_sender_id()) if hasattr(event, 'get_sender_id') else "unknown"
+        session_id = f"{group_id}:{user_id}"
+        current_time = datetime.now().timestamp()
+
+        banana_skip_ts = self._banana_skip_sessions.get(session_id)
+        if banana_skip_ts and (current_time - banana_skip_ts) < self.character_related_cache_ttl:
+            logger.info(f"[Portrait] 跳过工具调用：当前会话已标记为 banana_sign 命令")
+            # 清理标记
+            self._banana_skip_sessions.pop(session_id, None)
+            return "[SUCCESS] 图片已由其他插件处理，无需重复生成。"
+
+        # === v3.x: 备份检查 - 直接从 event 提取原始消息检查 banana_sign 命令 ===
+        # 防止 on_llm_request 因 @mention 前缀等原因未能正确标记
+        original_msg = (event.message_str or "").strip() if hasattr(event, 'message_str') else ""
+        if original_msg:
+            banana_prefixes = self._get_banana_sign_prefixes()
+            orig_cmd = original_msg.split()[0] if original_msg else ""
+            if orig_cmd in banana_prefixes or original_msg.lstrip('.').split()[0] in banana_prefixes:
+                logger.info(f"[Portrait] 备份检查：原始消息匹配 banana_sign 命令 '{orig_cmd}'，跳过工具调用")
+                return "[SUCCESS] 图片已由其他插件处理，无需重复生成。"
+
         # === v2.9.5: 冷却时间检查 ===
         is_allowed, _ = self._check_cooldown(event)
         if not is_allowed:
@@ -2194,10 +2251,6 @@ class PortraitPlugin(Star):
 
         try:
             # === v3.x: 优先使用缓存的角色相关性判定，避免重复正则匹配 ===
-            group_id = event.unified_msg_origin or "default"
-            user_id = str(event.get_sender_id()) if hasattr(event, 'get_sender_id') else "unknown"
-            session_id = f"{group_id}:{user_id}"
-            current_time = datetime.now().timestamp()
 
             cached = self.character_related_cache.get(session_id)
             if cached and (current_time - cached[1]) < self.character_related_cache_ttl:

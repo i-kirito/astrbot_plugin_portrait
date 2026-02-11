@@ -5,12 +5,12 @@ DEFAULT_ENVIRONMENTS = [
     {
         "name": "默认室内",
         "keywords": ["default"],
-        "prompt": "(indoors:1.2), (natural lighting:1.2), (realistic:1.2), cozy atmosphere"
+        "prompt": "indoors, cozy atmosphere with natural lighting, realistic setting"
     },
     {
         "name": "户外",
         "keywords": ["户外", "outdoor", "outside"],
-        "prompt": "(outdoors:1.3), (natural daylight:1.3), (blurred background:1.2), (bokeh:1.1)"
+        "prompt": "outdoors, natural daylight, softly blurred background with bokeh effect"
     }
 ]
 
@@ -36,7 +36,12 @@ TPL_HEADER = """# Visual Context Injection (System Override)
 3.  **Prompt Structure**: `[Character Visuals] + [User Action/Outfit] + [Environment] + [Camera]`
 4.  **IMPORTANT**: Always use `portrait_draw_image` tool for image generation.
 5.  **CRITICAL**: When calling any tool, do NOT output any text content in the same response. Call the tool ONLY, then wait for the result before responding to the user.
-6.  **MANDATORY**: You MUST copy the EXACT prompt blocks from the Environment and Camera sections below verbatim. Do NOT simplify, summarize, or omit any parameters. Include ALL lighting, style, and quality tags exactly as written.
+6.  **PROMPT FORMAT (MANDATORY)**:
+    - Write the ENTIRE prompt as **flowing natural English prose**, like describing a photograph.
+    - **DO NOT** use weighted tag format like `(tag:1.3)` or `(keyword:1.2)`. These are for Stable Diffusion only and will degrade output quality.
+    - **DO**: "The subject is a young girl with pink hair, standing in a cozy bedroom with warm natural lighting"
+    - **DON'T**: "(young girl:1.4), (pink hair:1.3), (indoors:1.2), (natural lighting:1.2)"
+    - Environment and camera descriptions below may contain reference tags — **translate them into natural language** when building your prompt.
 7.  **NO REPEAT**: After the tool returns [SUCCESS], do NOT call portrait_draw_image again with the same or similar prompt. The image has already been sent to the user. Just respond naturally to acknowledge the task completion.
 8.  **SINGLE CALL ONLY**: Only call the tool ONCE per user request. If you already called it, DO NOT call again even if the user message contains drawing keywords."""
 
