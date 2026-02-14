@@ -2259,25 +2259,96 @@ class PortraitPlugin(Star):
     def _normalize_prompt_for_contains(text: str) -> str:
         return re.sub(r"\s+", " ", (text or "").strip()).lower()
 
+    @staticmethod
+    def _strip_weight_tags(text: str) -> str:
+        """将 SD 权重标签转为普通文本，统一注入风格。"""
+        content = text or ""
+        # (keyword:1.2) -> keyword
+        content = re.sub(r"\(([^()]*?):\s*\d+(?:\.\d+)?\)", r"\1", content)
+        # 清理残余括号
+        content = content.replace("(", "").replace(")", "")
+        content = re.sub(r"\s*,\s*", ", ", content)
+        content = re.sub(r"\s{2,}", " ", content)
+        return content.strip(" ,.")
+
+    def _extract_semantic_flags(self, text: str) -> set[str]:
+        """抽取镜头/场景语义标记，用于概念级去重。"""
+        normalized = self._normalize_prompt_for_contains(text)
+        concept_patterns = {
+            "full_body": [r"\bfull[- ]body\b", r"head to toe"],
+            "upper_body": [r"\bupper[- ]body\b", r"medium close[- ]up", r"\bclose[- ]up\b"],
+            "wide_angle": [r"\bwide angle\b"],
+            "far_shot": [r"\bfar shot\b", r"\blong shot\b"],
+            "mirror_selfie": [r"mirror selfie", r"holding (?:a )?phone", r"phone screen"],
+            "dressing_room": [r"dressing room", r"vanity table", r"clothing rack", r"fluffy stool"],
+            "sunlight": [r"sunlight", r"window light", r"sheer curtains"],
+            "photorealistic": [r"photorealistic", r"raw photo", r"best quality", r"\b8k\b"],
+        }
+        flags: set[str] = set()
+        for name, patterns in concept_patterns.items():
+            if any(re.search(pattern, normalized) for pattern in patterns):
+                flags.add(name)
+        return flags
+
+    def _dedupe_block_clauses(self, block: str, existing_flags: set[str]) -> tuple[list[str], set[str]]:
+        """按语义标记过滤注入块中与已有 prompt 重复的子句。"""
+        cleaned = self._strip_weight_tags(block)
+        if not cleaned:
+            return [], existing_flags
+
+        clauses = [c.strip(" .") for c in cleaned.split(",") if c.strip(" .")]
+        kept: list[str] = []
+        flags = set(existing_flags)
+
+        for clause in clauses:
+            clause_flags = self._extract_semantic_flags(clause)
+            # 子句语义已被覆盖时跳过，避免同义重复叠加
+            if clause_flags and clause_flags.issubset(flags):
+                continue
+            kept.append(clause)
+            flags.update(clause_flags)
+
+        return kept, flags
+
+    @staticmethod
+    def _format_block_as_natural_sentence(clauses: list[str], kind: str) -> str:
+        """将配置块转换为自然语言句子。"""
+        if not clauses:
+            return ""
+        body = ", ".join(clauses)
+        if kind == "cameras":
+            return f"Camera framing and shooting style: {body}."
+        return f"Environment and lighting details: {body}."
+
     def _ensure_injected_blocks(self, prompt: str, user_message: str) -> str:
-        """强制补齐命中的动态场景/镜头提示块，避免 LLM 漂移。"""
+        """补齐动态场景/镜头块，并在补齐前做风格统一与语义去重。"""
         merged = (prompt or "").strip()
         if not merged:
             return merged
 
         blocks = [
-            self._pick_dynamic_prompt_block(user_message, "environments"),
-            self._pick_dynamic_prompt_block(user_message, "cameras"),
+            ("environments", self._pick_dynamic_prompt_block(user_message, "environments")),
+            ("cameras", self._pick_dynamic_prompt_block(user_message, "cameras")),
         ]
+
         merged_norm = self._normalize_prompt_for_contains(merged)
-        for block in blocks:
+        semantic_flags = self._extract_semantic_flags(merged)
+
+        for kind, block in blocks:
             block = (block or "").strip()
             if not block:
                 continue
-            block_norm = self._normalize_prompt_for_contains(block)
+
+            kept_clauses, semantic_flags = self._dedupe_block_clauses(block, semantic_flags)
+            natural_block = self._format_block_as_natural_sentence(kept_clauses, kind)
+            if not natural_block:
+                continue
+
+            block_norm = self._normalize_prompt_for_contains(natural_block)
             if block_norm and block_norm not in merged_norm:
-                merged = f"{merged} {block}"
+                merged = f"{merged} {natural_block}"
                 merged_norm = self._normalize_prompt_for_contains(merged)
+
         return merged
 
     def _enforce_subject_prefix(self, prompt: str) -> str:
