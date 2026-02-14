@@ -1091,7 +1091,8 @@
                     <div class="page-header">
                         <h2 class="page-title">人像参考</h2>
                         <el-button type="primary" :loading="savingSelfie" @click="saveSelfieConfig">
-                            <span style="margin-right: 8px;">&#128190;</span> 保存设置
+                            <span style="margin-right: 8px;">&#128190;</span>
+                            保存设置<span v-if="selfiePendingDeleteCount > 0">（删除 {{ selfiePendingDeleteCount }}）</span>
                         </el-button>
                     </div>
                     <p class="text-sm text-gray-500 mb-6">上传参考人像后，每次使用 Gemini 生图时会自动传入这些照片作为形象参考，确保角色形象一致性。</p>
@@ -1161,6 +1162,9 @@
                                 <el-button v-if="selfieRefs.length > 0" type="danger" size="small" style="margin-left: auto;" @click="deleteAllSelfieRefs">
                                     清空全部
                                 </el-button>
+                                <span v-if="selfiePendingDeleteCount > 0" class="text-xs text-orange-500" style="margin-left: 12px;">
+                                    已暂存删除 {{ selfiePendingDeleteCount }} 张，点击“保存设置”后生效，刷新可恢复。
+                                </span>
                             </div>
                         </template>
                         <div v-if="selfieRefs.length === 0" class="empty-state" style="padding: 40px 20px;">
@@ -1753,6 +1757,8 @@
                 const selfieUploadRef = ref(null);
                 const uploadingSelfie = ref(false);
                 const savingSelfie = ref(false);
+                const selfiePendingDeleteNames = ref([]);
+                const selfiePendingDeleteCount = computed(() => selfiePendingDeleteNames.value.length);
 
                 onMounted(async () => {
                     // 先尝试无 token 访问（检查是否需要认证）
@@ -2278,7 +2284,9 @@
                         const data = await res.json();
                         if (data.success) {
                             // Cookie 认证，不再需要在 URL 中添加 token
-                            selfieRefs.value = data.refs || [];
+                            const refs = data.refs || [];
+                            const pendingSet = new Set(selfiePendingDeleteNames.value);
+                            selfieRefs.value = refs.filter((ref) => !pendingSet.has(ref.name));
                         }
                     } catch (e) {
                         console.error('加载人像参考失败:', e);
@@ -2291,6 +2299,43 @@
 
                 function clearSelfieUpload() {
                     selfieUploadFiles.value = [];
+                }
+
+                function markSelfieRefPendingDelete(name) {
+                    if (!name) return;
+                    if (!selfiePendingDeleteNames.value.includes(name)) {
+                        selfiePendingDeleteNames.value.push(name);
+                    }
+                }
+
+                async function commitPendingSelfieDeletes() {
+                    if (selfiePendingDeleteNames.value.length === 0) {
+                        return { deleted: 0, failed: [] };
+                    }
+
+                    const names = [...selfiePendingDeleteNames.value];
+                    const failed = [];
+                    let deleted = 0;
+
+                    for (const name of names) {
+                        try {
+                            const res = await fetch(`/api/selfie-refs/${encodeURIComponent(name)}`, {
+                                method: 'DELETE',
+                                credentials: 'same-origin'
+                            });
+                            const data = await res.json();
+                            if (data.success) {
+                                deleted += 1;
+                            } else {
+                                failed.push(name);
+                            }
+                        } catch (e) {
+                            failed.push(name);
+                        }
+                    }
+
+                    selfiePendingDeleteNames.value = failed;
+                    return { deleted, failed };
                 }
 
                 async function uploadSelfieFiles() {
@@ -2328,17 +2373,10 @@
                             '确认删除',
                             { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
                         );
-                        const res = await fetch(`/api/selfie-refs/${encodeURIComponent(ref.name)}`, {
-                            method: 'DELETE',
-                            credentials: 'same-origin'
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                            ElementPlus.ElMessage.success('人像参考已删除');
-                            await loadSelfieRefs();
-                        } else {
-                            ElementPlus.ElMessage.error(data.error || '删除失败');
-                        }
+
+                        markSelfieRefPendingDelete(ref.name);
+                        selfieRefs.value = selfieRefs.value.filter((item) => item.name !== ref.name);
+                        ElementPlus.ElMessage.success('已暂存删除，点击“保存设置”后生效');
                     } catch (e) {
                         if (e !== 'cancel') {
                             ElementPlus.ElMessage.error('删除失败: ' + e.message);
@@ -2354,15 +2392,13 @@
                             '确认清空',
                             { confirmButtonText: '全部删除', cancelButtonText: '取消', type: 'warning' }
                         );
-                        // 逐个删除
-                        for (const ref of [...selfieRefs.value]) {
-                            await fetch(`/api/selfie-refs/${encodeURIComponent(ref.name)}`, {
-                                method: 'DELETE',
-                                credentials: 'same-origin'
-                            });
+
+                        const count = selfieRefs.value.length;
+                        for (const ref of selfieRefs.value) {
+                            markSelfieRefPendingDelete(ref.name);
                         }
-                        ElementPlus.ElMessage.success('已清空全部人像参考');
-                        await loadSelfieRefs();
+                        selfieRefs.value = [];
+                        ElementPlus.ElMessage.success(`已暂存清空 ${count} 张，点击“保存设置”后生效`);
                     } catch (e) {
                         if (e !== 'cancel') {
                             ElementPlus.ElMessage.error('操作失败: ' + e.message);
@@ -2387,7 +2423,15 @@
                         });
                         const data = await res.json();
                         if (data.success) {
-                            ElementPlus.ElMessage.success('人像参考已保存');
+                            const { deleted, failed } = await commitPendingSelfieDeletes();
+                            if (failed.length > 0) {
+                                ElementPlus.ElMessage.warning(`设置已保存，但 ${failed.length} 张参考照删除失败，请重试保存`);
+                            } else if (deleted > 0) {
+                                ElementPlus.ElMessage.success(`人像参考已保存，已删除 ${deleted} 张参考照`);
+                            } else {
+                                ElementPlus.ElMessage.success('人像参考已保存');
+                            }
+                            await loadSelfieRefs();
                         } else {
                             ElementPlus.ElMessage.error(data.error || '保存失败');
                         }
@@ -2617,6 +2661,7 @@
                     selfieUploadRef,
                     uploadingSelfie,
                     savingSelfie,
+                    selfiePendingDeleteCount,
                     loadSelfieRefs,
                     handleSelfieFileChange,
                     clearSelfieUpload,
