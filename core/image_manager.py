@@ -184,6 +184,28 @@ class ImageManager:
                 self._metadata_mtime = current_mtime
             return self._metadata.get(filename)
 
+    async def get_metadata_snapshot_async(self) -> dict:
+        """获取元数据快照"""
+        async with self._metadata_lock:
+            if not self._metadata_loaded:
+                self._metadata = await asyncio.to_thread(self._load_metadata)
+                self._metadata_mtime = self._get_metadata_mtime()
+                self._metadata_loaded = True
+            else:
+                current_mtime = await asyncio.to_thread(self._get_metadata_mtime)
+                if current_mtime > self._metadata_mtime:
+                    self._metadata = await asyncio.to_thread(self._load_metadata)
+                    self._metadata_mtime = current_mtime
+            return dict(self._metadata)
+
+    async def get_favorites_snapshot_async(self) -> set[str]:
+        """获取收藏快照"""
+        async with self._favorites_lock:
+            if not self._favorites_loaded:
+                self._favorites = await asyncio.to_thread(self._load_favorites)
+                self._favorites_loaded = True
+            return set(self._favorites)
+
     async def set_metadata_async(
         self,
         filename: str,
@@ -223,6 +245,20 @@ class ImageManager:
                 await asyncio.to_thread(self._save_metadata_sync)
                 await asyncio.to_thread(self._save_favorites_sync)
                 self._metadata_mtime = self._get_metadata_mtime()
+
+    async def toggle_favorite_async(self, filename: str) -> bool:
+        async with self._favorites_lock:
+            if not self._favorites_loaded:
+                self._favorites = await asyncio.to_thread(self._load_favorites)
+                self._favorites_loaded = True
+            if filename in self._favorites:
+                self._favorites.discard(filename)
+                await asyncio.to_thread(self._save_favorites_sync)
+                return False
+            else:
+                self._favorites.add(filename)
+                await asyncio.to_thread(self._save_favorites_sync)
+                return True
 
     async def download_image(
         self,
@@ -303,3 +339,43 @@ class ImageManager:
         if "," in b64_data: b64_data = b64_data.split(",", 1)[1]
         data = base64.b64decode(b64_data)
         return await self.save_image_bytes(data, prompt, **kwargs)
+
+    async def cleanup_old_images(self) -> int:
+        """清理旧图片"""
+        if self.max_storage_mb <= 0 and self.max_count <= 0:
+            return 0
+        async with self._favorites_lock:
+            if not self._favorites_loaded:
+                self._favorites = await asyncio.to_thread(self._load_favorites)
+                self._favorites_loaded = True
+
+        try:
+            allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+            def _scan_images():
+                res = []
+                for fp in self.images_dir.iterdir():
+                    if fp.is_file() and fp.suffix.lower() in allowed_exts:
+                        if fp.name in self._favorites: continue
+                        s = fp.stat()
+                        res.append((fp, s.st_size, s.st_mtime))
+                return res
+            images = await asyncio.to_thread(_scan_images)
+            if not images: return 0
+            images.sort(key=lambda x: x[2])
+            total_size = sum(img[1] for img in images)
+            total_count = len(images)
+            max_size_bytes = self.max_storage_mb * 1024 * 1024
+            deleted = 0
+            for path, size, _ in images:
+                if (self.max_count > 0 and total_count > self.max_count) or (self.max_storage_mb > 0 and total_size > max_size_bytes):
+                    try:
+                        await asyncio.to_thread(path.unlink)
+                        await self.remove_metadata_async(path.name)
+                        total_size -= size
+                        total_count -= 1
+                        deleted += 1
+                    except Exception: pass
+            return deleted
+        except Exception as e:
+            logger.error(f"[ImageManager] 清理失败: {e}")
+            return 0
