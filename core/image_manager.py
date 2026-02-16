@@ -30,7 +30,7 @@ def _is_safe_url(url: str) -> bool:
     - 2130706433 (十进制 IP)
     - 0x7f000001 (十六进制 IP)
     """
-    # 可信域名白名单（跳过 IP 检查）
+    # 可信域名 white名单（跳过 IP 检查）
     trusted_domains = (
         '.bcebos.com',      # 百度云存储（Gitee AI 使用）
         '.baidubce.com',    # 百度云
@@ -503,13 +503,10 @@ class ImageManager:
         path = self.images_dir / filename
 
         await asyncio.to_thread(path.write_bytes, data)
-
-        # 统一分类逻辑：如果 prompt 中包含特定关键词，分类为“龙虾”
-        if not category and prompt:
-            prompt_lower = prompt.lower()
-            lobster_keywords = ["lobster", "龙虾", "小龙虾", "kitten", "小猫", "猫", "cat"]
-            if any(kw in prompt_lower for kw in lobster_keywords):
-                category = "龙虾"
+        
+        # 统一分类逻辑：如果是从外部（如 OpenClaw）调用的，category 为空时，强制归类为“龙虾”
+        if not category:
+            category = "龙虾"
 
         if prompt or model or category or size:
             await self.set_metadata_async(
@@ -555,12 +552,9 @@ class ImageManager:
 
         await asyncio.to_thread(path.write_bytes, data)
         
-        # 统一分类逻辑：如果 prompt 中包含特定关键词，分类为“龙虾”
-        if not category and prompt:
-            prompt_lower = prompt.lower()
-            lobster_keywords = ["lobster", "龙虾", "小龙虾", "kitten", "小猫", "猫", "cat"]
-            if any(kw in prompt_lower for kw in lobster_keywords):
-                category = "龙虾"
+        # 统一分类逻辑：如果是从外部（如 OpenClaw）调用的，category 为空时，强制归类为“龙虾”
+        if not category:
+            category = "龙虾"
 
         if prompt or model or category or size:
             await self.set_metadata_async(
