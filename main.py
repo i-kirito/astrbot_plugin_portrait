@@ -1070,7 +1070,7 @@ class PortraitPlugin(Star):
             logger.exception("[Portrait] API 视频生成失败")
             return None
 
-    @filter.on_llm_request()
+    @filter.on_llm_request(priority=-100)
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
         # 生命周期检查：防止旧实例继续工作
         if self._is_terminated:
@@ -2337,8 +2337,8 @@ Outfit hint: {(schedule_info['outfit'][:120] if schedule_info['outfit'] else '')
         prompt: str,
         size: str | None = None,
         resolution: str | None = None,
-    ) -> str:
-        """通用图片生成处理"""
+    ) -> None:
+        """通用图片生成处理（工具侧直接发送结果，返回 None 终止 Agent Loop）"""
         # === v3.x: banana_sign 跳过检查 ===
         # 当 on_llm_request 检测到 banana_sign 命令时，设置了跳过标记。
         # 即使 LLM 仍调用此工具，也应跳过生成，避免与 banana_sign 竞争冲突。
@@ -2352,7 +2352,7 @@ Outfit hint: {(schedule_info['outfit'][:120] if schedule_info['outfit'] else '')
             logger.info(f"[Portrait] 跳过工具调用：当前会话已标记为 banana_sign 命令")
             # 清理标记
             self._banana_skip_sessions.pop(session_id, None)
-            return "[SUCCESS] 图片已由其他插件处理，无需重复生成。"
+            return None
 
         # === v3.x: 备份检查 - 直接从 event 提取原始消息检查 banana_sign 命令 ===
         # 防止 on_llm_request 因 @mention 前缀等原因未能正确标记
@@ -2362,7 +2362,7 @@ Outfit hint: {(schedule_info['outfit'][:120] if schedule_info['outfit'] else '')
             orig_cmd = original_msg.split()[0] if original_msg else ""
             if orig_cmd in banana_prefixes or original_msg.lstrip('.').split()[0] in banana_prefixes:
                 logger.info(f"[Portrait] 备份检查：原始消息匹配 banana_sign 命令 '{orig_cmd}'，跳过工具调用")
-                return "[SUCCESS] 图片已由其他插件处理，无需重复生成。"
+                return None
 
         # === v3.3.3: 同轮次工具调用防重入/去重 ===
         # 现象：同一条用户消息会被模型多次 tool_call，或并发进入处理器，导致重复/无限生图
@@ -2391,7 +2391,7 @@ Outfit hint: {(schedule_info['outfit'][:120] if schedule_info['outfit'] else '')
 
         if lock.locked():
             logger.info(f"[Portrait] 会话 {session_id} 正在生图中，跳过并发工具调用")
-            return "[SUCCESS] 图片正在生成中，无需重复调用。"
+            return None
 
         async with lock:
             # 清理过期键
@@ -2401,7 +2401,7 @@ Outfit hint: {(schedule_info['outfit'][:120] if schedule_info['outfit'] else '')
 
             if dedupe_key in self._recent_tool_calls:
                 logger.info(f"[Portrait] 跳过重复工具调用: session={session_id}, msg_id={source_msg_id}")
-                return "[SUCCESS] 检测到重复工具调用，已跳过重复生图。"
+                return None
 
             # 抢占写入（先占位，再执行生图），防止并发重复
             self._recent_tool_calls[dedupe_key] = current_time
@@ -2411,7 +2411,7 @@ Outfit hint: {(schedule_info['outfit'][:120] if schedule_info['outfit'] else '')
             if not is_allowed:
                 # 静默忽略冷却期间的请求，返回成功让 LLM 不再回复
                 logger.debug(f"[Portrait] 用户 {event.get_sender_id()} 画图冷却中，静默忽略请求")
-                return "[SUCCESS] 图片已处理。"
+                return None
 
             try:
                 # === v3.x: 优先使用缓存的角色相关性判定，避免重复正则匹配 ===
@@ -2456,19 +2456,21 @@ Outfit hint: {(schedule_info['outfit'][:120] if schedule_info['outfit'] else '')
                 # === v2.9.5: 更新冷却时间 ===
                 self._update_cooldown(event)
 
-                return "[SUCCESS] 图片已成功生成并发送给用户。任务完成，无需再次调用此工具。"
+                return None
             except Exception as e:
                 logger.error(f"[Portrait] 文生图失败: {e}")
-                return f"[ERROR] 生成图片失败: {str(e)}"
+                await event.send(event.plain_result(f"[Portrait] 生成图片失败: {str(e)}"))
+                return None
 
     @filter.llm_tool(name="portrait_draw_image")
     async def portrait_draw_image(self, event: AstrMessageEvent, prompt: str):
-        """根据提示词生成图片。调用一次即可，图片会自动发送给用户。收到 [SUCCESS] 后请勿重复调用。
+        """根据提示词生成图片。调用一次即可，图片会自动发送给用户。
 
         Args:
             prompt(string): 图片提示词，需要包含主体、场景、风格等描述
         """
-        return await self._handle_image_generation(event, prompt)
+        await self._handle_image_generation(event, prompt)
+        return None
 
     # === v2.5.0: 画图帮助指令 ===
     @filter.command("画图帮助")

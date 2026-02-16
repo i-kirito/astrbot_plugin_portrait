@@ -166,9 +166,15 @@ class WebServer:
 
     @property
     def imgr(self) -> ImageManager:
-        """获取 ImageManager 实例"""
+        """获取 ImageManager 实例（优先复用插件主类的实例，避免模块冲突）"""
         if self._imgr is None:
-            self._imgr = ImageManager(self.plugin.data_dir)
+            # 优先复用插件主类已创建的 ImageManager 实例
+            plugin_imgr = getattr(self.plugin, 'image_manager', None)
+            if plugin_imgr is not None:
+                self._imgr = plugin_imgr
+            else:
+                # 回退：自行创建（理论上不应走到这里）
+                self._imgr = ImageManager(self.plugin.data_dir)
         return self._imgr
 
     async def start(self) -> bool:

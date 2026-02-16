@@ -246,6 +246,62 @@ class ImageManager:
                 await asyncio.to_thread(self._save_favorites_sync)
                 self._metadata_mtime = self._get_metadata_mtime()
 
+    async def set_metadata_batch_async(
+        self,
+        items: list[tuple[str, str, str, str, str]],
+    ) -> None:
+        """批量写入元数据（单次落盘）
+
+        Args:
+            items: [(filename, prompt, model, category, size), ...]
+        """
+        if not items:
+            return
+        async with self._metadata_lock:
+            self._metadata = await asyncio.to_thread(self._load_metadata)
+            self._metadata_mtime = self._get_metadata_mtime()
+            self._metadata_loaded = True
+            now = int(time.time())
+            for filename, prompt, model, category, size_val in items:
+                old = self._metadata.get(filename, {})
+                self._metadata[filename] = {
+                    "prompt": prompt or old.get("prompt", ""),
+                    "created_at": old.get("created_at", now),
+                    "model": model or old.get("model", ""),
+                    "category": category or old.get("category", ""),
+                    "size": size_val or old.get("size", ""),
+                }
+            await asyncio.to_thread(self._save_metadata_sync)
+            self._metadata_mtime = self._get_metadata_mtime()
+
+    async def remove_metadata_batch_async(self, filenames: list[str]) -> None:
+        """批量删除元数据与收藏（单次落盘）"""
+        if not filenames:
+            return
+        names = set(filenames)
+        async with self._metadata_lock:
+            async with self._favorites_lock:
+                self._metadata = await asyncio.to_thread(self._load_metadata)
+                self._metadata_mtime = self._get_metadata_mtime()
+                self._metadata_loaded = True
+                if not self._favorites_loaded:
+                    self._favorites = await asyncio.to_thread(self._load_favorites)
+                    self._favorites_loaded = True
+
+                changed = False
+                for filename in names:
+                    if filename in self._metadata:
+                        self._metadata.pop(filename, None)
+                        changed = True
+                    if filename in self._favorites:
+                        self._favorites.discard(filename)
+                        changed = True
+
+                if changed:
+                    await asyncio.to_thread(self._save_metadata_sync)
+                    await asyncio.to_thread(self._save_favorites_sync)
+                    self._metadata_mtime = self._get_metadata_mtime()
+
     async def toggle_favorite_async(self, filename: str) -> bool:
         async with self._favorites_lock:
             if not self._favorites_loaded:
