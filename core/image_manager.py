@@ -504,9 +504,13 @@ class ImageManager:
 
         await asyncio.to_thread(path.write_bytes, data)
         
-        # 统一分类逻辑：如果是从外部（如 OpenClaw）调用的，category 为空时，强制归类为“龙虾”
+        # 统一分类逻辑：如果是从外部（如 OpenClaw）调用的，强制归类为“龙虾”
         if not category:
             category = "龙虾"
+        
+        # 统一模型逻辑：如果 model 为空，尝试设置一个默认值
+        if not model:
+            model = "Gitee-AI"
 
         if prompt or model or category or size:
             await self.set_metadata_async(
@@ -552,9 +556,13 @@ class ImageManager:
 
         await asyncio.to_thread(path.write_bytes, data)
         
-        # 统一分类逻辑：如果是从外部（如 OpenClaw）调用的，category 为空时，强制归类为“龙虾”
+        # 统一分类逻辑：如果是从外部（如 OpenClaw）调用的，强制归类为“龙虾”
         if not category:
             category = "龙虾"
+
+        # 统一模型逻辑：如果 model 为空，尝试设置一个默认值
+        if not model:
+            model = "Gitee-AI"
 
         if prompt or model or category or size:
             await self.set_metadata_async(
