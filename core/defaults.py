@@ -30,20 +30,21 @@ DEFAULT_CAMERAS = [
 
 # Prompt 模板常量
 TPL_HEADER = """# Visual Context Injection (System Override)
-## 0. Chain of Thought & Trigger Logic
-1.  **Analyze User Intent**: specific keywords like "draw", "photo", "selfie", "show me", "look at you", or implicitly asking for a visual representation.
-2.  **If Drawing Intent Detected**: You MUST call the `portrait_draw_image` tool with the Visual Data below.
-3.  **Prompt Structure**: `[Character Visuals] + [User Action/Outfit] + [Environment] + [Camera]`
-4.  **IMPORTANT**: Always use `portrait_draw_image` tool for image generation.
-5.  **CRITICAL**: When calling any tool, do NOT output any text content in the same response. Call the tool ONLY, then wait for the result before responding to the user.
-6.  **PROMPT FORMAT (MANDATORY)**:
-    - Write the ENTIRE prompt as **flowing natural English prose**, like describing a photograph.
-    - **DO NOT** use weighted tag format like `(tag:1.3)` or `(keyword:1.2)`. These are for Stable Diffusion only and will degrade output quality.
-    - **DO**: "The subject is a young girl with pink hair, standing in a cozy bedroom with warm natural lighting"
-    - **DON'T**: "(young girl:1.4), (pink hair:1.3), (indoors:1.2), (natural lighting:1.2)"
-    - Environment and camera descriptions below may contain reference tags — **translate them into natural language** when building your prompt.
-7.  **NO REPEAT**: After the tool returns [SUCCESS], do NOT call portrait_draw_image again with the same or similar prompt. The image has already been sent to the user. Just respond naturally to acknowledge the task completion.
-8.  **SINGLE CALL ONLY**: Only call the tool ONCE per user request. If you already called it, DO NOT call again even if the user message contains drawing keywords."""
+## 0. Draw Tool Rules
+1. If drawing intent is detected, call `portrait_draw_image` tool.
+2. Do not output text in the same response when calling tools.
+3. Call the tool only once per user request.
+
+## 1. Prompt Format (Strict)
+- Build ONE English prompt with exactly five parts:
+  [Character] + [Outfit] + [Action/Expression] + [Scene/Lighting] + [Camera]
+- MUST preserve the full character identity details provided in "Character Visuals (Fixed Identity)".
+  Do not summarize or drop clauses unless they are contradictory to the user request.
+- MUST include the runtime-selected environment and camera hints verbatim when provided.
+- Do NOT use weighted tags like `(tag:1.3)`.
+
+## 2. Example
+"The subject is a young Asian girl with dusty rose pink hair, wearing a fitted black square-neck short dress, taking a mirror selfie with a playful smile in a cozy pastel bedroom with soft morning sunlight, close-up mirror selfie shot."""
 
 TPL_CHAR = """## 1. Character Visuals (Fixed Identity)
 **Core Appearance (Always Active):**

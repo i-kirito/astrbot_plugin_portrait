@@ -692,7 +692,11 @@ class WebServer:
                                 "face", "body", "eyes", "hair", "dress", "outfit",
                                 "脸", "眼睛", "头发", "衣服", "裙子",
                             ]
-                            if any(kw in prompt_lower for kw in char_keywords):
+                            # 增加“龙虾”识别逻辑
+                            lobster_keywords = ["lobster", "龙虾", "小龙虾", "kitten", "小猫", "猫"]
+                            if any(kw in prompt_lower for kw in lobster_keywords):
+                                category = "龙虾"
+                            elif any(kw in prompt_lower for kw in char_keywords):
                                 category = "character"
                             else:
                                 category = "other"

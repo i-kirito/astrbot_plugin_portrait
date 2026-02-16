@@ -173,7 +173,8 @@ class PortraitPlugin(Star):
             r'ootd', r'outfit',
             # 查看/发图表达
             # v3.x: '看看' 必须跟角色指向后缀，避免 "看看有吗/看看时间" 等误触发
-            r'[看康瞧瞅]{2}(?:你|自己|她|他|本人)',
+            # v3.x.1: 扩展支持 "看看起床照/看看日常图" 等视觉后缀
+            r'[看康瞧瞅]{2}(?:你|自己|她|他|本人|.{0,6}(?:照|图|像|样子))',
             r'(?:给我|让我)[看康瞧瞅]',
             r'(?:发|来)[张个一]',
             # 状态询问与连续请求
@@ -191,6 +192,8 @@ class PortraitPlugin(Star):
             # v3.x: 更多日常活动
             r'发呆',
             r'(?:看|望)[着向]?(?:窗|天空|远方|星星|月亮)',
+            # v3.x.1: "活动+照" 复合词，中文高频表达 "起床照/生活照/日常照" 等
+            r'(?:起床|生活|日常|居家|素颜|工作|上班|午休|睡前|下班|出门|约会|旅行|运动|健身|清晨|晨间|校园|街拍|泳装|海边|直播|游戏|化妆|做饭|刚醒|晚安|早安|睡衣)照',
         ]
         self.trigger_regex = re.compile(f"({'|'.join(trigger_keywords)})", re.IGNORECASE)
 
@@ -239,7 +242,8 @@ class PortraitPlugin(Star):
             r'全身(?:照|图|像)?',  # 匹配：全身 / 全身照 / 全身图
             # 查看表达：看看你、康康你 — 必须跟角色指向后缀
             # v3.x: 移除可选后缀 '?'，避免 "看看有吗/看看时间" 等误触发
-            r'[看康瞧瞅]{2}(?:你|自己|她|他|本人|一下你)',  # 匹配：看看你 / 康康自己 / 瞧瞧一下你
+            # v3.x.1: 扩展支持 "看看起床照/看看日常图" 等视觉后缀
+            r'[看康瞧瞅]{2}(?:你|自己|她|他|本人|一下你|.{0,6}(?:照|图|像|样子|写真))',  # 匹配：看看你 / 康康自己 / 看看起床照 / 看看日常图
             # 照片/图片请求：看照片、发图片、来张照片
             r'(?:看|发|来|要).{0,6}(?:照片|图)',  # 匹配：看照片 / 发个图 / 来张照片
             r'(?:照片|图).{0,6}(?:给我|让我|给你|发来|看看|康康)',  # 匹配：照片给我看 / 图发来
@@ -318,6 +322,14 @@ class PortraitPlugin(Star):
             r'发', r'给你', r'送你',
         ]
         self._context_regex = re.compile('|'.join(context_keywords))
+        # 改图专用：识别“改成你自己”类请求，用于自动拼接自拍参考图
+        edit_selfie_patterns = [
+            r'(?:改|换|变|替换).{0,4}(?:成|为).{0,6}(?:你自己|你本人|你|本人)',
+            r'(?:把|将).{0,16}(?:人物|人|主角|脸|头像).{0,8}(?:改|换|变|替换).{0,4}(?:成|为).{0,6}(?:你自己|你本人|你|本人)',
+            r'(?:用|按).{0,4}(?:你自己|你本人|你的).{0,4}(?:脸|样子|形象)',
+            r'(?:change|replace|turn).{0,20}(?:into|to).{0,8}(?:you|yourself)',
+        ]
+        self._edit_selfie_prompt_regex = re.compile('|'.join(edit_selfie_patterns), re.IGNORECASE)
 
         # 读取用户配置（留空则不注入，使用 AstrBot 默认人格）
         p_char_id = self.config.get("char_identity", "") or ""
@@ -327,8 +339,6 @@ class PortraitPlugin(Star):
         # 读取开关配置
         self.enable_env_injection = self.config.get("enable_env_injection", True)
         self.enable_camera_injection = self.config.get("enable_camera_injection", True)
-        # 是否自动添加角色外貌到 prompt
-        self.auto_prepend_identity = self.config.get("auto_prepend_identity", True)
 
         # === 初始化 full_prompt（复用 rebuild 方法避免重复代码）===
         self.full_prompt = ""
@@ -378,6 +388,19 @@ class PortraitPlugin(Star):
         self.cooldown_seconds = max(0, self.config.get("cooldown_seconds", 0))
         # 用户最后使用时间 {user_id: timestamp}
         self.user_last_use: dict[str, float] = {}
+
+        # === v3.3.3: 工具调用防重入与去重 ===
+        # 1) 会话级互斥锁：防止同一会话并发进入生图逻辑
+        # 2) 同轮次去重：同一条用户消息仅允许一次工具生图
+        # key: session_id:message_id -> timestamp
+        self._session_image_locks: dict[str, asyncio.Lock] = {}
+        self._recent_tool_calls: dict[str, float] = {}
+        self._recent_tool_calls_ttl: float = 180.0
+
+        # 生图后的文本回复门控：同一轮生图后仅允许 1 条文本回复，抑制重复回复
+        # key: session_id -> (start_ts, emitted_count)
+        self._post_draw_reply_gate: dict[str, tuple[float, int]] = {}
+        self._post_draw_reply_gate_ttl: float = 20.0
 
         # === v3.0.0: Grok AI 配置（图片+视频共用）===
         grok_conf = self.config.get("grok_config", {}) or {}
@@ -702,74 +725,93 @@ class PortraitPlugin(Star):
         """重建完整 Prompt（热更新时调用）"""
         p_char_id = self.config.get("char_identity", "") or ""
 
-        # 环境列表（根据开关决定是否生成）
-        if self.enable_env_injection:
-            environments = self._dynamic_config.get("environments", DEFAULT_ENVIRONMENTS)
-            env_section_lines = ["## 3. 动态环境与风格 (Dynamic Environment & Style)"]
-            env_section_lines.append("**逻辑判断 (Logic Branching):** Check user input for keywords.")
-
-            for idx, env in enumerate(environments):
-                name = env.get("name", f"Scene {idx}")
-                keywords = env.get("keywords", [])
-                prompt_content = env.get("prompt", "")
-
-                if "default" in keywords:
-                    trigger_desc = "**默认场景 (Default)**: 当未匹配到其他特定场景关键词时使用。"
-                else:
-                    kws_str = ", ".join([f'"{k}"' for k in keywords])
-                    trigger_desc = f"**触发关键词**: {kws_str}"
-
-                env_section_lines.append(f"\n* **Scenario: {name}**")
-                env_section_lines.append(f"    * {trigger_desc}")
-                env_section_lines.append(f"    * *Prompt Block:*")
-                env_section_lines.append(f"    > **{prompt_content}**")
-
-            section_env = "\n".join(env_section_lines)
-        else:
-            section_env = ""
-
-        # 镜头列表（根据开关决定是否生成）
-        if self.enable_camera_injection:
-            cameras = self._dynamic_config.get("cameras", DEFAULT_CAMERAS)
-            cam_section_lines = ["## 4. 摄影模式切换 (Photo Format Switching)"]
-            cam_section_lines.append("**指令:** 仅检查**用户发送的消息文本**中的关键词来决定摄影模式。")
-            cam_section_lines.append("**注意:** 日程参考中的\"穿搭\"描述是用于生成服装内容的，不是摄影模式触发词。只有用户消息中明确出现\"全身\"、\"OOTD\"等词才切换全身模式。")
-            cam_section_lines.append("**默认规则:** 如果用户消息中没有明确的触发词，必须使用**半身/默认模式**。")
-
-            for idx, cam in enumerate(cameras):
-                name = cam.get("name", f"Mode {idx}")
-                keywords = cam.get("keywords", [])
-                prompt_content = cam.get("prompt", "")
-
-                if "default" in keywords:
-                    trigger_desc = "触发: **默认模式** (当无其他匹配时)。"
-                else:
-                    kws_str = ", ".join([f'"{k}"' for k in keywords])
-                    trigger_desc = f"触发 (必须出现在当前句中): {kws_str}"
-
-                cam_section_lines.append(f"\n* **模式: {name}**")
-                cam_section_lines.append(f"    * {trigger_desc}")
-                cam_section_lines.append(f"    * *Camera Params:* `{prompt_content}`")
-
-            section_camera = "\n".join(cam_section_lines)
-        else:
-            section_camera = ""
-
-        # 组装完整 Prompt
+        # v3.3.0: 精简注入模板，避免长上下文稀释角色参考效果
+        # 具体环境/镜头内容在 on_llm_request 中按当前消息动态选择后再注入
         prompt_parts = [
             TPL_HEADER,
             TPL_CHAR.format(content=p_char_id),
             TPL_MIDDLE,
         ]
-        if section_env:
-            prompt_parts.append(section_env)
-        if section_camera:
-            prompt_parts.append(section_camera)
+
+        if self.enable_env_injection:
+            prompt_parts.append("## 3. Scene Environment\nUse only the runtime-selected environment hint if provided.")
+        if self.enable_camera_injection:
+            prompt_parts.append("## 4. Camera Description\nUse only the runtime-selected camera hint if provided.")
+
         prompt_parts.append(TPL_FOOTER)
         prompt_parts.append("--- END CONTEXT DATA ---")
 
         self.full_prompt = "\n\n".join(prompt_parts)
-        logger.debug("[Portrait] Prompt 已重建")
+        logger.debug("[Portrait] Prompt 已重建（精简模式）")
+
+    def _pick_dynamic_prompt_block(self, user_message: str, kind: str) -> str:
+        """根据当前用户消息选择一个环境/镜头提示块（仅返回单块）"""
+        items = self._dynamic_config.get(kind, []) if isinstance(self._dynamic_config, dict) else []
+        if not isinstance(items, list):
+            return ""
+
+        text = (user_message or "").lower()
+        default_prompt = ""
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+
+            prompt_text = (item.get("prompt", "") or "").strip()
+            if not prompt_text:
+                continue
+
+            keywords = item.get("keywords", []) or []
+            normalized_kws = [str(k).strip().lower() for k in keywords if str(k).strip()]
+
+            if "default" in normalized_kws and not default_prompt:
+                default_prompt = prompt_text
+
+            for kw in normalized_kws:
+                if kw == "default":
+                    continue
+                if kw in text:
+                    return prompt_text
+
+        return default_prompt
+
+    @staticmethod
+    def _normalize_prompt_for_contains(text: str) -> str:
+        return re.sub(r"\s+", " ", (text or "").strip()).lower()
+
+    def _append_env_cam_hints_to_prompt(self, prompt: str, user_message: str) -> tuple[str, bool]:
+        """将运行时命中的环境/镜头提示块追加到最终 prompt（原样追加）。
+
+        目的：当 LLM 未严格遵循 Visual Context 时，仍保证环境与镜头提示词能进入生图 prompt。
+
+        Returns:
+            (merged_prompt, appended_any)
+        """
+        merged = (prompt or "").strip()
+        if not merged:
+            return merged, False
+
+        merged_norm = self._normalize_prompt_for_contains(merged)
+        appended_parts: list[str] = []
+
+        if self.enable_env_injection:
+            env_hint = (self._pick_dynamic_prompt_block(user_message, "environments") or "").strip()
+            if env_hint:
+                env_norm = self._normalize_prompt_for_contains(env_hint)
+                if env_norm and env_norm not in merged_norm:
+                    appended_parts.append(env_hint)
+
+        if self.enable_camera_injection:
+            cam_hint = (self._pick_dynamic_prompt_block(user_message, "cameras") or "").strip()
+            if cam_hint:
+                cam_norm = self._normalize_prompt_for_contains(cam_hint)
+                if cam_norm and cam_norm not in merged_norm:
+                    appended_parts.append(cam_hint)
+
+        if not appended_parts:
+            return merged, False
+
+        return merged + "\n\n" + "\n\n".join(appended_parts), True
 
     async def terminate(self):
         """插件卸载/重载时的清理逻辑"""
@@ -903,6 +945,7 @@ class PortraitPlugin(Star):
             return None
 
         target_provider = provider or self.edit_provider
+        input_images = await self._prepare_edit_images(prompt, [image_bytes])
 
         try:
             if target_provider == "gemini":
@@ -910,20 +953,20 @@ class PortraitPlugin(Star):
                 # 注：Gemini generate 不支持指定 model，使用实例默认配置
                 result_path = await self.gemini_draw.generate(
                     prompt=prompt,
-                    images=[image_bytes],
+                    images=input_images,
                 )
             elif target_provider == "grok":
                 # Grok 使用 generate 方法，传入图片作为参考
                 # 注：Grok generate 不支持指定 model，使用实例默认配置
                 result_path = await self.grok_draw.generate(
                     prompt=prompt,
-                    images=[image_bytes],
+                    images=input_images,
                 )
             else:
                 # Gitee 使用 edit 方法
                 result_path = await self.gitee_draw.edit(
                     prompt=prompt,
-                    images=[image_bytes],
+                    images=input_images,
                     task_types=("id",),
                 )
         except Exception:
@@ -1211,20 +1254,22 @@ class PortraitPlugin(Star):
 
         # === v3.2.0: 解析日程信息，融入注入内容 ===
         schedule_hint = ""
+        visual_hint = ""
         character_state = self._extract_character_state(req)
         if character_state:
+            # v3.3.1: 额外提取外观锚点（发型/发带/服饰等），用于补齐关键元素
+            visual_clauses = self._extract_visual_hints_from_state(character_state)
+            if visual_clauses:
+                visual_hint = "## Visual Must-Haves\n" + "\n".join([f"- {c}" for c in visual_clauses])
+
             schedule_info = self._parse_schedule_from_state(character_state)
             if schedule_info:
+                # v3.3.0: 精简日程注入，避免长文本稀释参考人像效果
                 schedule_hint = f"""
-## 5. 当前日程参考 (Current Schedule Reference)
-**当前时间点**: {schedule_info['time']}
-**角色状态**: {schedule_info['content']}
-**穿搭参考**: {schedule_info['outfit'][:200] if schedule_info['outfit'] else '参考上方穿搭设定'}
-
-**重要**: 生成图片时，请参考上述日程状态来决定场景、表情和动作。例如：
-- 如果日程是"被窝里好暖和"，场景应该是床上/卧室
-- 如果日程是"奶茶店排队"，场景应该是户外/奶茶店
-- 根据日程内容推断角色的情绪和姿态
+## Current Schedule Hint
+Time: {schedule_info['time']}
+State: {schedule_info['content'][:120]}
+Outfit hint: {(schedule_info['outfit'][:120] if schedule_info['outfit'] else '')}
 """
             else:
                 logger.debug("[Portrait] 未解析到日程条目，使用默认注入")
@@ -1232,7 +1277,17 @@ class PortraitPlugin(Star):
             logger.debug("[Portrait] 未检测到 <character_state>，跳过日程解析")
 
         # 执行注入并减少计数
-        full_injection_content = self.full_prompt + schedule_hint
+        # v3.3.0: 仅注入“单个环境块 + 单个镜头块”，避免把整套规则灌进 system_prompt
+        env_hint = self._pick_dynamic_prompt_block(user_message, "environments") if self.enable_env_injection else ""
+        cam_hint = self._pick_dynamic_prompt_block(user_message, "cameras") if self.enable_camera_injection else ""
+
+        runtime_hints = []
+        if env_hint:
+            runtime_hints.append(f"## Selected Environment\n{env_hint}")
+        if cam_hint:
+            runtime_hints.append(f"## Selected Camera\n{cam_hint}")
+
+        full_injection_content = "\n\n".join([self.full_prompt, *runtime_hints, visual_hint, schedule_hint]).strip()
         injection = f"\n\n<portrait_status>\n{full_injection_content}\n</portrait_status>"
         if not req.system_prompt:
             req.system_prompt = ""
@@ -1301,6 +1356,51 @@ class PortraitPlugin(Star):
                         return match.group(1).strip()
 
         return None
+
+    @staticmethod
+    def _extract_visual_hints_from_state(state_content: str) -> list[str]:
+        """从 <character_state> 中提取“必须包含”的外观/服饰锚点，保持精简。
+
+        目标：补齐发型/发带/衣服等关键元素，避免在参考人像生图时漂移。
+        """
+        text = (state_content or "").strip()
+        if not text:
+            return []
+
+        # 按中文标点/换行切分为短句，便于筛选
+        clauses = [c.strip(" ，,。\n\t") for c in re.split(r"[。；;！!？?\n]+", text) if c.strip(" ，,。\n\t")]
+        if not clauses:
+            return []
+
+        # 与“出图一致性”强相关的关键词（发型/配饰/服饰/领口等）
+        keywords = [
+            "头发", "发型", "丸子头", "低丸子头", "盘", "发带", "丝绒", "酒红",
+            "方领", "收腰", "短裙", "黑色", "锁骨", "颈线", "裙",
+        ]
+
+        scored: list[tuple[int, str]] = []
+        for c in clauses:
+            score = sum(1 for kw in keywords if kw in c)
+            if score > 0:
+                scored.append((score, c))
+
+        if not scored:
+            return []
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        hints: list[str] = []
+        seen: set[str] = set()
+        for _, c in scored:
+            if c in seen:
+                continue
+            seen.add(c)
+            # 单条不要过长
+            c = c[:140]
+            hints.append(c)
+            if len(hints) >= 2:
+                break
+
+        return hints
 
     def _parse_schedule_from_state(self, state_content: str) -> dict | None:
         """从 <character_state> 内容中解析当前时间对应的日程
@@ -1713,6 +1813,39 @@ class PortraitPlugin(Star):
         logger.debug("[Portrait] 未匹配角色关键词，跳过注入")
         return False
 
+    def _should_use_selfie_refs_for_edit(self, prompt: str) -> bool:
+        """判断改图请求是否明确要求替换为角色本人"""
+        text = (prompt or "").strip()
+        if not text:
+            return False
+
+        match = self._edit_selfie_prompt_regex.search(text)
+        if not match:
+            return False
+
+        logger.debug(f"[Portrait] 改图识别到角色替换意图: {match.group()}")
+        return True
+
+    async def _prepare_edit_images(self, prompt: str, images: list[bytes]) -> list[bytes]:
+        """按改图意图合并原图和自拍参考图"""
+        final_images = list(images)
+        if not self._should_use_selfie_refs_for_edit(prompt):
+            return final_images
+
+        selfie_refs = await self._load_selfie_reference_images()
+        if not selfie_refs:
+            if self.selfie_enabled:
+                logger.info("[Portrait] 改图请求包含“改成你自己”，但未找到可用人像参考图")
+            else:
+                logger.info("[Portrait] 改图请求包含“改成你自己”，但自拍参考功能未启用")
+            return final_images
+
+        final_images.extend(selfie_refs)
+        logger.info(
+            f"[Portrait] 改图自动附加人像参考: 原图={len(images)} 张, 自拍参考={len(selfie_refs)} 张"
+        )
+        return final_images
+
     # === v3.1.0: 改图功能辅助方法 ===
 
     async def _get_edit_session(self) -> aiohttp.ClientSession:
@@ -1834,6 +1967,7 @@ class PortraitPlugin(Star):
         """
         if not images:
             raise ValueError("至少需要一张图片")
+        images = await self._prepare_edit_images(prompt, images)
 
         # 确定提供商顺序：使用独立的 edit_provider 配置
         providers = {
@@ -2113,30 +2247,18 @@ class PortraitPlugin(Star):
             raise ValueError("图片生成失败，所有提供商都已尝试")
 
     def _build_final_prompt(self, prompt: str, is_character_related: bool | None = None) -> str:
-        """构建最终 prompt（自动添加角色外貌）
+        """构建最终 prompt
+
+        说明：
+        - 不再在此处“自动追加人物外貌”。人物外貌/环境/镜头应由 Visual Context 注入统一约束。
+        - 该函数保留为统一入口，后续若需做轻量清洗可在此处进行。
 
         Args:
             prompt: 原始提示词
-            is_character_related: 是否角色相关（可选，避免重复判断）
+            is_character_related: 是否角色相关（保留参数以兼容旧调用）
         """
-        if not self.auto_prepend_identity or not self.char_identity:
-            return prompt
-
-        # 使用传入的判断结果或重新判断
-        if is_character_related is None:
-            is_character_related = self._is_character_related_prompt(prompt)
-
-        if not is_character_related:
-            logger.debug("[Portrait] 非角色相关请求，跳过自动添加角色外貌")
-            return prompt
-
-        # 检查 prompt 是否已包含核心特征关键词
-        identity_keywords = ["asian girl", "pink hair", "rose pink", "dusty rose", "air bangs"]
-        has_identity = any(kw.lower() in prompt.lower() for kw in identity_keywords)
-        if not has_identity:
-            logger.debug("[Portrait] 自动添加角色外貌到 prompt")
-            return f"{self.char_identity} {prompt}"
-        return prompt
+        _ = is_character_related
+        return (prompt or "").strip()
 
     # === v2.9.4: 发送图片并记录消息ID映射 ===
     # === v2.9.7: 使用 file:// 发送图片（需要 Docker 卷映射）===
@@ -2242,45 +2364,102 @@ class PortraitPlugin(Star):
                 logger.info(f"[Portrait] 备份检查：原始消息匹配 banana_sign 命令 '{orig_cmd}'，跳过工具调用")
                 return "[SUCCESS] 图片已由其他插件处理，无需重复生成。"
 
-        # === v2.9.5: 冷却时间检查 ===
-        is_allowed, _ = self._check_cooldown(event)
-        if not is_allowed:
-            # 静默忽略冷却期间的请求，返回成功让 LLM 不再回复
-            logger.debug(f"[Portrait] 用户 {event.get_sender_id()} 画图冷却中，静默忽略请求")
-            return "[SUCCESS] 图片已处理。"
+        # === v3.3.3: 同轮次工具调用防重入/去重 ===
+        # 现象：同一条用户消息会被模型多次 tool_call，或并发进入处理器，导致重复/无限生图
+        # 方案：
+        #   1) 会话级互斥锁：同一会话同一时间只允许一个生图任务
+        #   2) 同消息去重：按 (会话 + 原消息ID) 去重，TTL 内重复调用直接跳过
+        raw_msg_obj = getattr(event, 'message_obj', None)
+        raw_msg = getattr(raw_msg_obj, 'raw_message', None) if raw_msg_obj else None
+        source_msg_id = ""
+        if isinstance(raw_msg, dict):
+            source_msg_id = str(raw_msg.get('message_id') or raw_msg.get('msgId') or "")
+        if not source_msg_id:
+            source_msg_id = str(getattr(raw_msg_obj, 'message_id', '') or '')
+        if not source_msg_id:
+            source_msg_id = (event.message_str or '').strip()
 
-        try:
-            # === v3.x: 优先使用缓存的角色相关性判定，避免重复正则匹配 ===
+        # 注意：此处不要把 prompt_hash 纳入 key。
+        # 因为同一条消息里模型可能会尝试多次调用（prompt 轻微变化），会绕过去重。
+        dedupe_key = f"{session_id}:{source_msg_id}"
 
-            cached = self.character_related_cache.get(session_id)
-            if cached and (current_time - cached[1]) < self.character_related_cache_ttl:
-                is_character_related = cached[0]
-                logger.debug(f"[Portrait] 使用缓存的角色相关性判定: {is_character_related}")
-            else:
-                # 缓存未命中或已过期，回退到 prompt 判断
-                is_character_related = self._is_character_related_prompt(prompt)
-                logger.debug(f"[Portrait] 缓存未命中，使用 prompt 判断: {is_character_related}")
+        # 会话级互斥锁：同一会话同一时间只允许一个生图任务
+        lock = self._session_image_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._session_image_locks[session_id] = lock
 
-            final_prompt = self._build_final_prompt(prompt, is_character_related)
-            image_path = await self._generate_image(
-                final_prompt,
-                size=size,
-                resolution=resolution,
-                is_character_related=is_character_related,
-            )
+        if lock.locked():
+            logger.info(f"[Portrait] 会话 {session_id} 正在生图中，跳过并发工具调用")
+            return "[SUCCESS] 图片正在生成中，无需重复调用。"
 
-            # === v2.9.4: 发送图片并记录消息ID映射 ===
-            message_id = await self._send_image_and_record(event, image_path)
-            if message_id:
-                logger.debug(f"[Portrait] 已记录图片映射: msg_id={message_id}, path={image_path}")
+        async with lock:
+            # 清理过期键
+            expired_keys = [k for k, ts in self._recent_tool_calls.items() if (current_time - ts) > self._recent_tool_calls_ttl]
+            for k in expired_keys:
+                self._recent_tool_calls.pop(k, None)
 
-            # === v2.9.5: 更新冷却时间 ===
-            self._update_cooldown(event)
+            if dedupe_key in self._recent_tool_calls:
+                logger.info(f"[Portrait] 跳过重复工具调用: session={session_id}, msg_id={source_msg_id}")
+                return "[SUCCESS] 检测到重复工具调用，已跳过重复生图。"
 
-            return "[SUCCESS] 图片已成功生成并发送给用户。任务完成，无需再次调用此工具。"
-        except Exception as e:
-            logger.error(f"[Portrait] 文生图失败: {e}")
-            return f"[ERROR] 生成图片失败: {str(e)}"
+            # 抢占写入（先占位，再执行生图），防止并发重复
+            self._recent_tool_calls[dedupe_key] = current_time
+
+            # === v2.9.5: 冷却时间检查 ===
+            is_allowed, _ = self._check_cooldown(event)
+            if not is_allowed:
+                # 静默忽略冷却期间的请求，返回成功让 LLM 不再回复
+                logger.debug(f"[Portrait] 用户 {event.get_sender_id()} 画图冷却中，静默忽略请求")
+                return "[SUCCESS] 图片已处理。"
+
+            try:
+                # === v3.x: 优先使用缓存的角色相关性判定，避免重复正则匹配 ===
+
+                cached = self.character_related_cache.get(session_id)
+                if cached and (current_time - cached[1]) < self.character_related_cache_ttl:
+                    is_character_related = cached[0]
+                    logger.debug(f"[Portrait] 使用缓存的角色相关性判定: {is_character_related}")
+                else:
+                    # 缓存未命中或已过期，回退到 prompt 判断
+                    is_character_related = self._is_character_related_prompt(prompt)
+                    logger.debug(f"[Portrait] 缓存未命中，使用 prompt 判断: {is_character_related}")
+
+                final_prompt = self._build_final_prompt(prompt, is_character_related)
+
+                # 兜底补强：确保运行时命中的环境/镜头提示词进入最终生图 prompt
+                final_prompt, appended_env_cam = self._append_env_cam_hints_to_prompt(
+                    final_prompt,
+                    event.message_str or "",
+                )
+                if appended_env_cam:
+                    logger.info("[Portrait] 已将环境/镜头提示词补充到最终 prompt")
+
+                image_path = await self._generate_image(
+                    final_prompt,
+                    size=size,
+                    resolution=resolution,
+                    is_character_related=is_character_related,
+                )
+
+                # === v2.9.4: 发送图片并记录消息ID映射 ===
+                message_id = await self._send_image_and_record(event, image_path)
+                if message_id:
+                    logger.debug(f"[Portrait] 已记录图片映射: msg_id={message_id}, path={image_path}")
+
+                # === v3.3.4: 生图完成后设置回复门控 ===
+                # 目的：在 TTS/其他后处理插件存在时，避免同一轮链路出现两次文本回复。
+                # 策略：在 TTL 内仅允许一次文本回复（若框架/插件重入导致再次发送，直接清空）。
+                now_ts = datetime.now().timestamp()
+                self._post_draw_reply_gate[session_id] = (now_ts, 0)
+
+                # === v2.9.5: 更新冷却时间 ===
+                self._update_cooldown(event)
+
+                return "[SUCCESS] 图片已成功生成并发送给用户。任务完成，无需再次调用此工具。"
+            except Exception as e:
+                logger.error(f"[Portrait] 文生图失败: {e}")
+                return f"[ERROR] 生成图片失败: {str(e)}"
 
     @filter.llm_tool(name="portrait_draw_image")
     async def portrait_draw_image(self, event: AstrMessageEvent, prompt: str):
@@ -2510,6 +2689,38 @@ class PortraitPlugin(Star):
             return
 
         try:
+            # === v3.3.4: 生图后文本回复门控（防重复回复） ===
+            group_id = event.unified_msg_origin or "default"
+            user_id = str(event.get_sender_id()) if hasattr(event, 'get_sender_id') else "unknown"
+            session_id = f"{group_id}:{user_id}"
+            now_ts = datetime.now().timestamp()
+
+            gate = self._post_draw_reply_gate.get(session_id)
+            if gate:
+                gate_start_ts, emitted_count = gate
+                if (now_ts - gate_start_ts) > self._post_draw_reply_gate_ttl:
+                    self._post_draw_reply_gate.pop(session_id, None)
+                else:
+                    content = getattr(response, 'completion_text', None)
+                    has_text = bool(content and content.strip())
+                    has_plain = bool(
+                        hasattr(response, 'result_chain') and response.result_chain and any(
+                            isinstance(comp, Comp.Plain) and getattr(comp, 'text', '').strip()
+                            for comp in response.result_chain
+                        )
+                    )
+                    if has_text or has_plain:
+                        if emitted_count >= 1:
+                            logger.info(f"[Portrait] 生图后回复门控命中，抑制重复文本回复: session={session_id}")
+                            response.completion_text = ""
+                            if hasattr(response, 'result_chain') and response.result_chain:
+                                response.result_chain = [
+                                    comp for comp in response.result_chain
+                                    if not isinstance(comp, Comp.Plain)
+                                ]
+                            return
+                        self._post_draw_reply_gate[session_id] = (gate_start_ts, emitted_count + 1)
+
             # 检查是否有 tool_calls
             tool_calls = getattr(response, 'tool_calls', None)
             if not tool_calls:

@@ -30,12 +30,6 @@
         "hint": "启用后会根据关键词自动选择镜头语言提示词",
         "default": true
     },
-    "auto_prepend_identity": {
-        "type": "bool",
-        "description": "自动追加人物外貌到提示词",
-        "hint": "LLM 已通过 Visual Context 获取角色外貌，通常无需开启。仅当 LLM 生成的 prompt 遗漏外貌时才需要开启",
-        "default": false
-    },
     "proxy": {
         "type": "string",
         "description": "HTTP 代理",
