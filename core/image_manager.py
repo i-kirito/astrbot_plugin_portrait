@@ -22,15 +22,12 @@ MAX_DOWNLOAD_SIZE = 20 * 1024 * 1024
 
 
 def _is_safe_url(url: str) -> bool:
-    """检查URL是否安全（防止SSRF）
+    """检查URL是否安全（防止SSRF）"""
+    # 如果已经是本地路径，直接返回安全
+    if isinstance(url, (Path, str)) and str(url).startswith('/AstrBot/data/'):
+        return True
 
-    采用 DNS 解析验证，防止以下绕过方式：
-    - 127.0.0.1.nip.io (DNS 重绑定)
-    - [::1] (IPv6 回环)
-    - 2130706433 (十进制 IP)
-    - 0x7f000001 (十六进制 IP)
-    """
-    # 可信域名 white名单（跳过 IP 检查）
+    # 可信域名 white名单
     trusted_domains = (
         '.bcebos.com',      # 百度云存储（Gitee AI 使用）
         '.baidubce.com',    # 百度云
