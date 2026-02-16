@@ -383,9 +383,9 @@
             "max_count": {
                 "description": "最大图片数量",
                 "type": "int",
-                "default": 100,
+                "default": 1000,
                 "hint": "超过此数量时自动清理旧图片，0 表示不限制",
-                "slider": { "min": 0, "max": 1000, "step": 10 }
+                "slider": { "min": 0, "max": 5000, "step": 50 }
             }
         }
     }

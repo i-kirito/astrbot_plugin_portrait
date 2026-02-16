@@ -417,7 +417,7 @@ class PortraitPlugin(Star):
             max_retries=grok_conf.get("max_retries", 2) or 2,
             proxy=self.config.get("proxy", "") or None,
             max_storage_mb=cache_conf.get("max_storage_mb", 500) or 500,
-            max_count=cache_conf.get("max_count", 100) or 100,
+            max_count=cache_conf.get("max_count", 1000) or 1000,
         )
 
         # Grok 视频生成服务（共用 API Key 和 Base URL）
@@ -475,7 +475,7 @@ class PortraitPlugin(Star):
             max_retries=gitee_conf.get("max_retries", 2) or 2,
             proxy=self.config.get("proxy", "") or None,
             max_storage_mb=cache_conf.get("max_storage_mb", 500) or 500,
-            max_count=cache_conf.get("max_count", 100) or 100,
+            max_count=cache_conf.get("max_count", 1000) or 1000,
             edit_model=edit_conf.get("model", "Qwen-Image-Edit-2511") or "Qwen-Image-Edit-2511",
             edit_poll_interval=edit_conf.get("poll_interval", 5) or 5,
             edit_poll_timeout=edit_conf.get("poll_timeout", 300) or 300,
@@ -493,7 +493,7 @@ class PortraitPlugin(Star):
             timeout=gemini_conf.get("timeout", 120) or 120,
             proxy=self.config.get("proxy", "") or None,
             max_storage_mb=cache_conf.get("max_storage_mb", 500) or 500,
-            max_count=cache_conf.get("max_count", 100) or 100,
+            max_count=cache_conf.get("max_count", 1000) or 1000,
         )
 
 
@@ -508,7 +508,7 @@ class PortraitPlugin(Star):
             self.data_dir,
             proxy=self.config.get("proxy", "") or None,
             max_storage_mb=cache_conf.get("max_storage_mb", 500) or 500,
-            max_count=cache_conf.get("max_count", 100) or 100,
+            max_count=cache_conf.get("max_count", 1000) or 1000,
         )
 
         # === v2.6.0: 人像参考配置 ===

@@ -86,7 +86,7 @@ class ImageManager:
         data_dir: Path,
         proxy: str | None = None,
         max_storage_mb: int = 500,
-        max_count: int = 100,
+        max_count: int = 1000,
     ):
         self.data_dir = Path(data_dir)
         self.images_dir = self.data_dir / "generated_images"
