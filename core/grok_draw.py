@@ -252,6 +252,7 @@ class GrokDrawService:
         self,
         *,
         data_dir: Path,
+        imgr: ImageManager | None = None,
         api_key: str = "",
         base_url: str = "https://api.x.ai",
         model: str = "grok-2-image",
@@ -263,6 +264,7 @@ class GrokDrawService:
         max_count: int = 100,
     ):
         self.data_dir = data_dir
+        self.imgr = imgr
         self.api_key = (api_key or "").strip()
         self.base_url = _normalize_base_url(base_url)
         self.model = (model or "grok-2-image").strip()
@@ -418,7 +420,7 @@ class GrokDrawService:
                     # 尝试获取 b64_json
                     b64_data = image_data[0].get("b64_json")
                     if b64_data:
-                        return await self._save_b64(b64_data)
+                        return await self._save_b64(b64_data, prompt=prompt)
                     raise RuntimeError("Grok Images API 未返回图片 URL")
 
                 logger.info(
@@ -426,7 +428,7 @@ class GrokDrawService:
                     size,
                     time.perf_counter() - t0,
                 )
-                return await self._save_ref(image_url)
+                return await self._save_ref(image_url, prompt=prompt)
 
             except Exception as e:
                 last_error = e
@@ -522,12 +524,12 @@ class GrokDrawService:
 
         raise RuntimeError(f"Grok 图片生成失败: {last_error}") from last_error
 
-    async def _save_b64(self, b64_data: str) -> Path:
+    async def _save_b64(self, b64_data: str, prompt: str = "") -> Path:
         """保存 base64 编码的图片到本地"""
         image_bytes = base64.b64decode((b64_data or "").strip())
-        return await self._save_bytes(image_bytes)
+        return await self._save_bytes(image_bytes, prompt=prompt)
 
-    async def _save_ref(self, ref: str) -> Path:
+    async def _save_ref(self, ref: str, prompt: str = "") -> Path:
         """保存图片引用（URL 或 base64）到本地"""
         ref = (ref or "").strip()
         if not ref:
@@ -540,33 +542,36 @@ class GrokDrawService:
             except ValueError:
                 raise RuntimeError("data:image 缺少 base64 数据") from None
             image_bytes = base64.b64decode((b64_data or "").strip())
-            return await self._save_bytes(image_bytes)
+            return await self._save_bytes(image_bytes, prompt=prompt)
 
         # HTTP URL
         if ref.startswith(("http://", "https://")):
-            return await self._download_image(ref)
+            return await self._download_image(ref, prompt=prompt)
 
         # 相对 URL
         if self._origin and ref.startswith("/"):
             return await self._download_image(
-                urljoin(self._origin + "/", ref.lstrip("/"))
+                urljoin(self._origin + "/", ref.lstrip("/")), prompt=prompt
             )
 
         if self._origin:
-            return await self._download_image(urljoin(self._origin + "/", ref))
+            return await self._download_image(urljoin(self._origin + "/", ref), prompt=prompt)
 
         raise RuntimeError(f"不支持的图片 URL: {ref}")
 
-    async def _download_image(self, url: str) -> Path:
+    async def _download_image(self, url: str, prompt: str = "") -> Path:
         """下载图片"""
         client = await self._get_client()
         resp = await client.get(url)
         if resp.status_code != 200:
             raise RuntimeError(f"下载图片失败 HTTP {resp.status_code}")
-        return await self._save_bytes(resp.content)
+        return await self._save_bytes(resp.content, prompt=prompt)
 
-    async def _save_bytes(self, data: bytes) -> Path:
+    async def _save_bytes(self, data: bytes, prompt: str = "") -> Path:
         """保存图片字节到文件"""
+        if self.imgr:
+            return await self.imgr.save_image_bytes(data, prompt=prompt, model=self.model)
+
         mime = _guess_image_mime(data)
         ext = _guess_ext(mime)
         hash_part = hashlib.md5(data).hexdigest()[:8]

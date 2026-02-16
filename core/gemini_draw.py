@@ -166,7 +166,7 @@ class GeminiDrawService:
         logger.info(f"[Gemini] 图片生成耗时: {elapsed:.2f}s")
 
         # 保存图片
-        path = await self.imgr.save_image_bytes(image_bytes, prompt=prompt)
+        path = await self.imgr.save_image_bytes(image_bytes, prompt=prompt, model=self.model)
         logger.info(f"[Gemini] 图片已保存: {path}")
 
         # 后台清理，不阻塞返回（合并并发清理任务）

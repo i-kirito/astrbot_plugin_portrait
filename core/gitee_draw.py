@@ -340,9 +340,9 @@ class GiteeDrawService:
 
         img = resp.data[0]
         if getattr(img, "url", None):
-            path = await self.imgr.download_image(img.url, prompt=prompt)
+            path = await self.imgr.download_image(img.url, prompt=prompt, model=self.model)
         elif getattr(img, "b64_json", None):
-            path = await self.imgr.save_base64_image(img.b64_json, prompt=prompt)
+            path = await self.imgr.save_base64_image(img.b64_json, prompt=prompt, model=self.model)
         else:
             raise RuntimeError("Gitee AI 返回数据不包含图片")
 
